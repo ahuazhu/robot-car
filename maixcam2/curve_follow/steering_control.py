@@ -103,6 +103,8 @@ class SteeringControl:
         """
         point=result.get('control_target_m',result.get('target_m'))
         self.status.pop('envelope',None)
+        if not result.get('valid') or result.get('state')!='OBSERVED' or not result.get('observed',False):
+            self.speed_ready_since=None
         if point is None or not result.get('valid') or result.get('state') not in ('OBSERVED','PREDICTED'):return None
         if len(point)!=2 or not all(math.isfinite(v) for v in point) or point[0]<=0:return None
         if not math.isfinite(age_s) or age_s<0:return None
@@ -185,25 +187,33 @@ class SteeringControl:
         # pursuit segment with measured motion and a clear body envelope.
         # Reuse the ordinary dimensionless bend load: the straight ceiling
         # decays to baseline before a sharp turn, without changing wheel ratio.
-        eligible=(result.get('state')=='OBSERVED' and result.get('observed',False)
-                  and result.get('confidence',0.)>=self.policy.confirmation_quality
+        # Historical tails keep their decaying quality for prediction and
+        # envelope checks. They must not label a freshly observed pursuit
+        # segment weak. Unconfirmed candidates never populate this field.
+        observation_quality=float(result.get('observation_confidence',result.get('confidence',0.)))
+        road_eligible=(result.get('state')=='OBSERVED' and result.get('observed',False)
+                  and observation_quality>=self.policy.confirmation_quality
                   and not result.get('transition_pending') and self.status['target_observed']
-                  and selected['mode']=='LOOKAHEAD' and 'body_speed_m_s' in self.status
+                  and selected['mode']=='LOOKAHEAD'
                   and envelope['speed_scale']==1. and envelope.get('minimum_clearance_m') is not None
                   and envelope['minimum_clearance_m']>0. and self.observed_at is not None)
         # Use measured time, not a frame counter. A single accepted frame must
         # not immediately restore extra speed after a weak/occluded segment.
-        if not eligible:self.speed_ready_since=None
+        if not road_eligible:self.speed_ready_since=None
         elif self.speed_ready_since is None:self.speed_ready_since=self.observed_at
         stable_s=0. if self.speed_ready_since is None else max(0.,self.observed_at-self.speed_ready_since)
-        boost_ready=eligible and stable_s>=self.response_s
+        # Motion remains mandatory for this command; an isolated flow rejection
+        # cannot erase otherwise continuous road observation history.
+        boost_ready=road_eligible and 'body_speed_m_s' in self.status and stable_s>=self.response_s
         bend=max(abs(self.requested+self.trim),self.gain*abs(float(result.get('path_curvature_m_inv',0.))))
         load=min(1.,self.lever*bend)
         cruise=max(self.cruise,self.straight_cruise/(1.+load)) if boost_ready else self.cruise
-        if cruise>self.cruise:command=target_command(raw,self.lever,self.gain,cruise)
+        if cruise>self.cruise:
+            command=target_command(dict(raw,confidence=observation_quality),self.lever,self.gain,cruise)
         self.status['speed_plan']=dict(baseline_cruise_pwm=self.cruise,straight_cruise_pwm=self.straight_cruise,
                                        selected_cruise_pwm=cruise,bend_load=load,boost_eligible=boost_ready,
-                                       road_confirmed_s=stable_s,required_road_confirm_s=self.response_s)
+                                       road_confirmed_s=stable_s,required_road_confirm_s=self.response_s,
+                                       observation_confidence=observation_quality,road_eligible=road_eligible)
         self.status.update(envelope=envelope,target_selection="ADAPTIVE_PURSUIT",target_speed_scale=target_scale)
         output=tuple(round(v*scale) for v in command) if scale>0 else None
         if output is not None and any(output):return output
