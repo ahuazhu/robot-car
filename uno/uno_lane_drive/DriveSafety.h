@@ -4,7 +4,7 @@
 #include <string.h>
 
 namespace drive {
-const int MAX_PWM = 120;
+const int MAX_PWM = 150;
 const uint32_t WATCHDOG_MS = 350;
 inline uint8_t crc8(const char* s) {
   uint8_t crc = 0;

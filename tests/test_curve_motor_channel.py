@@ -67,7 +67,7 @@ class CompensationTests(unittest.TestCase):
         from controller import compensate_pwm
         self.assertEqual(compensate_pwm((0,0)),(0,0))
         self.assertEqual(compensate_pwm((53,53)),(90,90))
-        self.assertEqual(compensate_pwm((-100,100)),(-120,120))
+        self.assertEqual(compensate_pwm((-200,200)),(-150,150))
 
     def test_actual_right_bend_boost_preserves_curvature_instead_of_straightening(self):
         from controller import compensate_pwm
@@ -82,7 +82,7 @@ class CompensationTests(unittest.TestCase):
             ramp=CommandRamp()
             for i in range(20):
                 shaped=ramp.apply(desired,i*.1);applied=compensate_pwm(shaped)
-                self.assertLessEqual(max(applied),120);self.assertGreaterEqual(min(applied),0)
+                self.assertLessEqual(max(applied),150);self.assertGreaterEqual(min(applied),0)
                 if sum(shaped)>0:
                     expected=(shaped[1]-shaped[0])/sum(shaped)
                     actual=(applied[1]-applied[0])/sum(applied)

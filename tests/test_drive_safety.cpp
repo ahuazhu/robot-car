@@ -18,7 +18,7 @@ int main() {
   send(s,3,2,80,80,120); assert(!s.armed && s.left==0); // replay
   send(s,4,1,0,0,130); send(s,5,2,80,80,140);
   send(s,6,3,0,0,400); s.tick(490); assert(!s.armed); // status cannot feed lease
-  send(s,7,1,0,0,500); send(s,8,2,121,0,510); assert(!s.armed); // over limit
+  send(s,7,1,0,0,500); send(s,8,2,drive::MAX_PWM+1,0,510); assert(!s.armed); // over limit
   send(s,9,1,0,0,520); char corrupt[]="@10,2,90,90*00"; uint16_t ack;
   s.accept(corrupt,530,ack); assert(!s.armed && s.left==0);
   send(s,65535,1,0,0,540); send(s,0,2,70,70,550); assert(s.armed); // sequence wrap
@@ -43,6 +43,20 @@ int main() {
     assert(continuous.armed);
     continuous.tick(uint32_t(start+7200000+drive::WATCHDOG_MS));
     assert(!continuous.armed && continuous.left==0 && continuous.right==0);
+  }
+  // The active 150-duty cap is accepted in both directions, never clamped.
+  // Out-of-range requests must disarm and zero rather than truncate to uint8.
+  for (int duty : {-drive::MAX_PWM,drive::MAX_PWM}) {
+    drive::State edge;
+    assert(send(edge,1,1,0,0,0));
+    assert(send(edge,2,2,duty,-duty,10));
+    assert(edge.armed && edge.left==duty && edge.right==-duty);
+  }
+  for (int duty : {-drive::MAX_PWM-1,drive::MAX_PWM+1,255,256}) {
+    drive::State edge;
+    assert(send(edge,1,1,0,0,0));
+    assert(!send(edge,2,2,duty,0,10));
+    assert(!edge.armed && edge.left==0 && edge.right==0);
   }
   drive::LampBlink lamp;
   assert(!lamp.start(true,100)); assert(lamp.start(false,100));

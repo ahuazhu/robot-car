@@ -3,6 +3,7 @@ import os
 import select
 import json
 import termios
+from controller import MAX_MOTOR_PWM
 def crc8(data):
     crc = 0
     for b in data:
@@ -54,6 +55,10 @@ class DriveLink:
         self.seq = 0
 
     def send(self, op, left=0, right=0):
+        if type(op) is not int or op not in (0,1,2,3):raise ValueError('Invalid motor operation')
+        if any(type(v) is not int or abs(v)>MAX_MOTOR_PWM for v in (left,right)):
+            raise ValueError('Motor command outside configured PWM range')
+        if op!=2 and (left or right):raise ValueError('Non-drive operation requires zero PWM')
         self.seq = (self.seq + 1) & 65535
         payload = ('%d,%d,%d,%d' % (self.seq, op, left, right)).encode('ascii')
         self.port.read(timeout=0)
@@ -80,7 +85,7 @@ class DriveLink:
                         if len(values) in (5,6) and values[0] == self.seq:
                             if len(values)==6 and (values[5] not in (4,5,7) or (values[2] or values[3]) and values[5]&2):
                                 raise RuntimeError('Invalid brake lamp status')
-                            if values[1] not in (0,1) or any(abs(v)>120 for v in values[2:4]):
+                            if values[1] not in (0,1) or any(abs(v)>MAX_MOTOR_PWM for v in values[2:4]):
                                 raise RuntimeError('Invalid UNO status')
                             if op == 0 and values[1:4] != [0,0,0]:
                                 raise RuntimeError('UNO did not confirm stopped')

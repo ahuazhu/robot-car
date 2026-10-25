@@ -485,7 +485,7 @@ class SteeringTests(unittest.TestCase):
             inner=0 if sign>0 else 1
             self.assertEqual(actual[inner],0)
             self.assertGreater(actual[1-inner],90)
-            self.assertLessEqual(max(actual),120)
+            self.assertLessEqual(max(actual),150)
             self.assertGreaterEqual(min(actual),0)
     def test_steering_gain_increases_bend_ratio_without_changing_straight(self):
         r=dict(valid=True,state='OBSERVED',confidence=1.,target_m=[.30,.07],mode='ONE LEFT',path_curvature_m_inv=0.)

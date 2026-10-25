@@ -1,5 +1,8 @@
 import math
 
+# Must match the active UNO firmware; the UART returns applied duty directly.
+MAX_MOTOR_PWM = 150
+
 
 class CommandRamp:
     """Limit wheel acceleration with a common scale, preserving path curvature.
@@ -42,7 +45,7 @@ def compensate_pwm(command, peak_boost=37):
     """
     magnitude=max(abs(value) for value in command)
     if magnitude==0:return (0,0)
-    peak=min(120.,magnitude+peak_boost)
+    peak=min(float(MAX_MOTOR_PWM),magnitude+peak_boost)
     return tuple(round(value*peak/magnitude) for value in command)
 
 

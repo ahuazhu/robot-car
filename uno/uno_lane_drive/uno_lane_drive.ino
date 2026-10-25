@@ -61,7 +61,8 @@ void setup() {
   Wire.begin(); // A4=SDA, A5=SCL
   Wire.setClock(100000);
   Wire.setWireTimeout(25000, true);
-  Serial.println(F("LANE DRIVE READY | DISARMED | A0=RX A1=TX | maxPWM=120 | watchdog=350ms"));
+  Serial.print(F("LANE DRIVE READY | DISARMED | A0=RX A1=TX | maxPWM="));
+  Serial.print(drive::MAX_PWM); Serial.println(F(" | watchdog=350ms"));
   Serial.println(F("USB s=estop; u=clear; b=brake lamp test; i=probe ESP32 I2C (disarmed only)"));
 }
 void loop() {
