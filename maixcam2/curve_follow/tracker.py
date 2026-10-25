@@ -355,6 +355,7 @@ class TargetTracker:
         result=dict(valid=not bool(reason),state=state,road_evidence=evidence,
                     mode=self.mode if event['observed'] else 'LOST' if reason else 'PREDICT',
                     confidence=float(confidence),observed=event['observed'],invalid_reason=reason,
+                    observation_confidence=float(measurement['confidence']) if event['observed'] and measurement is not None else 0.,
                     measurement_reject=None if event['observed'] else
                         (event['reject'] if measurement is not None else details.get('measurement_reason','NO EDGE')),
                     age_s=round(support['age_s'],3),reacquired=event['reacquired'],

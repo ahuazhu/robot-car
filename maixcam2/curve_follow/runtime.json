@@ -38,5 +38,5 @@
     "basis": "User: lens approximately on front axle; axle spacing 11cm; camera to outer left/right wheel edges 6/11cm (total width17cm). Four-point road calibration established with centered car, so lateral origin is lane/body centre and optical offset is already absorbed; no second lateral shift."
   },
   "motor_peak_boost_pwm": 37,
-  "straight_cruise_pwm": 60
+  "straight_cruise_pwm": 83
 }
