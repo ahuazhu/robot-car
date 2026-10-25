@@ -1,0 +1,49 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>小车实时画面</title><style>
+body{margin:0;background:#111827;color:#e5e7eb;font:16px system-ui;padding:20px}
+main{max-width:1440px;margin:auto}h1{font-size:24px}p{line-height:1.6}
+img{display:block;width:100%;height:auto;border:1px solid #374151;border-radius:10px}
+.labels{display:flex}.labels span{width:33.33%;padding:12px 0;font-weight:600}
+small{color:#9ca3af}button{padding:12px 22px;border:0;border-radius:6px;cursor:pointer;font:inherit}
+#start{background:#16a34a;color:white}#stop{background:#dc2626;color:white;font-weight:bold}
+button:disabled{opacity:.4;cursor:not-allowed}.controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+#status{font-weight:600}#notice{min-height:1.6em;color:#fcd34d}
+</style><main><h1>小车实时画面</h1>
+<p>左侧为原图，中间为道路识别与轮速指令，右侧为地面投影。首次使用低速测试。</p>
+<div class="controls"><button id="start" disabled onclick="control('start')">START 开始</button>
+<button id="stop" onclick="control('stop')">STOP 停车</button><span id="status">正在连接…</span></div>
+<p id="notice" role="status" aria-live="polite"></p><div class="labels"><span>原始画面</span><span>巡线识别</span><span>地面投影</span></div>
+<img id="video" src="/stream" alt="连接摄像头中">
+<p>画面角落的数字持续增加，表示仍在更新。上方 START／STOP 可以控制小车；视频图像中的按钮仅在摄像头触摸屏上有效。每轮最多运行5秒。</p>
+<button onclick="document.getElementById('video').src='/stream?t='+Date.now()">重新连接画面</button>
+<p><small>电脑或手机需与摄像头连接同一 Wi-Fi。退出巡线应用后，视频会断开。</small></p></main><script>
+const token="__CONTROL_TOKEN__";
+let generation=0,canStart=false,busy=false;
+const startButton=document.getElementById('start'),statusBox=document.getElementById('status'),notice=document.getElementById('notice');
+async function updateStatus(){
+ try{
+  const r=await fetch('/status',{cache:'no-store',signal:AbortSignal.timeout(1500)});
+  if(!r.ok)throw Error('状态连接失败');
+  const s=await r.json();generation=s.generation;
+  const fresh=s.age_ms<1000;
+  canStart=fresh&&s.ready&&!s.active;
+  startButton.disabled=!canStart||busy;
+  statusBox.textContent=fresh?`${s.active?'运行中':'已停止'} · ${s.reason} · L=${s.left} R=${s.right}`:'状态更新中断';
+ }catch(e){canStart=false;startButton.disabled=true;statusBox.textContent='连接中断，请检查摄像头和Wi-Fi';}
+}
+async function control(action){
+ if(action==='start'&&(!canStart||busy))return;
+ if(action==='start'){busy=true;startButton.disabled=true;}
+ notice.textContent=action==='stop'?'正在发送停车请求…':'正在发送启动请求…';
+ try{
+  const r=await fetch('/control',{method:'POST',headers:{'Content-Type':'application/json','X-Control-Token':token},
+   body:JSON.stringify({action,generation}),signal:AbortSignal.timeout(2000)});
+  const result=await r.json();
+  if(!r.ok)throw Error(result.message||'请求失败');
+  notice.textContent=action==='stop'?'停车请求已接收，以上方实际状态为准。':'启动请求已接收，以上方实际状态为准。';
+ }catch(e){notice.textContent=e.message+'；请检查上方状态，必要时使用车上STOP或电源开关。';}
+ finally{if(action==='start')busy=false;await updateStatus();}
+}
+updateStatus();setInterval(updateStatus,500);
+</script></html>

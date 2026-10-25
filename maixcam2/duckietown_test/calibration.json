@@ -1,0 +1,58 @@
+{
+  "H_normalized": [
+    [
+      -0.0005613570018016851,
+      -0.024402351845792467,
+      -0.2748485714721024
+    ],
+    [
+      0.4031293824476527,
+      -0.021187692510157802,
+      -0.19059680877229124
+    ],
+    [
+      -0.028554007244346948,
+      -2.422760948002993,
+      1.0
+    ]
+  ],
+  "image_size": [
+    320,
+    240
+  ],
+  "pixels": [
+    [
+      48.0,
+      196.0
+    ],
+    [
+      282.0,
+      194.0
+    ],
+    [
+      219.0,
+      145.0
+    ],
+    [
+      104.0,
+      146.0
+    ]
+  ],
+  "near_m": 0.3,
+  "far_m": 0.6,
+  "road_width_m": 0.3,
+  "origin": "camera ground footprint",
+  "lens_rectified": false,
+  "drive_validated": false,
+  "source_image": "/Users/yang/work/robot-car/.maixpy/runs/20261021-203900-duckietown_calibrated_probe/artifacts/raw-6.jpg",
+  "geometry_confirmed": true,
+  "geometry_basis": "User explicitly confirmed the four inner-border/transverse-line intersections form a measured 30 x 30 cm square after square/diagonal clarification.",
+  "measurement_note": "Near transverse line 0.30 m, far transverse line 0.60 m from camera ground footprint. Square centered on vehicle forward axis as setup instructions. Raw-image four-point calibration; lens distortion not calibrated.",
+  "validation_status": "four_point_mapping_and_device_preview_verified_not_drive_validated",
+  "reference_region_m": {
+    "near": 0.3,
+    "far": 0.6,
+    "width": 0.3
+  },
+  "device_validation_run": "20261021-204121-duckietown_calibrated_probe"
+}

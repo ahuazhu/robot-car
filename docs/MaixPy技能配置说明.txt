@@ -1,0 +1,50 @@
+MaixCAM2 AI 开发环境配置（2026-10-21）
+
+依据 Sipeed 官方文档：
+https://wiki.sipeed.com/hardware/zh/maixcam/maixcam2_xAI.html
+
+本机使用 Codex；已安装官方 maixpy 技能，无需另装 OpenCode 或 cc-switch。
+技能目录：/Users/yang/.agents/skills/maixpy
+官方来源：https://dl.sipeed.com/fileList/MaixCAM/MaixCAM2/Software/maixpy-skill.zip
+
+已安装：
+- uv 0.13.4，路径 /Users/yang/.local/bin/uv
+- uv 管理的 Python 3.11.17
+- sshpass 1.10，官方源码 SHA256 校验通过，安装在用户目录
+- 项目隔离环境：/Users/yang/work/robot-car/.maixpy/.venv
+- macOS 自带 ssh、scp、dns-sd；无需另装 zeroconf 即可使用已有发现方式
+
+设备：MaixCAM2，地址由用户提供并已通过 SSH 验证。
+账户为 root；本地连接配置和凭据分别保存在 .maixpy 下，凭据文件权限为 600。
+.maixpy/ 已加入项目 .gitignore，不应提交到代码仓库或上传到公开平台。
+
+便捷入口（可在任意目录调用，会自动定位到 robot-car）：
+/Users/yang/work/robot-car/.maixpy/maixpy doctor
+/Users/yang/work/robot-car/.maixpy/maixpy device check
+/Users/yang/work/robot-car/.maixpy/maixpy mode status
+/Users/yang/work/robot-car/.maixpy/maixpy run /Users/yang/work/robot-car/maixcam2/lane_preview/main.py --timeout 60
+/Users/yang/work/robot-car/.maixpy/maixpy mode exit
+
+使用注意：
+- Codex 与 MaixVision 共用同一设备的摄像头、屏幕。由 Codex 运行前，先停止 MaixVision 当前脚本。
+- run 会进入开发模式并中断设备启动器应用。
+- 正常程序应使用 app.need_exit()，也可提供有限运行时长以正常结束；不要依靠超时强杀释放硬件。
+- 调试取图仅在程序实现调试图片保存且带 --debug-images 时启用。
+- 每次运行记录在 .maixpy/runs/<运行编号>/：summary.json、stdout.log、stderr.log、artifacts/。
+- run 命令返回成功不代表应用成功；检查 summary.json 的 exit_code 和实际日志。
+- 测试完用 mode exit 恢复设备启动器。
+- UNO 程序和已验证接线没有修改；安装验收程序不发送电机控制命令。
+
+兼容修正：
+官方 launcher.py 用 ps w 查询进程，在本机 MaixCAM2 系统上会漏掉无终端后台应用。
+已将进程枚举改为 ps -A -o pid,args；原版与补丁保存在 .maixpy/vendor-backup/ 和 .maixpy/launcher-compatibility.patch。
+官方工具 24 项测试在 Python 3.11 下全部通过。
+
+实机验证：
+SSH 连接成功；开发模式、程序上传执行、日志回收和 JPEG 图片回收成功。
+第一轮图像测试正常退出（exit_code=0），六秒内处理 362 帧。
+设备端已具备 Python 3.13.2、OpenCV 4.12.0、NumPy 2.2.6，无需额外安装。
+图像回收记录：.maixpy/runs/20261021-154700-setup_probe/
+MaixVision 预览占用冲突曾导致 VO init failed；正常中断该预览后，取景测试通过。
+
+技能已安装并在本轮手动加载验证。下一轮可直接说“用 MaixPy 技能连接摄像头并测试赛道识别”。

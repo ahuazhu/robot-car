@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/duckietown/lib-dt-computer-vision",
+  "commit": "c5ae3a2de91d012a0c27d1a453e8a0ba9cbd1719",
+  "files": {
+    "line_detection/types.py": "14c9d13cac4c86e1a6a08d3edca8498c89a44387bc1107d8fee52600cb0c2ca3",
+    "line_detection/line_detector.py": "e73a4757e8cce4ab6629e1c81ac7be102796646f75bbb9721b42dee699d9baf3",
+    "ground_projection/ground_projector.py": "d90d16d29781cc9ed39668117e47d309763352d651ce762a58fc41e3c683e973"
+  },
+  "changes": "Flattened imports, image aliases = numpy.ndarray, minimal x/y point dataclass. Algorithm bodies unchanged. Local evaluation copy; upstream snapshot has no standalone license file; check upstream terms before redistribution."
+}

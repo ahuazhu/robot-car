@@ -1,0 +1,25 @@
+# Device credentials, local environments, recordings and deployment evidence
+.maixpy/
+*.local.json
+.env
+.env.*
+!.env.example
+
+# Python and host build caches
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.DS_Store
+*.so
+*.dylib
+*.o
+
+# Generated bundles, archived firmware and local preview outputs
+**/standalone.py
+**/dist/
+esp32s3/backups/
+*.bin
+*.log
+esp32s3/video_preview/verification.json
+esp32s3/video_preview/verified_frame.jpg

@@ -1,0 +1,41 @@
+{
+  "allow_drive": true,
+  "preview_only": false,
+  "vision_budget_ms": 280,
+  "turn_lever_m": 0.15,
+  "steering_gain": 1.0,
+  "cruise_pwm": 60,
+  "crosswalk": {
+    "mode": "yield",
+    "body_front_m": 0.02,
+    "body_rear_m": 0.16,
+    "body_half_width_m": 0.085,
+    "geometry_verified": true,
+    "brake_lamp_verified": true,
+    "brake_deceleration_m_s2": 0.08,
+    "stop_clearance_m": 0.08,
+    "approach_speed_m_s": 0.06,
+    "speed_per_pwm_m_s": 0.006705385281385282,
+    "speed_response_s": 0.4
+  },
+  "crosswalk_calibration": {
+    "body_source": "Latest user measurements: axle spacing11cm; lens at front axle; lens to front2cm; overall length18cm; optical lateral offset6/11cm yields17cm width. Calibrated lateral axis uses body/lane centre; longitudinal reference unchanged.",
+    "braking_source": ".maixpy/crosswalk-review/enable-yield/calibration-basis.json",
+    "controlled_stopping_validation_pending": true
+  },
+  "control_frame": {
+    "origin_m": [
+      -0.055,
+      0.0
+    ],
+    "body_m": [
+      0.075,
+      0.105,
+      0.085
+    ],
+    "geometry_verified": true,
+    "wheelbase_m": 0.11,
+    "basis": "User: lens approximately on front axle; axle spacing 11cm; camera to outer left/right wheel edges 6/11cm (total width17cm). Four-point road calibration established with centered car, so lateral origin is lane/body centre and optical offset is already absorbed; no second lateral shift."
+  },
+  "motor_peak_boost_pwm": 37
+}

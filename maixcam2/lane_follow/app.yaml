@@ -1,0 +1,11 @@
+id: robot_lane_follow
+name: Lane Follow
+name[zh]: 小车巡线
+version: 0.1.10
+icon: ''
+author: robot-car
+desc: Manual-start visual lane following with a 12-second test limit
+desc[zh]: 点击开始巡线，每轮测试最多12秒，丢失道路停车
+files:
+  - main.py
+  - app.yaml

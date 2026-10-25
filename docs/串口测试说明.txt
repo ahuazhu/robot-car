@@ -1,0 +1,50 @@
+MaixCAM2 ↔ 电平转换板 ↔ miniAuto UNO 接线测试
+
+文件：
+  uno/uno_uart_test/uno_uart_test.ino：Arduino IDE 打开，上传到 UNO。
+  maixcam2/uart_test/main.py：MaixVision 打开，连接 MaixCAM2 后运行当前文件。
+  maixcam2/camera_preview/main.py：单独运行，查看摄像头画面。
+
+接线约定：
+  摄像头侧边 UART4 TX(A21) -> LV1 / HV1 -> UNO A4/SDA。
+  摄像头侧边 UART4 RX(A22) <- LV2 / HV2 <- UNO A5/SCL。
+  摄像头正面 3V3 -> LV；UNO 5V -> HV；两端 GND 共地。
+  摄像头由独立 5V 电源经 Type-C 供电；侧边六芯线的 5V 不连接。
+  拔掉其他 I2C 外设、旧 ESP32 摄像头和蓝牙模块。
+  此版本不使用正面 U2T/U2R，也不使用 UNO D0/D1。
+
+测试顺序：
+1. 架空四轮。先关闭/断开小车电池，UNO 用 USB 接电脑。
+   为避免旧运动程序或旧 I2C 程序运行，烧录前先断电拔下扩展板上的通信四芯插头。
+2. Arduino IDE 选择 Arduino UNO 和实际插拔出现的端口，上传 uno_uart_test.ino。
+   这个程序始终将四路 PWM 保持为 0，不会主动驱动电机。
+3. 两端断电后接回通信线。UNO 恢复 USB 供电，摄像头恢复独立供电。
+   此轮只测通信，小车电池仍可保持关闭。确认扩展板 5V/HV 确实有电；
+   若该版本扩展板的 5V 接口不随 USB 供电，应在已上传停止程序、架空四轮后打开小车电源。
+4. Arduino 串口监视器选择 115200。每两秒出现 UNO ALIVE 是正常的。
+5. MaixCAM2 与电脑连接同一 Wi-Fi，在 MaixVision 中连接设备。
+   可在摄像头设置里查看 IP，自动发现失败时手动输入 IP。
+   打开 maixcam2/uart_test/main.py，运行当前文件。程序实际在摄像头运行。
+6. 正常输出：
+   UNO: RX: PING 1 / TX: PONG 1
+   MaixVision: PASS 1 | total_ok=1 total_timeout=0
+   连续至少 30 次 PASS、超时数不再增加，说明此次双向串口初测通过。
+7. 停止串口脚本，运行 maixcam2/camera_preview/main.py。应显示实时画面。
+
+两个波特率不要混淆：
+  摄像头到 UNO：9600，两份程序已设置相同值。
+  UNO 到电脑串口监视器：115200。
+  初测选择低速以适应 SoftwareSerial 和 MOS 管转换板；实际 MaixCAM2 固件
+  对该速率的支持、接线信号质量仍需实机确认。本测试通过不等于竞速负载测试通过。
+
+故障定位：
+  UNO 无任何日志：先检查 UNO 程序、USB 端口、串口监视器 115200。
+  UNO 只有 ALIVE、valid PING=0：摄像头脚本未运行，或发送链路/供电/共地有问题。
+  UNO 有 RX PING 和 TX PONG，但摄像头 TIMEOUT：重点检查 HV2/LV2 到摄像头 RX 回程。
+  BAD FRAME/乱码：检查波特率、电源、接触和信号线，不要随机交换电源线。
+  MaixVision 提示串口打开/引脚映射失败：记录完整错误，停止占用 UART4 的其他应用。
+  UNO 有 TX 日志只能证明程序调用了发送；摄像头收到正确 PONG 才证明双向链路。
+
+官方参考：
+https://wiki.sipeed.com/maixpy/doc/zh/peripheral/uart.html
+https://wiki.sipeed.com/maixpy/doc/zh/basic/maixvision.html
