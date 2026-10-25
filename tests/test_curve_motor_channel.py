@@ -67,7 +67,7 @@ class CompensationTests(unittest.TestCase):
         from controller import compensate_pwm
         self.assertEqual(compensate_pwm((0,0)),(0,0))
         self.assertEqual(compensate_pwm((53,53)),(90,90))
-        self.assertEqual(compensate_pwm((-200,200)),(-150,150))
+        self.assertEqual(compensate_pwm((-300,300)),(-200,200))
 
     def test_actual_right_bend_boost_preserves_curvature_instead_of_straightening(self):
         from controller import compensate_pwm

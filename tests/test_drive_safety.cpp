@@ -44,7 +44,7 @@ int main() {
     continuous.tick(uint32_t(start+7200000+drive::WATCHDOG_MS));
     assert(!continuous.armed && continuous.left==0 && continuous.right==0);
   }
-  // The active 150-duty cap is accepted in both directions, never clamped.
+  // The active configured duty cap is accepted in both directions, never clamped.
   // Out-of-range requests must disarm and zero rather than truncate to uint8.
   for (int duty : {-drive::MAX_PWM,drive::MAX_PWM}) {
     drive::State edge;

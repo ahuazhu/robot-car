@@ -70,7 +70,7 @@ def main():
         stream=LiveStream(8000)
         scale=min(screen.width()/320,screen.height()/240)
         ox=(screen.width()-320*scale)/2;oy=(screen.height()-240*scale)/2
-        print('CURVE FOLLOW v0.6.18 | crosswalk yield and persistent local road | preview_only=%s | calibrated=%s | manual START | no session time limit'%(preview_only,calibrated),flush=True)
+        print('CURVE FOLLOW v0.6.19 | crosswalk yield and persistent local road | preview_only=%s | calibrated=%s | manual START | no session time limit'%(preview_only,calibrated),flush=True)
         began=time.monotonic() # Exclude camera startup from test/debug elapsed time.
         while not app.need_exit():
             now=time.monotonic()
@@ -219,7 +219,7 @@ def main():
             readiness['blocked_by'].extend(task_blockers)
             if crosswalk_task.failure:readiness['blocked_by'].append(crosswalk_task.failure)
             stream.control.update(active,ready,reason,applied_pwm,readiness=readiness)
-            stream.metrics=dict(frame=frames,app_version='0.6.18-speed-150',geometry_backend=backend,
+            stream.metrics=dict(frame=frames,app_version='0.6.19-speed-200',geometry_backend=backend,
                                 frame_received_at=captured,read_ms=round((captured-read_began)*1000,1),calibrated=calibrated,preview_only=preview_only,
                                 motor=None if preview_only else link.snapshot(),
                                 detection_ms=round(detection_ms,1),recovery=dict(recovery.snapshot(),search=search.status),preview_error=stream.preview_error,
