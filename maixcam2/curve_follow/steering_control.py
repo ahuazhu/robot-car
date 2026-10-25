@@ -6,13 +6,16 @@ from controller import target_command
 
 
 class SteeringControl:
-    def __init__(self,policy,origin,body,road_width,lever=.15,gain=1.,cruise=60.,deceleration=.08,speed_per_pwm=.0067,calibration=None,response_s=.4):
+    def __init__(self,policy,origin,body,road_width,lever=.15,gain=1.,cruise=60.,deceleration=.08,speed_per_pwm=.0067,calibration=None,response_s=.4,straight_cruise=None):
         self.policy=policy;self.origin=np.asarray(origin,float);self.body=body;self.width=road_width
         self.lever=lever;self.gain=gain;self.cruise=cruise;self.deceleration=deceleration;self.speed_per_pwm=speed_per_pwm
         if self.origin.shape!=(2,) or not np.isfinite(self.origin).all():raise ValueError('Invalid control origin')
         if body is not None and (np.asarray(body).shape!=(3,) or not np.isfinite(body).all() or min(body)<=0):raise ValueError('Invalid body envelope')
         if not all(math.isfinite(v) and v>0 for v in (road_width,lever,gain,cruise,deceleration,speed_per_pwm)):raise ValueError('Invalid steering configuration')
         if not math.isfinite(response_s) or response_s<=0:raise ValueError("Invalid actuator response time")
+        self.straight_cruise=cruise if straight_cruise is None else float(straight_cruise)
+        if not math.isfinite(self.straight_cruise) or self.straight_cruise<cruise:
+            raise ValueError('Straight cruise must be finite and at least baseline cruise')
         self.response_s=response_s
         self.minimum_lookahead_m=sum(body[:2]) if body is not None else road_width
         self.inverse=None if calibration is None else np.linalg.inv(np.asarray(calibration['H_normalized'],float))
@@ -22,6 +25,8 @@ class SteeringControl:
     def reset(self):
         self.trim=0.;self.commands=[];self.requested=0.;self.status={}
         self.preview_speed=0.;self.preview_interval=0.
+        self.speed_ready_since=None;self.observed_at=None
+        self.filtered_lookahead=None;self.lookahead_at=None
 
     def applied(self,now,wheels):
         moving=max(abs(v) for v in wheels)>0
@@ -29,6 +34,7 @@ class SteeringControl:
         self.commands.append((now,self.requested,moving,saturated,tuple(wheels)));self.commands=self.commands[-128:]
 
     def observe(self,motion,now,allow_feedback=True):
+        self.observed_at=now
         self.status=dict(trim_m_inv=self.trim,feedback_valid=False)
         if not motion.get('valid'):return
         dt=motion['interval_s']
@@ -68,6 +74,23 @@ class SteeringControl:
         self.trim=float(np.clip(self.trim+step*error,-1/self.lever,1/self.lever))
         self.status.update(trim_m_inv=self.trim,feedback_valid=True,desired_curvature_m_inv=requested,
                          measured_curvature_m_inv=yaw/speed,body_speed_m_s=speed,body_yaw_rad_s=yaw,quality=quality)
+
+    def smooth_lookahead(self, desired):
+        """Match preview-length changes to actuator bandwidth, once per image.
+
+        This filters only the selection radius, never fitted geometry or wheel
+        direction. Every goal is still selected on this frame's supported path.
+        Explicit alternate-goal probes do not advance this temporal state.
+        """
+        now=self.observed_at
+        if now is None:return desired
+        if self.filtered_lookahead is None:
+            self.filtered_lookahead=desired;self.lookahead_at=now
+        elif now>self.lookahead_at:
+            weight=-math.expm1(-(now-self.lookahead_at)/self.response_s)
+            self.filtered_lookahead+=weight*(desired-self.filtered_lookahead)
+            self.lookahead_at=now
+        return self.filtered_lookahead
 
     def command(self,result,age_s=0.,*,lookahead_m=None,alternatives=True):
         """Follow geometry at command time, not at frame-receive time.
@@ -109,7 +132,9 @@ class SteeringControl:
         horizon=2*(self.response_s+age_s+self.preview_interval)
         lookahead=min(self.policy.maximum_target_m,
                       max(self.minimum_lookahead_m,self.preview_speed*horizon))
-        if lookahead_m is not None:lookahead=float(lookahead_m)
+        raw_lookahead=lookahead
+        lookahead=self.smooth_lookahead(lookahead) if lookahead_m is None else float(lookahead_m)
+        self.status.update(raw_lookahead_m=raw_lookahead,lookahead_filter_s=self.response_s)
         selected=pursuit_point(path,lookahead,self.policy.forward_min_m,self.policy.maximum_target_m)
         if selected is None:return None
         point=selected['point']
@@ -156,6 +181,29 @@ class SteeringControl:
             scale=min(scale,handoff_scale)
             self.status['handoff']=dict(speed_ceiling_m_s=ceiling,remaining_distance_m=room,
                                        remaining_time_s=remaining,speed_scale=handoff_scale)
+        # Extra effort is allowed only on a currently measured, supported
+        # pursuit segment with measured motion and a clear body envelope.
+        # Reuse the ordinary dimensionless bend load: the straight ceiling
+        # decays to baseline before a sharp turn, without changing wheel ratio.
+        eligible=(result.get('state')=='OBSERVED' and result.get('observed',False)
+                  and result.get('confidence',0.)>=self.policy.confirmation_quality
+                  and not result.get('transition_pending') and self.status['target_observed']
+                  and selected['mode']=='LOOKAHEAD' and 'body_speed_m_s' in self.status
+                  and envelope['speed_scale']==1. and envelope.get('minimum_clearance_m') is not None
+                  and envelope['minimum_clearance_m']>0. and self.observed_at is not None)
+        # Use measured time, not a frame counter. A single accepted frame must
+        # not immediately restore extra speed after a weak/occluded segment.
+        if not eligible:self.speed_ready_since=None
+        elif self.speed_ready_since is None:self.speed_ready_since=self.observed_at
+        stable_s=0. if self.speed_ready_since is None else max(0.,self.observed_at-self.speed_ready_since)
+        boost_ready=eligible and stable_s>=self.response_s
+        bend=max(abs(self.requested+self.trim),self.gain*abs(float(result.get('path_curvature_m_inv',0.))))
+        load=min(1.,self.lever*bend)
+        cruise=max(self.cruise,self.straight_cruise/(1.+load)) if boost_ready else self.cruise
+        if cruise>self.cruise:command=target_command(raw,self.lever,self.gain,cruise)
+        self.status['speed_plan']=dict(baseline_cruise_pwm=self.cruise,straight_cruise_pwm=self.straight_cruise,
+                                       selected_cruise_pwm=cruise,bend_load=load,boost_eligible=boost_ready,
+                                       road_confirmed_s=stable_s,required_road_confirm_s=self.response_s)
         self.status.update(envelope=envelope,target_selection="ADAPTIVE_PURSUIT",target_speed_scale=target_scale)
         output=tuple(round(v*scale) for v in command) if scale>0 else None
         if output is not None and any(output):return output

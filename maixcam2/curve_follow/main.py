@@ -43,10 +43,11 @@ def main():
     turn_lever=float(np.clip(runtime.get('turn_lever_m',.15),.08,.25))
     steering_gain=float(np.clip(runtime.get('steering_gain',1.),1.,1.5))
     cruise_pwm=float(np.clip(runtime.get('cruise_pwm',60),1,60))
+    straight_cruise_pwm=float(np.clip(runtime.get('straight_cruise_pwm',cruise_pwm),cruise_pwm,120-pwm_boost))
     steering=SteeringControl(policy,control_frame.get('origin_m',[0.,0.]),control_frame.get('body_m'),
                              float(cal['road_width_m']),turn_lever,steering_gain,cruise_pwm,
                              float(crosswalk_policy.brake_deceleration_m_s2 or .08),
-                             crosswalk_policy.speed_per_pwm_m_s,calibration=cal,response_s=crosswalk_policy.speed_response_s)
+                             crosswalk_policy.speed_per_pwm_m_s,calibration=cal,response_s=crosswalk_policy.speed_response_s,straight_cruise=straight_cruise_pwm)
     search=RoadSearch(policy,steering.origin,steering.body,steering.width,cruise_pwm,crosswalk_policy.speed_response_s)
     backend=native_fit_status();print('GEOMETRY_BACKEND',json.dumps(backend),flush=True)
     cv2.setNumThreads(1)
@@ -69,7 +70,7 @@ def main():
         stream=LiveStream(8000)
         scale=min(screen.width()/320,screen.height()/240)
         ox=(screen.width()-320*scale)/2;oy=(screen.height()-240*scale)/2
-        print('CURVE FOLLOW v0.6.12 | crosswalk yield and persistent local road | preview_only=%s | calibrated=%s | manual START | no session time limit'%(preview_only,calibrated),flush=True)
+        print('CURVE FOLLOW v0.6.15 | crosswalk yield and persistent local road | preview_only=%s | calibrated=%s | manual START | no session time limit'%(preview_only,calibrated),flush=True)
         began=time.monotonic() # Exclude camera startup from test/debug elapsed time.
         while not app.need_exit():
             now=time.monotonic()
@@ -218,7 +219,7 @@ def main():
             readiness['blocked_by'].extend(task_blockers)
             if crosswalk_task.failure:readiness['blocked_by'].append(crosswalk_task.failure)
             stream.control.update(active,ready,reason,applied_pwm,readiness=readiness)
-            stream.metrics=dict(frame=frames,app_version='0.6.12-crosswalk-boundary',geometry_backend=backend,
+            stream.metrics=dict(frame=frames,app_version='0.6.15-lookahead-stability',geometry_backend=backend,
                                 frame_received_at=captured,read_ms=round((captured-read_began)*1000,1),calibrated=calibrated,preview_only=preview_only,
                                 motor=None if preview_only else link.snapshot(),
                                 detection_ms=round(detection_ms,1),recovery=dict(recovery.snapshot(),search=search.status),preview_error=stream.preview_error,
