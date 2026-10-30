@@ -1,7 +1,7 @@
 id: robot_curve_follow
 name: Curve Follow
 name[zh]: 小车巡线
-version: 0.6.24
+version: 0.6.25
 icon: ''
 author: robot-car
 desc: Quadratic centerline tracking, manual START, brake light and crosswalk yielding

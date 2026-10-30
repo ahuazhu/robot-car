@@ -74,7 +74,7 @@ def main():
         stream=LiveStream(8000)
         scale=min(screen.width()/320,screen.height()/240)
         ox=(screen.width()-320*scale)/2;oy=(screen.height()-240*scale)/2
-        print('CURVE FOLLOW v0.6.24 | crosswalk yield and persistent local road | preview_only=%s | calibrated=%s | manual START | no session time limit'%(preview_only,calibrated),flush=True)
+        print('CURVE FOLLOW v0.6.25 | crosswalk yield and persistent local road | preview_only=%s | calibrated=%s | manual START | no session time limit'%(preview_only,calibrated),flush=True)
         began=time.monotonic() # Exclude camera startup from test/debug elapsed time.
         while not app.need_exit():
             now=time.monotonic()
@@ -122,7 +122,7 @@ def main():
             search_tick=steering_done
             search.observe(result,details['ground_motion'],captured)
             follow_command=command
-            search_allowed=crosswalk_task.track is None or crosswalk_task.phase=='PASSING'
+            search_allowed=crosswalk_task.track is None or (crosswalk_task.phase=='PASSING' and crosswalk_task.pending_track is None)
             command=search.command(result,command,details['ground_motion'],captured,active=active,allowed=search_allowed)
             profile_ms['road_search']=round((time.monotonic()-search_tick)*1000,2)
             profile_ms.update(result['timings_ms'])
@@ -228,7 +228,7 @@ def main():
             readiness['blocked_by'].extend(task_blockers)
             if crosswalk_task.failure:readiness['blocked_by'].append(crosswalk_task.failure)
             stream.control.update(active,ready,reason,applied_pwm,readiness=readiness)
-            stream.metrics=dict(frame=frames,app_version='0.6.24-integrated',geometry_backend=backend,
+            stream.metrics=dict(frame=frames,app_version='0.6.25-crosswalk',geometry_backend=backend,
                                 frame_received_at=captured,read_ms=round((captured-read_began)*1000,1),calibrated=calibrated,preview_only=preview_only,
                                 motor=None if preview_only else link.snapshot(),
                                 detection_ms=round(detection_ms,1),recovery=dict(recovery.snapshot(),search=search.status),preview_error=stream.preview_error,

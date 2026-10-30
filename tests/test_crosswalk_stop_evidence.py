@@ -85,7 +85,7 @@ class StopEvidenceTests(unittest.TestCase):
  def test_fresh_contradictory_position_cannot_reuse_old_hold(self):
   task=CrosswalkTask(configured());self.begin(task)
   for now in (.3,.4,.5,.6):task.update(observation(now),motion(),now,True,True,True,True)
-  state=task.update(observation(.7,.212),motion(),.7,True,True,True,True)
+  state=task.update(observation(.7,.332),motion(),.7,True,True,True,True)
   self.assertEqual(state['hold_elapsed_s'],0.)
   self.assertNotEqual(state['phase'],'PASSING')
 
