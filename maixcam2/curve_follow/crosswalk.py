@@ -437,7 +437,11 @@ class CrosswalkTask:
             # Re-approach only if the entire position interval is outside
             # the legal <20cm zone. An overlapping interval is uncertainty,
             # not proof of an early stop; keep zero while verifying position.
-            if self.stop_evidence is None and stationary and zero_ack and lamp_on and position_available and clearance-sigma>=CROSSWALK_STOP_LIMIT_M:
+            # A stationary pose may preserve an already verified stop, but
+            # only a CURRENT associated observation precise enough for motion
+            # may authorize leaving zero. Reusing stationary_hold here loops
+            # STOPPING -> APPROACH -> uncertain STOPPING on the same stale pose.
+            if self.stop_evidence is None and stationary and zero_ack and lamp_on and matched and known and age<=p.observation_max_age_s and clearance-sigma>=CROSSWALK_STOP_LIMIT_M:
                 self.phase='APPROACH';self.stationary_since=self.hold_since=self.stopping_since=None
                 self.stop_deadline=self.physical_rest_since=None
                 return self.snapshot(now)
