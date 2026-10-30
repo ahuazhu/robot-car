@@ -286,6 +286,8 @@ class TargetTracker:
         self.policy=RoadPolicy.from_config(cal)
         frame=cal.get('control_frame',{})
         self.reference_origin=np.asarray(frame.get('origin_m',[0.,0.]),float)
+        self.control_body=frame.get('body_m') if frame.get('geometry_verified') else None
+        if self.control_body is not None and (len(self.control_body)!=3 or not all(math.isfinite(v) and v>0 for v in self.control_body)):raise ValueError('Invalid body geometry')
         if self.reference_origin.shape!=(2,) or not np.isfinite(self.reference_origin).all():raise ValueError('Invalid control frame')
         self.pixels=CurvePixels(cal,self.policy)
         self.model=LocalRoadModel(self.policy)
@@ -323,7 +325,14 @@ class TargetTracker:
         # Actual observed scene motion wins over a newly published zero command.
         stationary=(motion['speed_m_s']<.005 and abs(motion['yaw_rad_s'])<.02
                     if motion['valid'] else abs(v)<.005 and abs(omega)<.02)
-        event=self.model.update(measurement,now,stationary,allow_handoff=bool(motion['valid'] and not require_current))
+        continuation_margin=None
+        if self.control_body is not None and measurement is not None and motion['valid'] and not require_current:
+            _,old_support=self.model.support(now)
+            if not old_support['reason']:
+                continuation_margin=max(0.,self.pixels.width/2-float(self.control_body[2])
+                    -float(old_support['sigma_m'])-p.observation_sigma_m/max(measurement['confidence'],.1))
+        event=self.model.update(measurement,now,stationary,allow_handoff=bool(motion['valid'] and not require_current),
+                                continuation_clearance_m=continuation_margin)
         path,support=self.model.support(now,current_only=require_current)
         model_ms=(time.perf_counter()-tick)*1000
         tick=time.perf_counter()
@@ -361,7 +370,7 @@ class TargetTracker:
                     age_s=round(support['age_s'],3),reacquired=event['reacquired'],
                     pending_frames=self.pending_count,pending_confidence=self.pending_confidence,
                     transition_pending=transition_pending,association_kind=event['association_kind'],
-                    handoff_evidence=event['handoff_evidence'],
+                    handoff_evidence=event['handoff_evidence'],history_continuity_evidence=event['history_continuity_evidence'] if self.model.pending_count else None,
                     association_prior_path_m=event['prior_path'] if self.model.pending_count else None,
                     candidate_path_m=self.model.pending.tolist() if self.model.pending_count else None,
                     candidate_mode=measurement['mode'] if measurement is not None else None,

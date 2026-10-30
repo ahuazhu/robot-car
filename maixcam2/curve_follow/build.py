@@ -25,12 +25,12 @@ compile(app,'standalone.py','exec')
 setup="from pathlib import Path\nimport os,base64,subprocess,time,hashlib\nroot=Path('/maixapp/apps/robot_curve_follow')\nroot.mkdir(parents=True,exist_ok=True)\n"
 setup+='''backup=root/'backups'/time.strftime('%Y%m%d-%H%M%S',time.gmtime())
 backup.mkdir(parents=True,exist_ok=True)
-for name in ('main.py','calibration.json','runtime.json','curve_fit_kernel.c','curve_fit_kernel.so'):
+for name in ('main.py','calibration.json','runtime.json','curve_fit_kernel.c','curve_fit_kernel.so','app.yaml'):
     previous=root/name
     if previous.exists():(backup/name).write_bytes(previous.read_bytes())
 print('DEVICE_BACKUP',str(backup),flush=True)
 '''
-for filename,data in [('main.py',app.encode()),('calibration.json',(root/'calibration.json').read_bytes()),('runtime.json',(root/'runtime.json').read_bytes()),('curve_fit_kernel.c',(root/'curve_fit_kernel.c').read_bytes())]:
+for filename,data in [('app.yaml',(root/'app.yaml').read_bytes()),('main.py',app.encode()),('calibration.json',(root/'calibration.json').read_bytes()),('runtime.json',(root/'runtime.json').read_bytes()),('curve_fit_kernel.c',(root/'curve_fit_kernel.c').read_bytes())]:
     setup+="temporary=root/%r\ntemporary.write_bytes(base64.b64decode(%r))\n\n"%(filename+'.next',base64.b64encode(data).decode())
 setup+='''compile_result=subprocess.run(['cc','-x','c','-std=c99','-O3','-fPIC','-shared',str(root/'curve_fit_kernel.c.next'),'-o',str(root/'curve_fit_kernel.so.next'),'-lm'],capture_output=True,text=True)
 if compile_result.returncode:
@@ -45,9 +45,33 @@ compiled.curve_project_polyline
 compiled.curve_boundary_chains
 compiled.curve_select_pursuit
 compiled.curve_agree_paths
-for name in ('curve_fit_kernel.c','curve_fit_kernel.so','main.py','calibration.json','runtime.json'):
+for name in ('curve_fit_kernel.c','curve_fit_kernel.so','main.py','calibration.json','runtime.json','app.yaml'):
     (root/(name+'.next')).replace(root/name)
 print('NATIVE_KERNEL_READY',flush=True)
+# Register the same app that remote deployment runs. The old icon pointed to
+# an obsolete program; preserve it on disk but remove its launcher manifest.
+registry=root.parent/'app.info'
+if registry.exists():(backup/'app.info').write_bytes(registry.read_bytes())
+legacy=root.parent/'robot_lane_follow'
+legacy_manifest=legacy/'app.yaml'
+if legacy_manifest.exists():
+    (backup/'legacy-app.yaml').write_bytes(legacy_manifest.read_bytes())
+    if (legacy/'main.py').exists():
+        (backup/'legacy-main.py').write_bytes((legacy/'main.py').read_bytes())
+    legacy_manifest.replace(legacy/'app.yaml.disabled')
+try:
+    subprocess.run(['/usr/bin/python3',str(root.parent/'gen_app_info.py'),str(root.parent)],check=True)
+    import configparser
+    registered=configparser.ConfigParser(interpolation=None)
+    registered.read(registry)
+    if registered.get('robot_curve_follow','exec')!='main.py' or registered.has_section('robot_lane_follow'):
+        raise RuntimeError('Launcher registration does not select the current app')
+except Exception:
+    if (backup/'legacy-app.yaml').exists():
+        legacy_manifest.write_bytes((backup/'legacy-app.yaml').read_bytes())
+    if (backup/'app.info').exists():registry.write_bytes((backup/'app.info').read_bytes())
+    raise
+print('LAUNCHER_REGISTERED robot_curve_follow',flush=True)
 env=dict(os.environ,MAIXPY_DEBUG_IMAGES='0',TARGET_TEST_SECONDS='0',TARGET_PREVIEW_ONLY='1')
 with open('/tmp/robot_curve_follow.log','w') as log:
     p=subprocess.Popen(['/usr/bin/python3','-u',str(root/'main.py')],cwd=str(root),stdout=log,stderr=log,env=env,start_new_session=True)

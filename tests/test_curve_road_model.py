@@ -11,6 +11,8 @@ from road_policy import RoadPolicy
 from ground_motion import GroundMotion,command_motion,apply_ground_motion
 from tracker import TargetTracker,CurvePixels
 CAL=json.loads((ROOT/'maixcam2/curve_follow/calibration.json').read_text())
+# Historical recordings retain their capture-time camera pose.
+RECORDED_CAL=json.loads((ROOT/'tests/fixtures/road_model_recording_calibration.json').read_text())
 
 
 def line(start=.12,end=.65,y=0.):
@@ -52,7 +54,7 @@ class SupportUnionTests(unittest.TestCase):
         folder=ROOT/'.maixpy/memory-root-cause/reproduction-trace'
         for frame in (862,863,864):
             raw=cv2.imread(str(folder/('frame-%06d.png'%frame)))
-            pixels=CurvePixels(CAL);m,details=pixels.measure(raw)
+            pixels=CurvePixels(RECORDED_CAL);m,details=pixels.measure(raw)
             self.assertIsNotNone(m)
             self.assertLess(np.linalg.norm(m['path'],axis=1).min(),.30)
             self.assertIsNotNone(choose_target(m['path']))
@@ -118,14 +120,14 @@ class GroundMotionTests(unittest.TestCase):
     def test_metric_flow_sees_motion_even_when_motor_command_is_zero(self):
         folder=ROOT/'.maixpy/memory-root-cause/reproduction-trace'
         old=cv2.imread(str(folder/'frame-000862.png'));new=cv2.imread(str(folder/'frame-000863.png'))
-        motion=GroundMotion(CAL)
+        motion=GroundMotion(RECORDED_CAL)
         motion.update(old,0.)
         result=motion.update(new,.27,0.,0.)
         self.assertTrue(result['valid'],result)
         self.assertGreater(result['travel_m'],.035)
         self.assertLess(result['travel_m'],.075)
         self.assertGreaterEqual(result['inliers'],8)
-        pix=CurvePixels(CAL)
+        pix=CurvePixels(RECORDED_CAL)
         a,_=pix.measure(old);b,_=pix.measure(new)
         before=curve_agreement(a['path'],b['path'])['distance_m']
         after=curve_agreement(apply_ground_motion(a['path'],result),b['path'])['distance_m']
@@ -145,7 +147,7 @@ class GroundMotionTests(unittest.TestCase):
         result=motion.update(raw,3.)
         self.assertFalse(result['valid']);self.assertEqual(result['reason'],'FRAME INTERVAL')
     def test_measured_transform_is_rigid_without_scale(self):
-        folder=ROOT/'.maixpy/memory-root-cause/reproduction-trace';motion=GroundMotion(CAL)
+        folder=ROOT/'.maixpy/memory-root-cause/reproduction-trace';motion=GroundMotion(RECORDED_CAL)
         motion.update(cv2.imread(str(folder/'frame-000862.png')),0.)
         result=motion.update(cv2.imread(str(folder/'frame-000863.png')),.27)
         np.testing.assert_allclose(result['rotation'].T@result['rotation'],np.eye(2),atol=1e-9)

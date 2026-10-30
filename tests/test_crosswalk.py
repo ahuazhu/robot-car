@@ -5,7 +5,8 @@ import cv2,numpy as np
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/'maixcam2/curve_follow'))
 from crosswalk import CrosswalkPolicy,CrosswalkDetector,CrosswalkTask,crosswalk_body_support
 from tracker import CurvePixels
-CAL=json.loads((ROOT/'maixcam2/curve_follow/calibration.json').read_text())
+# Recorded images must use their capture-time pose, not today's editable calibration.
+CAL=json.loads((ROOT/'tests/fixtures/crosswalk_20261024_calibration.json').read_text())
 
 
 def motion(speed=0.,distance=0.,valid=True):

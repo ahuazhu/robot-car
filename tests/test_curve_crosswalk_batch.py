@@ -9,7 +9,7 @@ from crosswalk import CrosswalkDetector,CrosswalkPolicy
 from crosswalk_scalar_reference import detect_reference
 class BatchTests(unittest.TestCase):
  def test_actual_crossing_geometry_matches_scalar_detector(self):
-  cal=json.loads((ROOT/'maixcam2/curve_follow/calibration.json').read_text());p=CurvePixels(cal)
+  cal=json.loads((ROOT/'tests/fixtures/crosswalk_20261024_calibration.json').read_text());p=CurvePixels(cal)
   image=cv2.imread(str(ROOT/'tests/fixtures/curve_zebra_turn.jpg'))[:240,:320]
   road,details=p.measure(image);self.assertIsNotNone(road)
   detector=CrosswalkDetector(p,CrosswalkPolicy());expected=detect_reference(detector,details,road,1.)

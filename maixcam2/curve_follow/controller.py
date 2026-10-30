@@ -16,6 +16,21 @@ class CommandRamp:
         self.reset()
     def reset(self):
         self.previous=(0.,0.);self.last=None
+    def pause(self,now,*,rolling=False):
+        """Output zero, retaining a decaying restart envelope only while rolling.
+
+        Explicit zero/STOP still resets immediately. A single missing target
+        must not erase all acceleration history while the chassis is visibly
+        moving; stale/no-motion evidence always takes the normal zero restart.
+        """
+        if not rolling or self.last is None:
+            self.reset();return (0,0)
+        dt=max(0.,now-self.last)
+        peak=max(abs(v) for v in self.previous)
+        scale=max(0.,1.-self.rise_pwm_s*dt/peak) if peak else 0.
+        self.previous=tuple(v*scale for v in self.previous);self.last=now
+        return (0,0)
+
     def apply(self,command,now):
         if command is None or command==(0,0):
             self.reset();return (0,0)

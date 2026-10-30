@@ -72,12 +72,12 @@ class LocalRoadModel:
         self.reset_pending()
         return True
 
-    def update(self, measurement, now, stationary=False, *, allow_handoff=False):
+    def update(self, measurement, now, stationary=False, *, allow_handoff=False, continuation_clearance_m=None):
         """Accept geometry without asking whether it already has a drive target."""
         p=self.policy
         event=dict(observed=False,reacquired=False,reject='NO EDGE',alignment=None,
                    confirmation_alignment=None,required=0,association_kind='UNOBSERVED',
-                   handoff_evidence=None,continuation_allowed=False,prior_path=None,measurement_usable=False)
+                   handoff_evidence=None,history_continuity_evidence=None,continuation_allowed=False,prior_path=None,measurement_usable=False)
         if measurement is None or measurement['confidence']<p.measurement_quality:
             self.reset_pending();return event
         # Expired portions must not participate in future association merely
@@ -139,7 +139,20 @@ class LocalRoadModel:
             event['association_kind']=('COVERAGE_HANDOFF' if handoff else
                                        'INSUFFICIENT_OVERLAP' if agreement is None else
                                        'SUPPORT_FUSION_UNAVAILABLE' if geometry_consistent else 'GEOMETRY_CONFLICT')
-            moving_handoff=allow_handoff and handoff is not None
+            # A second, physical proof handles sparse overlap: both lane
+            # hypotheses must admit the measured chassis and all shared
+            # samples must agree in direction/order. This does not extend the
+            # old curve or make it fresh. Candidate adoption STILL requires
+            # independent repeated observations through confirm().
+            history_continuity=None
+            if (continuation_clearance_m is not None and continuation_clearance_m>0
+                    and prior is not None and (agreement is None or geometry_consistent)
+                    and measurement['confidence']>=p.confirmation_quality):
+                history_continuity=curve_handoff(prior,candidate,
+                    min(p.association_distance_m,continuation_clearance_m),p.association_heading_cos,
+                    max(arc(prior)[-1],arc(candidate)[-1]))
+            event['history_continuity_evidence']=history_continuity
+            moving_handoff=allow_handoff and (handoff is not None or history_continuity is not None)
             event['continuation_allowed']=moving_handoff
             event['confirmation_alignment'],required=self.confirm(measurement)
             plausible=(moving_handoff or (agreement is not None and agreement['distance_m']<.15 and agreement['heading_cos']>.5))

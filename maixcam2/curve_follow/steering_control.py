@@ -166,23 +166,31 @@ class SteeringControl:
         support_sigma=float((result.get('road_model') or {}).get('sigma_m') or self.policy.observation_sigma_m)
         envelope=self.envelope(path,self.requested+self.trim,support_sigma+prediction_sigma,self.width,observed_path=observed,speed_m_s=self.status.get('speed_upper_m_s'),sensor_transform=transform,lookahead_m=lookahead)
         scale=min(scale,envelope['speed_scale'])
+        if result.get('history_continuity_evidence') is not None:
+            candidate=np.asarray(result.get('candidate_path_m',[]),float)
+            if candidate.ndim!=2 or candidate.shape[1:]!=(2,) or len(candidate)<5:return None
+            candidate=candidate-self.origin
+            if transform is not None:candidate=candidate@transform[0].T+transform[1]
+            shared=self.envelope(path,self.requested+self.trim,support_sigma+prediction_sigma,self.width,
+                                 observed_path=candidate,speed_m_s=self.status.get('speed_upper_m_s'),
+                                 sensor_transform=transform,lookahead_m=lookahead)
+            scale=min(scale,shared['speed_scale'])
+            self.status['continuation_envelope']=shared
         if result.get('transition_pending'):
-            # Never accelerate into a pending replacement. Preserve steering
-            # ratio while retaining enough old support to brake if it fails.
+            # Use the SAME supported historical curve and quality-based drive
+            # law as an ordinary occlusion. Bound its motor command lifetime,
+            # rather than treating the watchdog timeout as braking delay or an
+            # old PWM/speed proxy as a new speed measurement. Those conversions
+            # repeatedly reduced useful commands below the motor dead zone.
             speed=self.status.get('speed_upper_m_s')
             model=result.get('road_model') or {}
             room=min(self.policy.maximum_blind_distance_m-float(model.get('blind_distance_m',0.)),
                      float(model.get('length_m',0.)))-support_sigma-prediction_sigma
             remaining=self.policy.maximum_prediction_s-float(model.get('age_s',0.))-age_s
-            latency=self.policy.missing_command_s
-            ceiling=min(max(0.,self.deceleration*max(0.,remaining-latency)),
-                        max(0.,math.sqrt((self.deceleration*latency)**2+2*self.deceleration*max(0.,room))-self.deceleration*latency))
-            ceiling=min(ceiling,max(0.,float(self.status.get('body_speed_m_s',0.))))
-            estimated=max(float(speed or 0.),self.speed_per_pwm*max(0.,sum(command)/2.))
-            handoff_scale=0. if speed is None or room<=0 or remaining<=0 else min(1.,ceiling/max(estimated,1e-8))
-            scale=min(scale,handoff_scale)
-            self.status['handoff']=dict(speed_ceiling_m_s=ceiling,remaining_distance_m=room,
-                                       remaining_time_s=remaining,speed_scale=handoff_scale)
+            lease=0. if speed is None or speed<=0 or self.status.get('body_speed_m_s',0.)<=0 or room<=0 or remaining<=0 else min(.15,remaining,room/speed)
+            self.status['handoff']=dict(remaining_distance_m=room,remaining_time_s=remaining,
+                                       lease_s=lease,speed_scale=1. if lease>0 else 0.)
+            if lease<=0:return None
         # Extra effort is allowed only on a currently measured, supported
         # pursuit segment with measured motion and a clear body envelope.
         # Reuse the ordinary dimensionless bend load: the straight ceiling

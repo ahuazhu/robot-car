@@ -1,0 +1,55 @@
+{
+  "H_normalized": [
+    [
+      4.900294729380001e-16,
+      0.9756092669764778,
+      -2.3422751197588267
+    ],
+    [
+      2.497559574593623,
+      -0.2536582605477251,
+      -1.2142270358505052
+    ],
+    [
+      6.443313502072349e-16,
+      -13.658530076883975,
+      1.0
+    ]
+  ],
+  "image_size": [
+    320,
+    240
+  ],
+  "pixels": [
+    [
+      55.0,
+      125.0
+    ],
+    [
+      290.0,
+      125.0
+    ],
+    [
+      231.0,
+      77.0
+    ],
+    [
+      101.0,
+      77.0
+    ]
+  ],
+  "near_m": 0.3,
+  "far_m": 0.6,
+  "road_width_m": 0.3,
+  "origin": "camera ground footprint",
+  "lens_rectified": false,
+  "drive_validated": false,
+  "camera_pose_verified": true,
+  "geometry_confirmed": true,
+  "source_image": "/Users/yang/work/robot-car/.maixpy/calibrations/20261023-fixed-pose/markers.jpg",
+  "geometry_basis": "User placed 30cm and 60cm transverse markers after confirming fixed camera and centered straight road. Road inner width 30cm. Corners manually selected at marker/inner-white-border intersections.",
+  "measurement_note": "Assumes measured rectangle centered and aligned with car. Manual selection uncertainty approximately 2 pixels; lens distortion and ground wrinkles uncorrected.",
+  "validation_status": "current_pose_calibrated_stationary_validation_pending",
+  "vision_roi_top_px": 65,
+  "vision_grid_step_m": 0.005
+}

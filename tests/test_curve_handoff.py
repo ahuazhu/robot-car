@@ -103,10 +103,14 @@ class HandoffControlTests(unittest.TestCase):
   r=dict(valid=True,state='PREDICTED',confidence=.8,control_target_m=p[0],control_path_m=p,path=p,
          path_curvature_m_inv=0.,road_model=dict(sigma_m=.005,blind_distance_m=.005,age_s=.05,length_m=.4))
   r.update(result);return c,c.command(r,age_s=.01)
- def test_pending_command_is_reduced_and_keeps_steering_ratio(self):
+ def test_pending_keeps_useful_duty_but_gets_a_bounded_motor_lease(self):
   normal,base=self.control({});pending,slow=self.control(dict(transition_pending=True))
   self.assertIsNotNone(base);self.assertIsNotNone(slow)
-  self.assertLess(max(slow),max(base));self.assertLessEqual(abs(slow[0]*base[1]-slow[1]*base[0]),sum(base))
+  self.assertEqual(slow,base) # Quality already decays in the shared drive law.
+  lease=pending.status['handoff']['lease_s']
+  self.assertGreater(lease,0.);self.assertLessEqual(lease,.15)
+  self.assertLessEqual(lease,pending.status['handoff']['remaining_time_s'])
+  self.assertLessEqual(lease*(.04+.002),pending.status['handoff']['remaining_distance_m'])
  def test_no_motion_or_remaining_support_blocks_pending_command(self):
   for model in (dict(sigma_m=.005,blind_distance_m=.06,age_s=.05,length_m=.4),
                 dict(sigma_m=.005,blind_distance_m=.005,age_s=.65,length_m=.4)):

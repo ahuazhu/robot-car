@@ -84,11 +84,15 @@ def crosswalk_body_support(normal, policy):
 class CrosswalkDetector:
     def __init__(self, pixels, policy):
         self.pixels=pixels;self.policy=policy
+        self.status=dict(reason="NOT_RUN",passes=[])
 
     def detect(self, details, road, now):
         p=self.policy;grid=self.pixels
         bird=details.get('bird');path=np.asarray(road.get('path',[]),float)
-        if bird is None or len(path)<2 or road.get('confidence',1.)<.55: return None
+        self.status=dict(reason='NO_ROAD_SUPPORT',passes=[])
+        if bird is None or len(path)<2:return None
+        if road.get('confidence',1.)<.55:
+            self.status['reason']='ROAD_CONFIDENCE_LOW';return None
         # A road control target may start beyond a close crossing. Extend only
         # the semantic search corridor along the measured near tangent; this
         # does not create lane support or authorize driving into an unseen area.
@@ -105,11 +109,27 @@ class CrosswalkDetector:
             saturation,value=details['saturation'],details['value']
         else:
             hsv=cv2.cvtColor(bird,cv2.COLOR_BGR2HSV);saturation,value=hsv[:,:,1],hsv[:,:,2]
-        # Same calibrated white levels as lane extraction; no route-specific colors.
-        best=None
+        # Preserve the calibrated raw-light fast path. Shadows/exposure changes
+        # can put every white bar below an absolute threshold; reuse the local
+        # contrast image already computed for lane extraction only if it fails.
+        for source,values in (('raw',value),('contrast',details.get('contrast_value'))):
+            if values is None:continue
+            best=self._detect_value(values,saturation,corridor,path,tangent,now,source)
+            if best is not None:
+                self.status.update(reason='DETECTED',source=source,bar_count=best['bar_count'],
+                                   near_m=best['near_m'],confidence=best['confidence'])
+                return best
+        passes=self.status['passes']
+        self.status['reason']='NO_REPEATED_PATTERN' if any(x['metric_bars'] for x in passes) else 'NO_METRIC_BARS'
+        return None
+
+    def _detect_value(self,value,saturation,corridor,path,tangent,now,source):
+        p=self.policy;grid=self.pixels;best=None
         for level in grid.white_value_levels:
             mask=((saturation<=105)&(value>=level)&grid.visible&(corridor!=0)).astype(np.uint8)*255
             contours,_=cv2.findContours(mask,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+            stage=dict(source=source,level=int(level),contours=len(contours),metric_bars=0,largest_group=0)
+            self.status['passes'].append(stage)
             boxes=[]
             for contour in contours:
                 if len(contour)<4 or cv2.contourArea(contour)<3: continue
@@ -131,6 +151,7 @@ class CrosswalkDetector:
                 valid &= abs(alignment)>=.85
                 for i in np.flatnonzero(valid):
                     bars.append(dict(center=centers0[i],direction=directions0[i],length=float(long[i]),width=float(short[i]),box=boxes[i]))
+            stage['metric_bars']=len(bars)
             centers=np.asarray([b['center'] for b in bars]);directions=np.asarray([b['direction'] for b in bars])
             evaluated=set()
             for anchor in bars:
@@ -148,6 +169,7 @@ class CrosswalkDetector:
                 # Split nonuniform clusters rather than joining unrelated reflections.
                 chunks=np.split(np.arange(len(group)),np.flatnonzero(~good)+1)
                 for ids in chunks:
+                    stage['largest_group']=max(stage['largest_group'],len(ids))
                     if len(ids)<p.minimum_bars: continue
                     selected=[group[int(i)] for i in ids]
                     t=np.mean([b['direction'] for b in selected],axis=0);t/=np.linalg.norm(t)
@@ -177,6 +199,7 @@ class CrosswalkTask:
 
     def reset(self):
         self.track=None;self.hits=0;self.identity=0;self.phase='SEARCH';self.failure=None
+        self.observation_association='NONE'
         self.issues=[];self.recovery_reason=None;self.yield_verified=False;self.yield_completed=False
         self.stationary_since=None;self.hold_since=None;self.stopping_since=None
         self.stop_deadline=None;self.physical_rest_since=None;self.hold_completed_s=0.
@@ -266,6 +289,7 @@ class CrosswalkTask:
 
     def update(self, observation, motion, now, active=False, zero_ack=False, lamp_on=False, road_ready=False):
         p=self.policy
+        self.observation_association='NONE'
         if self.failure:return self.snapshot(now)
         if p.mode=='yield' and p.blockers():
             self._fail('CROSSWALK SETUP REQUIRED');return self.snapshot(now)
@@ -284,16 +308,18 @@ class CrosswalkTask:
         matched=False
         if observation is not None:
             if self.track is None:
-                self._begin_track(observation)
+                self._begin_track(observation);self.observation_association='NEW'
             else:
                 matched=(np.dot(self.track['normal'],observation['normal'])>.94 and
                          abs(self.track['near_m']-observation['near_m'])<=p.association_m)
                 if matched:
+                    self.observation_association='MATCHED'
                     gap=observation['observed_at']-self.track['observed_at']
                     if self.hits<p.confirmation_frames and gap>p.confirmation_gap_s: self.hits=0
                     self.hits+=1;self.track=dict(observation);self.prediction_travel=0.
                 elif self.hits<p.confirmation_frames:
-                    self._begin_track(observation)
+                    self._begin_track(observation);self.observation_association='REPLACED_UNCONFIRMED'
+                else:self.observation_association='UNMATCHED_CONFIRMED'
         if self.track is None: return self.snapshot(now)
         age=now-self.track['observed_at'];confirmed=self.hits>=p.confirmation_frames
         # Preview expiry only. A driving yield event is never erased on a timer.
@@ -373,7 +399,7 @@ class CrosswalkTask:
     def snapshot(self, now):
         p=self.policy;t=self.track
         distance=None if t is None or p.body_front_m is None or p.body_rear_m is None or p.body_half_width_m is None else t['near_m']-crosswalk_body_support(t['normal'],p)
-        return dict(mode=p.mode,phase=self.phase,event_id=self.identity if t else None,hits=self.hits,
+        return dict(mode=p.mode,phase=self.phase,observation_association=self.observation_association,event_id=self.identity if t else None,hits=self.hits,
                     confirmed=self.hits>=p.confirmation_frames,observation=t,
                     distance_to_body_m=distance,position_error_m=t['sigma_m'] if t else None,
                     observation_age_s=now-t['observed_at'] if t else None,

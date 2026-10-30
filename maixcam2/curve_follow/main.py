@@ -41,14 +41,18 @@ def main():
     pwm_boost=int(np.clip(runtime.get('motor_peak_boost_pwm',0),0,45))
     vision_budget_ms=float(np.clip(runtime.get('vision_budget_ms',200),80,280))
     turn_lever=float(np.clip(runtime.get('turn_lever_m',.15),.08,.25))
-    steering_gain=float(np.clip(runtime.get('steering_gain',1.),1.,1.5))
-    cruise_pwm=float(np.clip(runtime.get('cruise_pwm',60),1,60))
-    straight_cruise_pwm=float(np.clip(runtime.get('straight_cruise_pwm',cruise_pwm),cruise_pwm,MAX_MOTOR_PWM-pwm_boost))
+    steering_gain=float(np.clip(runtime.get('steering_gain',1.),.5,1.5))
+    # Leave room for the shared actuator boost; final wheel duty stays capped.
+    cruise_ceiling=float(MAX_MOTOR_PWM-pwm_boost)
+    cruise_pwm=float(np.clip(runtime.get('cruise_pwm',60),1,cruise_ceiling))
+    straight_cruise_pwm=float(np.clip(runtime.get('straight_cruise_pwm',cruise_pwm),cruise_pwm,cruise_ceiling))
     steering=SteeringControl(policy,control_frame.get('origin_m',[0.,0.]),control_frame.get('body_m'),
                              float(cal['road_width_m']),turn_lever,steering_gain,cruise_pwm,
                              float(crosswalk_policy.brake_deceleration_m_s2 or .08),
                              crosswalk_policy.speed_per_pwm_m_s,calibration=cal,response_s=crosswalk_policy.speed_response_s,straight_cruise=straight_cruise_pwm)
-    search=RoadSearch(policy,steering.origin,steering.body,steering.width,cruise_pwm,crosswalk_policy.speed_response_s)
+    # Forward cruise changes must not increase in-place recovery effort.
+    search_cruise_pwm=float(np.clip(runtime.get('search_cruise_pwm',60),1,cruise_ceiling))
+    search=RoadSearch(policy,steering.origin,steering.body,steering.width,search_cruise_pwm,crosswalk_policy.speed_response_s)
     backend=native_fit_status();print('GEOMETRY_BACKEND',json.dumps(backend),flush=True)
     cv2.setNumThreads(1)
     duration=float(os.environ.get('TARGET_TEST_SECONDS','0'))
@@ -70,7 +74,7 @@ def main():
         stream=LiveStream(8000)
         scale=min(screen.width()/320,screen.height()/240)
         ox=(screen.width()-320*scale)/2;oy=(screen.height()-240*scale)/2
-        print('CURVE FOLLOW v0.6.19 | crosswalk yield and persistent local road | preview_only=%s | calibrated=%s | manual START | no session time limit'%(preview_only,calibrated),flush=True)
+        print('CURVE FOLLOW v0.6.24 | crosswalk yield and persistent local road | preview_only=%s | calibrated=%s | manual START | no session time limit'%(preview_only,calibrated),flush=True)
         began=time.monotonic() # Exclude camera startup from test/debug elapsed time.
         while not app.need_exit():
             now=time.monotonic()
@@ -166,7 +170,9 @@ def main():
                 failure=recovery.update(result,crosswalk_task.supervision_command(command,detection_ms,vision_budget_ms),
                                         now,detection_ms,vision_budget_ms,stop_verified=zero_ack and measured_rest,road_ready=road_ready,search_pending=search.status.get('search_pending',False))
                 if command is None:
-                    pwm=(0,0);ramp.reset();reason={'VISION_WAIT':'VISION WAIT','ROAD_SEARCH':'ROAD SEARCH'}.get(recovery.phase,'REACQUIRING ROAD')
+                    rolling=bool(motion.get('valid') and float(motion.get('speed_m_s') or 0.)>crosswalk_policy.stationary_speed_m_s
+                                 and float(motion.get('speed_m_s') or 0.)*float(motion.get('interval_s') or 0.)>2*float(motion.get('sigma_m') or 0.))
+                    pwm=ramp.pause(now,rolling=rolling);reason={'VISION_WAIT':'VISION WAIT','ROAD_SEARCH':'ROAD SEARCH'}.get(recovery.phase,'REACQUIRING ROAD')
                 task_command=crosswalk_task.limit_command(command,crosswalk_state,details.get('ground_motion'))
                 if crosswalk_task.failure:failure=crosswalk_task.failure
                 if failure and failure!='ROAD NOT FOUND':
@@ -180,7 +186,10 @@ def main():
                     pwm=task_command if search.last_action and task_command is not None else ramp.apply(task_command,now) if task_command is not None else (0,0)
                     if search.last_action:ramp.reset()
                     try:
-                        link.send(2,*compensate_pwm(pwm,pwm_boost),lease_s=search.status.get('lease_s'));steering.applied(time.monotonic(),pwm);next_control=time.monotonic()+.05
+                        lease=None
+                        if any(pwm):
+                            lease=search.status.get('lease_s') if search.last_action else (steering.status.get('handoff') or {}).get('lease_s') if result.get('transition_pending') else None
+                        link.send(2,*compensate_pwm(pwm,pwm_boost),lease_s=lease);steering.applied(time.monotonic(),pwm);next_control=time.monotonic()+.05
                         if command is not None and failure is None:reason=('ROAD SEARCH '+search.status['phase'] if follow_command is None and search.status.get('search_pending') else 'CROSSWALK '+crosswalk_task.phase if crosswalk_policy.mode=='yield' and crosswalk_task.track else 'CURVE HANDOFF' if result.get('transition_pending') else result['mode'])
                     except RuntimeError as exc:
                         link.stop();active=False;pwm=(0,0);link_ok=False
@@ -215,15 +224,15 @@ def main():
                                vision_budget_ms,link_ok,preview_only,policy.confirmation_quality,required=policy.startup_observations))
             readiness['recovery']=dict(recovery.snapshot(),search=search.status,preview_error=stream.preview_error)
             readiness['steering']=steering.status
-            readiness['crosswalk']=crosswalk_task.snapshot(captured)
+            readiness['crosswalk']=dict(crosswalk_task.snapshot(captured),detection=crosswalk_detector.status)
             readiness['blocked_by'].extend(task_blockers)
             if crosswalk_task.failure:readiness['blocked_by'].append(crosswalk_task.failure)
             stream.control.update(active,ready,reason,applied_pwm,readiness=readiness)
-            stream.metrics=dict(frame=frames,app_version='0.6.19-speed-200',geometry_backend=backend,
+            stream.metrics=dict(frame=frames,app_version='0.6.24-integrated',geometry_backend=backend,
                                 frame_received_at=captured,read_ms=round((captured-read_began)*1000,1),calibrated=calibrated,preview_only=preview_only,
                                 motor=None if preview_only else link.snapshot(),
                                 detection_ms=round(detection_ms,1),recovery=dict(recovery.snapshot(),search=search.status),preview_error=stream.preview_error,
-                                readiness=readiness,crosswalk=crosswalk_task.snapshot(captured),crosswalk_ms=round(crosswalk_ms,2),
+                                readiness=readiness,crosswalk=dict(crosswalk_task.snapshot(captured),detection=crosswalk_detector.status),crosswalk_ms=round(crosswalk_ms,2),
                                 target=dict({k:v for k,v in result.items() if k!='path'},
                                             road_path_m=[[round(x,4),round(y,4)] for x,y in result.get('path',[])]),steering=steering.status)
             profile_ms['supervision_motor_telemetry']=round((time.monotonic()-supervisor_tick)*1000,2)
@@ -255,7 +264,7 @@ def main():
             profile_ms['stream_encode']=round((time.monotonic()-stream_tick)*1000,2)
             log_tick=time.monotonic()
             if now>=next_log or result['state']=='CONFIRMING' or result['state']!=last_tracking_state:
-                print('CONTROL',json.dumps({'active':active,'reason':reason,'recovery':dict(recovery.snapshot(),search=search.status),'target':{k:v for k,v in result.items() if k!='path'},'detection_ms':round(detection_ms,1),'loop_processing_ms':round((time.monotonic()-captured)*1000,1),'pwm':applied_pwm,'logical_pwm':pwm,'frame':frames,'frame_received_at':captured,'read_ms':round((captured-read_began)*1000,1),'uno_connected':None if preview_only else link_ok,'calibrated':calibrated,'preview_only':preview_only,'crosswalk':crosswalk_task.snapshot(captured),'steering':steering.status,'profile_ms':profile_ms}),flush=True);next_log=now+.5
+                print('CONTROL',json.dumps({'active':active,'reason':reason,'recovery':dict(recovery.snapshot(),search=search.status),'target':{k:v for k,v in result.items() if k!='path'},'detection_ms':round(detection_ms,1),'loop_processing_ms':round((time.monotonic()-captured)*1000,1),'pwm':applied_pwm,'logical_pwm':pwm,'frame':frames,'frame_received_at':captured,'read_ms':round((captured-read_began)*1000,1),'uno_connected':None if preview_only else link_ok,'calibrated':calibrated,'preview_only':preview_only,'crosswalk':dict(crosswalk_task.snapshot(captured),detection=crosswalk_detector.status),'steering':steering.status,'profile_ms':profile_ms}),flush=True);next_log=now+.5
             profile_ms['logging']=round((time.monotonic()-log_tick)*1000,2)
             profile_ms['frame_processing']=round((time.monotonic()-captured)*1000,2)
             stream.metrics['profile_ms']=profile_ms
