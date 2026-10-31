@@ -1,0 +1,60 @@
+{
+  "H_normalized": [
+    [
+      -0.05019160042924133,
+      0.027236013505812916,
+      -0.31214885718551383
+    ],
+    [
+      0.43421501252241806,
+      0.010727275454753219,
+      -0.22450461292299437
+    ],
+    [
+      -0.05723188386305779,
+      -2.5343712800756872,
+      1.0
+    ]
+  ],
+  "image_size": [
+    320,
+    240
+  ],
+  "pixels": [
+    [
+      49.253456115722656,
+      188.09732055664062
+    ],
+    [
+      282.1716003417969,
+      195.42205810546875
+    ],
+    [
+      221.65985107421875,
+      143.13392639160156
+    ],
+    [
+      103.2461166381836,
+      142.22438049316406
+    ]
+  ],
+  "near_m": 0.3,
+  "far_m": 0.6,
+  "road_width_m": 0.3,
+  "origin": "camera ground footprint",
+  "lens_rectified": false,
+  "drive_validated": false,
+  "camera_pose_verified": true,
+  "geometry_confirmed": true,
+  "source_image": "/Users/yang/work/robot-car/.maixpy/calibrations/20261031-new-pose/raw.png",
+  "geometry_basis": "User confirmed2026-10-31 after camera position adjustment: car centered and heading aligned; A transverse white marker30cm, B transverse marker60cm (not farther white boundary C); WHITE INNER gap30cm; distances measured from lens ground footprint.",
+  "measurement_note": "Intersections of robust straight inner-side edge fits and near A stripe upper edge/far B lower dark trace centre. Far left corner partly obscured by power bank/cable: straight side fit extrapolated a short distance, never using farther white boundary C. Vehicle-centred mapping absorbs lateral camera offset. Held-out image consistency is not independent metric validation; allow edge localization, surface flatness, lens distortion and placement error.",
+  "validation_status": "new_pose_AB_calibrated_straight_check_pending",
+  "vision_roi_top_px": 65,
+  "vision_grid_step_m": 0.0075,
+  "calibration_reference": {
+    "near": "A30cm white transverse stripe upper/inside edge",
+    "far": "B60cm transverse marker lower dark trace centre, not C",
+    "width": "longitudinal white inner edges"
+  }
+}

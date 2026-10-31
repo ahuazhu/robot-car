@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "laps": 3,
+  "gantry_width_m": 0.3593057466,
+  "stripe_to_gantry_m": 0.33008849,
+  "gantry_image_aspect": 1.2,
+  "minimum_gantry_contrast": 18.0
+}

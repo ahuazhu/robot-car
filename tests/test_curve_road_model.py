@@ -208,7 +208,7 @@ class CandidateAssociationTests(unittest.TestCase):
         self.assertIsNone(result)
     def test_continuous_lossless_recording_has_no_false_support_expiry(self):
         folder=ROOT/'.maixpy/memory-root-cause/reproduction-trace'
-        t=TargetTracker(CAL);seen={}
+        t=TargetTracker(RECORDED_CAL);seen={}
         for frame in range(794,879):
             data=json.loads((folder/('frame-%06d.json'%frame)).read_text())
             trace=data['trace']

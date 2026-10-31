@@ -1,0 +1,6 @@
+# Minimal host dependencies pinned to the source machine for migration.
+# Python 3.11 recommended; full inventory is in the archive metadata.
+numpy==2.4.6
+opencv-python-headless==5.0.0.93
+pyserial==3.5
+PyYAML==6.0.3

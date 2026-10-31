@@ -49,7 +49,7 @@ class CurrentSupportTests(unittest.TestCase):
         model=LocalRoadModel();model.update(observation(),0.)
         model.seen[:]=0.;model.seen[:3]=.1
         self.assertIsNone(model.support(.1,current_only=True)[0])
-        model.seen[:]=.1;model.quality[:]=model.policy.measurement_quality
+        model.seen[:]=.1;model.quality[:]=np.nextafter(model.policy.measurement_quality,0.)
         self.assertIsNone(model.support(.1,current_only=True)[0])
 
     def test_tracker_arms_from_five_fresh_components_despite_old_prefix(self):
@@ -78,6 +78,37 @@ class CurrentSupportTests(unittest.TestCase):
         result,_=tracker.update(None,.52,require_current=True)
         self.assertFalse(result['valid'])
         self.assertFalse(result['observed'])
+
+    def test_stable_accepted_quality_is_confirmed_by_five_current_observations(self):
+        # Actual stopped-car diagnostic: accepted q=.6483, but the old .65
+        # current-support gate erased the target on every frame forever.
+        tracker=TargetTracker(CAL)
+        tracker.pixels.measure=lambda *args:(observation(quality=.6482982100829959),{})
+        streak=0
+        for i in range(5):
+            result,_=tracker.update(None,i*.1,require_current=True)
+            self.assertTrue(result['valid'])
+            self.assertTrue(result['observed'])
+            self.assertAlmostEqual(result['confidence'],.6482982100829959)
+            self.assertEqual(result['road_model']['fresh_fraction'],1.)
+            command,streak=assess_vision_command(result,(40,40),100,280,streak,tracker.policy.measurement_quality)
+            self.assertEqual(command,(40,40))
+            self.assertEqual(streak,i+1)
+            self.assertEqual(streak>=tracker.policy.startup_observations,i==4)
+        # Current-only startup must still reject stale geometry after one miss.
+        tracker.pixels.measure=lambda *args:(None,{})
+        result,_=tracker.update(None,.5,require_current=True)
+        self.assertFalse(result['valid'])
+        self.assertEqual(assess_vision_command(result,None,100,280,streak,tracker.policy.measurement_quality)[1],0)
+
+    def test_below_measurement_quality_never_accumulates_startup_evidence(self):
+        tracker=TargetTracker(CAL);tracker.pixels.measure=lambda *args:(observation(quality=.54),{})
+        streak=0
+        for i in range(10):
+            result,_=tracker.update(None,i*.1,require_current=True)
+            self.assertFalse(result['valid'])
+            _,streak=assess_vision_command(result,None,100,280,streak,tracker.policy.measurement_quality)
+            self.assertEqual(streak,0)
 
     def test_conflicting_measurement_cannot_supply_current_startup_support(self):
         tracker=TargetTracker(CAL)

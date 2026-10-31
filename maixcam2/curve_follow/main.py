@@ -12,6 +12,8 @@ from preview_transport import LiveStream
 from steering_control import SteeringControl
 from road_policy import RoadPolicy
 from road_recovery import RoadSearch
+from start_light import StartLight
+from lap_counter import LapMarkerDetector,LapCounter
 from native_geometry import native_fit_status
 from crosswalk import CrosswalkPolicy,CrosswalkDetector,CrosswalkTask,draw_crosswalk_overlay
 
@@ -37,6 +39,10 @@ def main():
     control_frame=runtime.get('control_frame',{})
     crosswalk_policy=CrosswalkPolicy.from_config(runtime.get('crosswalk',{}))
     crosswalk_task=CrosswalkTask(crosswalk_policy)
+    start_light=StartLight(runtime.get('start_light'))
+    lap_config=runtime.get('race',{})
+    laps=LapCounter(lap_config,float(crosswalk_policy.body_front_m or .02),float(crosswalk_policy.body_rear_m or .16),float(crosswalk_policy.body_half_width_m or .085))
+    if os.environ.get('START_LIGHT_DISARMED')=='1':start_light.cancel()
     calibrated=bool(cal.get('geometry_confirmed') and cal.get('camera_pose_verified'))
     pwm_boost=int(np.clip(runtime.get('motor_peak_boost_pwm',0),0,45))
     vision_budget_ms=float(np.clip(runtime.get('vision_budget_ms',200),80,280))
@@ -69,12 +75,13 @@ def main():
             reason='UNO NOT CONNECTED';print(reason,str(exc),flush=True)
         vision=TargetTracker(road_cal)
         crosswalk_detector=CrosswalkDetector(vision.pixels,crosswalk_policy)
+        lap_detector=LapMarkerDetector(vision.pixels,lap_config)
         cam=camera.Camera(320,240,image.Format.FMT_BGR888)
         screen=display.Display();touch=touchscreen.TouchScreen();touch.clear()
         stream=LiveStream(8000)
         scale=min(screen.width()/320,screen.height()/240)
         ox=(screen.width()-320*scale)/2;oy=(screen.height()-240*scale)/2
-        print('CURVE FOLLOW v0.6.26 | crosswalk yield and persistent local road | preview_only=%s | calibrated=%s | manual START | no session time limit'%(preview_only,calibrated),flush=True)
+        print('CURVE FOLLOW v0.6.34 | gantry lamp start | preview_only=%s | calibrated=%s | no session time limit'%(preview_only,calibrated),flush=True)
         began=time.monotonic() # Exclude camera startup from test/debug elapsed time.
         while not app.need_exit():
             now=time.monotonic()
@@ -91,6 +98,11 @@ def main():
             # Arming uses a trusted current component; driving keeps bounded
             # historical support. Both queries share the same persistent model.
             result,details=vision.update(bgr,captured,v,omega,require_current=not active);frames+=1
+            lap_tick=time.perf_counter()
+            lap_observation=lap_detector.detect(bgr,details,details.get('measured_road') or result,captured,motion=details.get('ground_motion'))
+            lap_finished=laps.update(lap_observation,details.get('ground_motion'),captured,active)
+            if laps.event:print('LAP EVENT',json.dumps(laps.snapshot()),flush=True)
+            profile_ms['lap_counter']=round((time.perf_counter()-lap_tick)*1000,2)
             crosswalk_tick=time.perf_counter()
             crossing=crosswalk_detector.detect(details,details.get('measured_road') or result,captured)
             motor_before=None if preview_only else link.snapshot()
@@ -128,39 +140,56 @@ def main():
             profile_ms.update(result['timings_ms'])
             profile_ms['crosswalk']=round(crosswalk_ms,2)
             profile_ms['steering']=round((steering_done-steering_tick)*1000,2)
+            lamp_tick=time.monotonic()
+            lamp_observation=start_light.detect(bgr) if start_light.armed else start_light.observation
+            profile_ms['start_light']=round((time.monotonic()-lamp_tick)*1000,2)
             detection_ms=(time.monotonic()-captured)*1000
+            lamp_start=start_light.update(lamp_observation,captured,active=active,timely=detection_ms<=vision_budget_ms)
             profile_ms['control_pipeline']=round(detection_ms,2)
             supervisor_tick=time.monotonic()
             command,consecutive=assess_vision_command(
                 result,command,detection_ms,vision_budget_ms,consecutive,
-                policy.confirmation_quality)
+                policy.measurement_quality)
             road_ready=consecutive>=policy.startup_observations
             x,y,pressed=touch.read();tx=(x-ox)/scale;ty=(y-oy)/scale
             action=stream.control.take();touch_action=None
             if pressed and not was_pressed and 209<=ty<240:
-                touch_action='start' if 0<=tx<106 else 'stop' if 106<=tx<213 else 'exit' if 213<=tx<320 else None
+                touch_action='start_now' if 0<=tx<106 else 'stop' if 106<=tx<213 else 'exit' if 213<=tx<320 else None
             was_pressed=pressed
             if touch_action=='exit':break
             if 'stop' in (action,touch_action):
-                link.stop();active=False;pwm=(0,0);recovery.reset();crosswalk_task.reset();steering.reset();search.reset(clear_map=True);reason='STOPPED';stream.control.stopped()
+                link.stop();active=False;pwm=(0,0);recovery.reset();crosswalk_task.reset();steering.reset();search.reset(clear_map=True);start_light.cancel();laps.stop();reason='STOPPED';stream.control.stopped()
             else:
-                wants_start='start' in (action,touch_action)
+                arm_request='start' in (action,touch_action)
+                direct_start='start_now' in (action,touch_action)
+                manual_start=arm_request or direct_start
+                if arm_request and start_light.enabled and not active and not preview_only:
+                    start_light.arm();lamp_start=False;reason='WAIT START LIGHT'
+                    print('WAIT_START_LIGHT',json.dumps(start_light.snapshot()),flush=True)
+                wants_start=direct_start or (lamp_start if start_light.enabled else arm_request)
                 if wants_start and not active and not preview_only:
                     task_blockers=crosswalk_policy.blockers() if crosswalk_policy.mode=='yield' else []
                     if crosswalk_policy.mode=='yield' and not (motor_before and motor_before.get('brake_lamp_supported')):task_blockers.append('BRAKE_LAMP_UNAVAILABLE')
-                    if link_ok and road_ready and command is not None and not task_blockers:
+                    if link_ok and road_ready and command is not None and not task_blockers and not crosswalk_task.failure:
                         try:
                             link.send(1);active=True;next_control=0
                             recovery.reset();ramp.reset();steering.reset();search.reset(clear_map=True);reason=result['mode']
-                            print('START',json.dumps({'pose':result,'auto':False}),flush=True)
+                            start_light.started()
+                            laps.begin(lap_observation,captured)
+                            print('START',json.dumps({'pose':result,'auto':start_light.enabled and not direct_start,'source':'MANUAL' if direct_start or not start_light.enabled else 'GANTRY_LIGHT','start_light':start_light.snapshot()}),flush=True)
                         except RuntimeError as exc:
+                            start_light.cancel()
                             link.stop();link_ok=False;reason='UNO NOT CONNECTED'
                             stream.control.stopped();print('START REFUSED',str(exc),flush=True)
                     else:
-                        reason='CROSSWALK SETUP REQUIRED' if task_blockers else 'ROAD NOT READY' if link_ok else 'UNO NOT CONNECTED'
-                        print('START REFUSED',json.dumps(dict(reason=reason,observed_streak=consecutive,
-                              detection_ms=round(detection_ms,1),command_available=command is not None,
-                              link_ok=link_ok)),flush=True)
+                        reason=crosswalk_task.failure or ('CROSSWALK SETUP REQUIRED' if task_blockers else 'ROAD NOT READY' if link_ok else 'UNO NOT CONNECTED')
+                        if manual_start:
+                            print('START REFUSED',json.dumps(dict(reason=reason,observed_streak=consecutive,
+                                  detection_ms=round(detection_ms,1),command_available=command is not None,
+                                  link_ok=link_ok)),flush=True)
+            if lap_finished:
+                link.stop();active=False;pwm=(0,0);ramp.reset();search.reset(clear_map=True);start_light.cancel();reason='LAPS COMPLETE';stream.control.stopped()
+                print('RACE COMPLETE',json.dumps(laps.snapshot()),flush=True)
             now=time.monotonic()
             if active:
                 motion=details.get('ground_motion') or {}
@@ -208,11 +237,14 @@ def main():
                         link_ok=False;reason='UNO NOT CONNECTED'
                         print('UNO STATUS',str(exc),flush=True)
                     next_status=time.monotonic()+1
-                if reason in ('WAIT START','ROAD NOT READY'):reason='WAIT START' if road_ready else 'ROAD NOT READY'
+                if start_light.armed and link_ok:reason='WAIT START LIGHT'
+                elif reason in ('WAIT START','ROAD NOT READY'):reason='WAIT START' if road_ready else 'ROAD NOT READY'
             if preview_only:reason='CALIBRATION REQUIRED' if not calibrated else 'PREVIEW ONLY'
             task_blockers=crosswalk_policy.blockers() if crosswalk_policy.mode=='yield' else []
             if crosswalk_policy.mode=='yield' and not (motor_before and motor_before.get('brake_lamp_supported')):task_blockers.append('BRAKE_LAMP_UNAVAILABLE')
             ready=link_ok and road_ready and command is not None and not active and not preview_only and not task_blockers and not crosswalk_task.failure
+            direct_ready=ready
+            if start_light.enabled and start_light.armed:ready=False
             applied_pwm=compensate_pwm(pwm,pwm_boost)
             total_pwm=abs(applied_pwm[0])+abs(applied_pwm[1])
             steering.status['published_curvature_proxy_m_inv']=(applied_pwm[1]-applied_pwm[0])/(turn_lever*total_pwm) if total_pwm else 0.
@@ -221,16 +253,22 @@ def main():
                            processing_ms=round(detection_ms,1),vision_budget_ms=vision_budget_ms,
                            confidence=result['confidence'],source=result['mode'],
                            blocked_by=startup_blockers(result,command,consecutive,detection_ms,
-                               vision_budget_ms,link_ok,preview_only,policy.confirmation_quality,required=policy.startup_observations))
+                               vision_budget_ms,link_ok,preview_only,policy.measurement_quality,required=policy.startup_observations))
             readiness['recovery']=dict(recovery.snapshot(),search=search.status,preview_error=stream.preview_error)
+            readiness['laps']=dict(laps.snapshot(),detector=lap_detector.status)
+            readiness['direct_start_ready']=bool(direct_ready)
+            # ARM starts observation only; both triggers use the same movement gates above.
+            readiness['arm_start_light_ready']=(bool(not active and not preview_only and not start_light.armed) if start_light.enabled else bool(direct_ready))
+            readiness['minimum_road_quality']=policy.measurement_quality
+            readiness['start_light']=start_light.snapshot()
             readiness['steering']=steering.status
             readiness['crosswalk']=dict(crosswalk_task.snapshot(captured),detection=crosswalk_detector.status)
             readiness['blocked_by'].extend(task_blockers)
             if crosswalk_task.failure:readiness['blocked_by'].append(crosswalk_task.failure)
             stream.control.update(active,ready,reason,applied_pwm,readiness=readiness)
-            stream.metrics=dict(frame=frames,app_version='0.6.26-crosswalk-resume',geometry_backend=backend,
+            stream.metrics=dict(frame=frames,app_version='0.6.34-lamp-start',geometry_backend=backend,
                                 frame_received_at=captured,read_ms=round((captured-read_began)*1000,1),calibrated=calibrated,preview_only=preview_only,
-                                motor=None if preview_only else link.snapshot(),
+                                laps=dict(laps.snapshot(),detector=lap_detector.status),start_light=start_light.snapshot(),motor=None if preview_only else link.snapshot(),
                                 detection_ms=round(detection_ms,1),recovery=dict(recovery.snapshot(),search=search.status),preview_error=stream.preview_error,
                                 readiness=readiness,crosswalk=dict(crosswalk_task.snapshot(captured),detection=crosswalk_detector.status),crosswalk_ms=round(crosswalk_ms,2),
                                 target=dict({k:v for k,v in result.items() if k!='path'},
@@ -244,13 +282,20 @@ def main():
                 display_result['target_m']=(np.asarray(steering.status['receive_target_m'])+steering.origin).tolist()
             out,bird=render_target(bgr,display_result,details,cal)
             draw_crosswalk_overlay(out,crosswalk_task.snapshot(captured),cal)
+            lap_detector.draw(out)
+            if laps.enabled:cv2.putText(out,'LAPS %d/%d'%(laps.count,laps.total),(4,69),0,.45,(0,255,255),1)
+            if start_light.enabled and not active:
+                if start_light.roi is not None:
+                    lx,ly,lw,lh=start_light.roi
+                    cv2.rectangle(out,(lx,ly),(lx+lw,ly+lh),(0,255,255),1)
+                cv2.putText(out,'FULL FRAME LAMP '+start_light.observation.get('state','UNKNOWN'),(4,52),0,.35,(0,255,255),1)
             if not calibrated:
                 cv2.putText(out,'REFERENCE GEOMETRY ONLY',(4,200),0,.40,(0,0,255),1)
             screen_out=out.copy()
             cv2.rectangle(screen_out,(0,0),(319,37),(0,0,0),-1)
             cv2.putText(screen_out,reason,(4,14),0,.43,(0,255,255),1)
             cv2.putText(screen_out,'L=%d R=%d frame=%d'%(*applied_pwm,frames),(4,30),0,.39,(255,255,255),1)
-            for a,b,label,color in [(0,105,'START',(0,100,0) if ready else (55,55,55)),(106,212,'STOP',(0,0,170)),(213,319,'EXIT',(90,50,30))]:
+            for a,b,label,color in [(0,105,'START',(0,100,0) if direct_ready else (55,55,55)),(106,212,'STOP',(0,0,170)),(213,319,'EXIT',(90,50,30))]:
                 cv2.rectangle(screen_out,(a,209),(b,239),color,-1);cv2.putText(screen_out,label,(a+14,231),0,.48,(255,255,255),1)
             profile_ms['overlay']=round((time.monotonic()-overlay_tick)*1000,2)
             display_tick=time.monotonic()
@@ -264,7 +309,7 @@ def main():
             profile_ms['stream_encode']=round((time.monotonic()-stream_tick)*1000,2)
             log_tick=time.monotonic()
             if now>=next_log or result['state']=='CONFIRMING' or result['state']!=last_tracking_state:
-                print('CONTROL',json.dumps({'active':active,'reason':reason,'recovery':dict(recovery.snapshot(),search=search.status),'target':{k:v for k,v in result.items() if k!='path'},'detection_ms':round(detection_ms,1),'loop_processing_ms':round((time.monotonic()-captured)*1000,1),'pwm':applied_pwm,'logical_pwm':pwm,'frame':frames,'frame_received_at':captured,'read_ms':round((captured-read_began)*1000,1),'uno_connected':None if preview_only else link_ok,'calibrated':calibrated,'preview_only':preview_only,'crosswalk':dict(crosswalk_task.snapshot(captured),detection=crosswalk_detector.status),'steering':steering.status,'profile_ms':profile_ms}),flush=True);next_log=now+.5
+                print('CONTROL',json.dumps({'active':active,'reason':reason,'recovery':dict(recovery.snapshot(),search=search.status),'target':{k:v for k,v in result.items() if k!='path'},'detection_ms':round(detection_ms,1),'loop_processing_ms':round((time.monotonic()-captured)*1000,1),'pwm':applied_pwm,'logical_pwm':pwm,'frame':frames,'frame_received_at':captured,'read_ms':round((captured-read_began)*1000,1),'uno_connected':None if preview_only else link_ok,'calibrated':calibrated,'preview_only':preview_only,'crosswalk':dict(crosswalk_task.snapshot(captured),detection=crosswalk_detector.status),'start_light':start_light.snapshot(),'laps':laps.snapshot(),'steering':steering.status,'profile_ms':profile_ms}),flush=True);next_log=now+.5
             profile_ms['logging']=round((time.monotonic()-log_tick)*1000,2)
             profile_ms['frame_processing']=round((time.monotonic()-captured)*1000,2)
             stream.metrics['profile_ms']=profile_ms

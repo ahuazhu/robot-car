@@ -205,7 +205,10 @@ class LocalRoadModel:
         good=(age<=p.maximum_prediction_s)&(self.travel<=p.maximum_blind_distance_m)
         good &= (sigma<=p.maximum_sigma_m)&(q>=.22)
         if current_only:
-            good &= (age<1e-6)&(q>=p.confirmation_quality)
+            # Current accepted geometry is eligible for the startup streak.
+            # confirmation_quality belongs to adoption of conflicting roads;
+            # applying it here rejects a stable accepted road forever.
+            good &= (age<1e-6)&(q>=p.measurement_quality)
         runs=[ids for ids in contiguous_runs(good) if len(ids)>=5 and arc(self.path[ids])[-1]>=p.minimum_segment_m]
         if not runs:
             return None,dict(reason='NO CURRENT ROAD SUPPORT' if current_only else 'ROAD SUPPORT EXPIRED',age_s=float(age.max()),

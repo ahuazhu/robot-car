@@ -1,0 +1,8 @@
+{
+  "image_size": [
+    320,
+    240
+  ],
+  "labels": "User-confirmed ON then OFF at two consecutive lamp positions; edge OFF files originally frame-*.jpg.",
+  "source": "Raw first pane of /capture; no added lamp template, unchanged detection thresholds."
+}

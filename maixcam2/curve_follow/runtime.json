@@ -39,5 +39,44 @@
   },
   "motor_peak_boost_pwm": 37,
   "straight_cruise_pwm": 163,
-  "search_cruise_pwm": 60
+  "search_cruise_pwm": 60,
+  "start_light": {
+    "enabled": true,
+    "auto_arm_on_launch": true,
+    "image_size": [
+      320,
+      240
+    ],
+    "template_file": "start_light_template.png",
+    "core_roi": [
+      2,
+      5,
+      22,
+      14
+    ],
+    "match_score_min": 0.9,
+    "minimum_luma": 222.5,
+    "minimum_contrast": 15.0,
+    "confirm_s": 0.35,
+    "maximum_frame_gap_s": 0.35,
+    "calibration_basis": "Full-frame bright/red component search followed by multi-scale appearance matching to this actual lamp; template learned from four user-confirmed ON frames2026-10-31. Four OFF scenes rejected in replay. No fixed image position. Stable lit lamp can trigger without a new OFF/ON transition.",
+    "extra_templates": [
+      {
+        "template_file": "start_light_led_template.png",
+        "core_roi": [
+          8,
+          6,
+          17,
+          13
+        ]
+      }
+    ],
+    "minimum_halo_contrast": 5.0
+  },
+  "race": {
+    "enabled": true,
+    "laps": 3,
+    "marker": "transverse_white_line",
+    "basis": "User 2026-10-31: gantry removed; count this transverse white line only. Initial departure crossing is skipped. Three subsequent measured crossings stop the race."
+  }
 }
