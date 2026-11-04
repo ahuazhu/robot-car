@@ -1,14 +1,16 @@
 id: robot_curve_follow
-name: Curve Follow
-name[zh]: 小车巡线
-version: 0.6.26
+name: AAA
+name[zh]: AAA
+version: 0.6.58
 icon: ''
 author: robot-car
-desc: Quadratic centerline tracking, manual START, brake light and crosswalk yielding
-desc[zh]: 二次曲线中线巡线，手动开始，支持刹车灯与横道礼让
+desc: Quadratic centerline tracking, rectangle brightness transition start, brake light and crosswalk yielding
+desc[zh]: 二次曲线中线巡线，顶部亮度变化启动，支持刹车灯与横道礼让
 files:
-  standalone.py: main.py
+  main.py: main.py
+  robot: robot
   app.yaml: app.yaml
   calibration.json: calibration.json
   runtime.json: runtime.json
+  curve_fit_kernel.c: curve_fit_kernel.c
   curve_fit_kernel.so: curve_fit_kernel.so

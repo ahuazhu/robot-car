@@ -39,5 +39,41 @@
   },
   "motor_peak_boost_pwm": 37,
   "straight_cruise_pwm": 163,
-  "search_cruise_pwm": 60
+  "search_cruise_pwm": 60,
+  "start_light": {
+    "enabled": true,
+    "auto_arm_on_launch": false,
+    "image_size": [
+      320,
+      240
+    ],
+    "delta_luma": 28.0,
+    "minimum_changed_pixels": 512,
+    "confirm_s": 0.6,
+    "confirm_frames": 4,
+    "maximum_frame_gap_s": 0.75,
+    "maximum_region_fraction": 1.0,
+    "minimum_region_fill": 0.25,
+    "maximum_region_aspect": 4.0,
+    "search_roi_fraction": [
+      0.4,
+      0.0,
+      0.2,
+      0.13333333333333333
+    ],
+    "minimum_confirmation_iou": 0.6,
+    "trigger_direction": "DARKER"
+  },
+  "race": {
+    "enabled": true,
+    "laps": 2,
+    "marker": "transverse_white_line",
+    "basis": "User 2026-11-01: count the transverse white line only. Initial departure crossing is skipped; two subsequent measured crossings complete the lap target.",
+    "finish_basis": "User 2026-11-01: after two counted laps and confirmed rear clearance of the counting white line, continue forward driving for 5 seconds, then stop. Paused, reverse and in-place rotation intervals do not count.",
+    "finish_runout_s": 5.0
+  },
+  "confirmed_cruise_pwm": 140,
+  "road_search": {
+    "allow_visual_scan": true
+  }
 }

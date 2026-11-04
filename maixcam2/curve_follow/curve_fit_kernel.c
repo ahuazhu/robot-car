@@ -364,3 +364,23 @@ int curve_agree_paths(const double *a,int na,const double *b,int nb,double *out)
     }
     return curve_agree_local(a,b,ta,tb,sa,sb,na,nb,out);
 }
+
+/* Nearest sampled vertices, not segment projections. Strict comparison retains
+ * the first index on ties, as NumPy argmin does. Policy stays in Python. */
+int curve_nearest_samples(const double *query,int nq,const double *reference,int nr,
+                          int *indices,double *distances) {
+    if(nq<1 || nr<1)return 0;
+    for(int i=0;i<nq;i++)
+        if(!isfinite(query[2*i]) || !isfinite(query[2*i+1]))return 0;
+    for(int j=0;j<nr;j++)
+        if(!isfinite(reference[2*j]) || !isfinite(reference[2*j+1]))return 0;
+    for(int i=0;i<nq;i++){
+        double best=INFINITY;int index=0;
+        for(int j=0;j<nr;j++){
+            double distance=hypot(query[2*i]-reference[2*j],query[2*i+1]-reference[2*j+1]);
+            if(distance<best){best=distance;index=j;}
+        }
+        indices[i]=index;distances[i]=best;
+    }
+    return 1;
+}

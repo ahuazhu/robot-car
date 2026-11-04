@@ -22,7 +22,7 @@ https://wiki.sipeed.com/hardware/zh/maixcam/maixcam2_xAI.html
 /Users/yang/work/robot-car/.maixpy/maixpy doctor
 /Users/yang/work/robot-car/.maixpy/maixpy device check
 /Users/yang/work/robot-car/.maixpy/maixpy mode status
-/Users/yang/work/robot-car/.maixpy/maixpy run /Users/yang/work/robot-car/maixcam2/lane_preview/main.py --timeout 60
+/Users/yang/work/robot-car/.maixpy/maixpy run /Users/yang/work/robot-car/maixcam2/camera_preview/main.py --timeout 60
 /Users/yang/work/robot-car/.maixpy/maixpy mode exit
 
 使用注意：

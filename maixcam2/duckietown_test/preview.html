@@ -1,7 +1,0 @@
-<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Duckietown 视觉测试</title><style>body{margin:0;padding:24px;background:#111827;color:#e5e7eb;font:16px system-ui}main{max-width:1280px;margin:auto}h1{font-size:24px}.labels{display:flex}.labels span{width:33.33%;padding:12px 0}img{width:100%;border:1px solid #475569;border-radius:8px}p{line-height:1.7}button{padding:10px 18px;font:inherit}#status{color:#facc15}</style>
-<main><h1>Duckietown 视觉测试</h1><p>当前仅检查识别效果，轮子不会转动。黄色为左边线，蓝色为右边线。</p><p id="status">连接中…</p>
-<div class="labels"><span>摄像头原图</span><span>边线检测</span><span>地面投影（需标定）</span></div>
-<img id="video" src="/stream"><p>标定时保持小车和镜头不动，让纸条四个端点清晰入镜。未标定时，右侧为空是正常现象。</p>
-<button onclick="document.getElementById('video').src='/stream?t='+Date.now()">重新连接画面</button><p>退出测试：点击摄像头屏幕右下角 EXIT。</p></main>
-<script>async function update(){try{let r=await fetch('/status',{cache:'no-store',signal:AbortSignal.timeout(1500)});let s=await r.json();document.getElementById('status').textContent=s.age_ms<1000?'检测正在运行 · '+s.reason:'画面更新已中断';}catch(e){document.getElementById('status').textContent='连接已断开，请检查摄像头';}}update();setInterval(update,1000);</script></html>

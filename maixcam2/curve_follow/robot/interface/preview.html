@@ -1,0 +1,154 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>曲线中线巡线 v0.6.58</title><style>
+body{margin:0;background:#111827;color:#e5e7eb;font:16px system-ui;padding:20px}
+main{max-width:1440px;margin:auto}h1{font-size:24px}p{line-height:1.6}
+img{display:block;width:100%;height:auto;border:1px solid #374151;border-radius:10px}
+.labels{display:flex}.labels span{width:33.33%;padding:12px 0;font-weight:600}
+small{color:#9ca3af}button{padding:12px 22px;border:0;border-radius:6px;cursor:pointer;font:inherit}
+#direct-start{background:#16a34a;color:white}#start{background:#2563eb;color:white}#stop,#stop-bottom{background:#dc2626;color:white;font-weight:bold}
+button:disabled{opacity:.4;cursor:not-allowed}.lap-setting{display:flex;gap:8px;align-items:center}.lap-setting input{width:5em;padding:10px;border:1px solid #6b7280;border-radius:6px;background:#1f2937;color:#e5e7eb;font:inherit}.lap-setting input:disabled{opacity:.55;cursor:not-allowed}.lap-setting input[aria-invalid="true"]{border-color:#f87171}.controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+#status{font-weight:600}#notice{min-height:1.6em;color:#fcd34d}
+.video-window{overflow:hidden;border:1px solid #374151;border-radius:10px}
+.video-window img{border:0;border-radius:0;max-width:none}
+.video-window[data-view="all"]{aspect-ratio:4/1}
+.video-window[data-view="all"] img{width:100%;transform:none}
+.video-window:not([data-view="all"]){aspect-ratio:4/3}
+.video-window:not([data-view="all"]) img{width:300%}
+.video-window[data-view="raw"] img{transform:translateX(0)}
+.video-window[data-view="annotated"] img{transform:translateX(-33.333333%)}
+.video-window[data-view="ground"] img{transform:translateX(-66.666667%)}
+.view-controls{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}
+.view-controls button{padding:8px 12px;background:#374151;color:#e5e7eb}
+.view-controls button.selected{background:#2563eb}
+#diagnostics{min-height:1.6em;color:#9ca3af}
+body{padding-bottom:100px}.bottom-controls{position:fixed;bottom:0;left:0;right:0;z-index:10;background:#111827;border-top:1px solid #374151;padding:12px 20px;display:flex;justify-content:center;box-sizing:border-box;padding-bottom:max(12px,env(safe-area-inset-bottom))}.bottom-controls button{width:min(320px,100%);min-height:52px}
+</style><main><h1>曲线中线巡线 v0.6.58</h1>
+<p>左侧为原图，中间为完整画面上的巡线叠加，右侧为地面投影（未标定时仅参考）。黄线为左边界，蓝线为右边界，绿线为已见道路中线，橙色虚线为此前已见中线经运动补偿得到的预测，红十字为动态前瞻追踪点。</p>
+<div class="controls"><label class="lap-setting" for="target-laps">目标圈数 <input id="target-laps" type="number" min="1" max="100" step="1" value="2" inputmode="numeric" aria-describedby="laps-help" disabled></label><small id="laps-help">1–100圈，ARM后锁定</small><button id="direct-start" disabled onclick="control('start_now')">▶ 直接启动</button><button id="start" disabled onclick="control('start')">START 开始</button>
+<button id="stop" onclick="control('stop')">STOP 停车</button><span id="status">正在连接…</span></div>
+<p id="notice" role="status" aria-live="polite"></p><p id="lap-status" role="status"></p><p id="start-light-status" role="status"></p><p id="crosswalk-status" role="status"></p><p id="diagnostics"></p><div class="view-controls" aria-label="选择画面">
+<button data-view="all" onclick="setView('all')">三图对照</button>
+<button data-view="raw" onclick="setView('raw')">完整原图</button>
+<button data-view="annotated" onclick="setView('annotated')">巡线叠加</button>
+<button data-view="ground" onclick="setView('ground')">地面投影</button></div>
+<div class="labels" id="labels"><span>原始画面</span><span>巡线识别</span><span>地面投影</span></div>
+<div id="video-window" class="video-window" data-view="all"><img id="video" src="/stream" alt="连接摄像头中"></div>
+<p>上方帧号持续增加表示画面正在更新。原图保留完整视野，巡线叠加图不再被状态栏或按钮遮挡。上方 START／STOP 控制小车；相机触摸屏仍可直接操作。启用发车信号时，仅监测青色矩形内的亮度变暗（阈值28），亮着保持等待；同一位置稳定连续至少4帧、0.6秒确认，且道路和通信就绪后发车。青色矩形为顶部32像素、横向居中的64像素；原图与巡线叠加图都显示相同检测框。“直接启动”无需等灯，仍检查道路和通信。STOP 会取消等待并停车；ARM 可先进入等灯状态，无需先等道路就绪；亮灯后仍检查道路和通信。两种发车共用同一套检查及计圈逻辑；计圈线可在启动后识别。每次只触发一次。关闭发车灯模式时 START 直接开始巡线。每轮完成所设目标圈数后继续巡线，确认车尾越过计圈白线，再累计行驶5秒后自动停车，暂停不计时，起步越线不计圈；按横跨道路的计圈白线计圈，不依赖龙门架，重复画面不重复计数。短暂丢线或中线待确认时减速或零速寻回，确认后自动继续；道路暂时找不到时会停稳后小幅左右探路，最多四次短尝试；连续确认可信道路后继续，仍找不到则停车；电机通信故障或手动 STOP 会结束本次运行。PREVIEW ONLY 表示仅预览；CALIBRATION REQUIRED 表示需按当前镜头角度重新标定。</p>
+<button onclick="document.getElementById('video').src='/stream?t='+Date.now()">重新连接画面</button>
+<p><small>电脑或手机需与摄像头连接同一 Wi-Fi。退出巡线应用后，视频会断开。</small></p></main><footer class="bottom-controls" aria-label="底部停车菜单"><button id="stop-bottom" onclick="control('stop')">STOP 停车</button></footer><script>
+const token="__CONTROL_TOKEN__";
+let generation=0,canStart=false,canDirect=false,busy=false,statusBusy=false;
+let lapsInitialized=false,serverActive=false,serverArmed=false,lastServerLocked=false,statusExpiresAt=0,controlRevision=0;
+const directButton=document.getElementById('direct-start'),startButton=document.getElementById('start'),statusBox=document.getElementById('status'),notice=document.getElementById('notice');
+const lapsInput=document.getElementById('target-laps'),lapsError='请输入1–100之间的整数圈数。';
+function syncControls(){
+ const fresh=Date.now()<statusExpiresAt;
+ directButton.disabled=!fresh||!canDirect||busy;
+ startButton.disabled=!fresh||!canStart||busy;
+ lapsInput.disabled=!fresh||busy||serverActive||serverArmed;
+}
+lapsInput.addEventListener('input',()=>{
+ lapsInput.removeAttribute('aria-invalid');
+ if(notice.textContent===lapsError)notice.textContent='';
+});
+async function updateStatus(){
+ if(statusBusy)return;
+ statusBusy=true;
+ const revision=controlRevision;
+ try{
+  const r=await fetch('/status',{cache:'no-store',signal:AbortSignal.timeout(1500)});
+  if(!r.ok)throw Error('状态连接失败');
+  const s=await r.json();
+  if(revision!==controlRevision)return;
+  generation=s.generation;
+  const fresh=Number.isFinite(s.age_ms)&&s.age_ms>=0&&s.age_ms<1000;
+  statusExpiresAt=fresh?Date.now()+1000-s.age_ms:0;
+  serverActive=!!s.active;serverArmed=!!s.readiness?.start_light?.armed;
+  canStart=fresh&&!s.active&&!!(s.readiness?.arm_start_light_ready??s.ready);
+  canDirect=fresh&&!s.active&&!!(s.readiness?.direct_start_ready??s.ready);
+  syncControls();
+  statusBox.textContent=fresh?`${s.active?'运行中':'已停止'} · ${s.reason} · L=${s.left} R=${s.right}`:'状态更新中断';
+   const roadStates={"ROAD SEARCH SCANNING":"小幅转向寻路","ROAD SEARCH SETTLING":"寻路中，等待停稳","REACQUIRING ROAD":"正在寻回道路，确认后自动继续","VISION WAIT":"等待及时画面，恢复后自动继续","ROAD SEARCH":"正在重新搜索道路","ROAD NOT FOUND":"暂未找到道路，零速等待恢复"};
+   if(fresh&&roadStates[s.reason])statusBox.textContent=roadStates[s.reason]+` · L=${s.left} R=${s.right}`;
+   const failures={"CROSSWALK STOP UNVERIFIED":"横道停车位置未能确认","CROSSWALK POSITION UNCERTAIN":"横道距离不确定","CROSSWALK STOP WINDOW MISSED":"未能在横道前及时停车"};
+   if(fresh&&failures[s.reason])statusBox.textContent=failures[s.reason]+' · 已停车';
+   const d=s.readiness||{};
+   const laps=d.laps||{};
+   const locked=serverActive||serverArmed;
+   if(fresh&&Number.isInteger(laps.total_laps)&&laps.total_laps>=1&&laps.total_laps<=100){
+    // Idle polling never overwrites an edit; entering a mission reflects its accepted target.
+    if(!lapsInitialized||(locked&&!lastServerLocked)){
+     lapsInput.value=String(laps.total_laps);lapsInput.removeAttribute('aria-invalid');
+    }
+    lapsInitialized=true;
+   }
+   if(fresh)lastServerLocked=locked;
+   document.getElementById('lap-status').textContent=laps.enabled?`圈数：${laps.completed_laps}/${laps.total_laps}圈 · ${laps.complete?`已完成${laps.total_laps}圈，已停车`:laps.phase==='FINISH_CLEAR_REAR'?`已完成${laps.total_laps}圈，等待车尾越过白线`:laps.phase==='FINISH_RUNOUT'?'车尾已越线，继续行驶后停车':laps.phase==='SEEK_DEPARTURE'?'等待识别计圈线，首次越线不计':laps.phase==='DEPARTURE'?'起步越线不计圈':laps.phase==='WAIT_START'||laps.phase==='STOPPED'?'等待新一轮启动':'比赛进行中'}${laps.unverified_crossings?' · 有越线未能确认，请核对':''}`:'';
+   const finishPosition=laps.finish_position||{};
+   if(laps.phase==='FINISH_CLEAR_REAR'&&Number.isFinite(finishPosition.remaining_m))document.getElementById('lap-status').textContent+=` · 车尾距离白线约${Math.ceil(finishPosition.remaining_m*100)}cm`;
+   if(laps.phase==='FINISH_RUNOUT')document.getElementById('lap-status').textContent+=` · 行驶计时 ${(laps.finish_elapsed_s||0).toFixed(1)}/${(laps.finish_runout_s??0).toFixed(1)}秒（暂停不计时）`;
+   const lineMarker=laps.detector||{};
+   if(laps.enabled)document.getElementById('lap-status').textContent+=lineMarker.confirmed?' · 计圈白线已确认':lineMarker.marker_visible?' · 计圈白线确认中':' · 未看到计圈白线';
+   if(fresh&&s.reason==='FINISH CLEAR REAR')statusBox.textContent=`已完成${laps.total_laps}圈，等待车尾越过白线`+` · L=${s.left} R=${s.right}`;
+   if(fresh&&s.reason==='FINISH RUNOUT')statusBox.textContent='车尾已越线，继续行驶计时中'+` · L=${s.left} R=${s.right}`;
+   if(fresh&&s.reason==='LAPS COMPLETE')statusBox.textContent=`已完成${laps.total_laps}圈，自动停车 · L=0 R=0`;
+   const lamp=d.start_light||{};
+   startButton.textContent=lamp.enabled?'ARM 等待信号变化':'START 开始';
+   const lampPhases={BASELINING:'记录初始画面',WAIT_CHANGE:'等待亮度明显变化',CONFIRM_CHANGE:'正在确认变化',WAIT_FRESH_FRAME:'发现变化，等待及时画面',SIGNAL_READY:'出发信号已确认，等待道路和通信就绪',RUNNING:'本次已启动，信号检测已结束',DISARMED:'检测已暂停，灯亮时按ARM记录画面，等待稳定变暗'};
+   const direction={BRIGHTER:'明显变亮',DARKER:'明显变暗',COLOR_CHANGED:'颜色明显变化'};
+   document.getElementById('start-light-status').textContent=lamp.enabled?`发车信号（青色矩形内）：${lampPhases[lamp.phase]||lamp.phase} · ${direction[lamp.lamp?.direction]||'尚未确认变化'} · 连续确认 ${Math.min(lamp.confirmation_frames||0,lamp.required_frames||2)}/${lamp.required_frames||2}帧`:'';
+   if(fresh&&s.reason==='WAIT START LIGHT')statusBox.textContent='等待青色矩形内稳定变暗 · L=0 R=0';
+   const crossing=d.crosswalk;
+   if(crossing){
+    const phases={SEARCH:'搜索横道',APPROACH:'接近横道',STOPPING:'确认停稳',HOLD:'停车礼让',RECOVERY_HOLD:'补充礼让（停车位置未核实）',PASSING:'通过横道',FAULT:'任务故障'};
+    const distance=crossing.distance_to_body_m;
+    const observed=crossing.observation;
+    const range=distance!==null&&distance!==undefined?`距车身 ${Math.round(distance*100)}cm`:observed?`距镜头参考点 ${Math.round(observed.near_m*100)}cm`:'';
+    const mode=crossing.mode==='yield'?'自动礼让':'仅识别，自动礼让尚未启用';
+    document.getElementById('crosswalk-status').textContent=[`横道：${mode}`,phases[crossing.phase]||crossing.phase,range,crossing.phase==='HOLD'?`已停 ${crossing.hold_elapsed_s.toFixed(1)}秒`:'',crossing.failure||crossing.recovery_reason||'',crossing.yield_completed?(crossing.yield_verified?'礼让已验证':'礼让已完成，位置未验证'):''].filter(Boolean).join(' · ');
+   }
+
+   const labels={LAP_START_NOT_READY:'请在计圈白线前摆正，等待龙门架与白线确认',PREVIEW_ONLY:'当前仅预览',UNO_DISCONNECTED:'UNO未连接',VISION_TOO_SLOW:'视觉处理超时',PATH_CONFIRMING:'正在确认中线',ROAD_NO_TARGET:'暂无有效追踪点',ROAD_UNOBSERVED:'等待有效道路观测',ROAD_WEAK:'道路置信度不足',ROAD_STABILIZING:'等待道路稳定',CROSSWALK_STOP_UNVERIFIED:'横道停车位置尚未确认'};
+   const search=(d.recovery||{}).search||{};
+   const searchLabels={"GROUND MOTION UNVERIFIED":"等待有效运动估计","BODY POSE CLEARANCE UNVERIFIED":"车身与道路余量尚未确认","NO OBSERVABLE SAFE YAW STEP":"暂无可确认的小幅转向空间","ROTATION SWEEP NOT INSIDE KNOWN ROAD":"转向范围超过可信道路余量","SEARCH BUDGET OR DRIFT LIMIT":"试探达到角度、漂移或时长界限","SWEEP COMPLETED WITHOUT A CONFIRMED PATH":"左右试探后仍无可信追踪路径"};
+   const searchNotice=searchLabels[search.reason]||'';
+   const waiting=(!s.active&&!s.ready)?(d.blocked_by||[]).map(k=>failures[k]||labels[k]||k).join('；'):'';
+   document.getElementById('diagnostics').textContent=[waiting,searchNotice,d.observed_streak!==undefined?`道路确认 ${Math.min(d.observed_streak,d.required_observations)}/${d.required_observations}`:'',d.processing_ms!==undefined?`视觉 ${d.processing_ms}ms`:'',d.confidence!==undefined?`置信度 ${Math.round(d.confidence*100)}%`:'',d.frame!==undefined?`帧 ${d.frame}`:''].filter(Boolean).join(' · ');
+
+ }catch(e){if(revision===controlRevision){statusExpiresAt=0;canStart=canDirect=false;syncControls();statusBox.textContent='连接中断，请检查摄像头和Wi-Fi';}}
+ finally{statusBusy=false;}
+}
+async function control(action){
+ const starting=action==='start'||action==='start_now';
+ if(starting&&(busy||Date.now()>=statusExpiresAt||(action==='start_now'?!canDirect:!canStart)))return;
+ const payload={action,generation};
+ if(starting){
+  const laps=Number(lapsInput.value);
+  if(!Number.isInteger(laps)||laps<1||laps>100){
+   notice.textContent=lapsError;lapsInput.setAttribute('aria-invalid','true');lapsInput.focus();return;
+  }
+  payload.laps=laps;busy=true;
+ }
+ // Discard polls begun before this request; only a new status may unlock controls.
+ controlRevision++;statusExpiresAt=0;syncControls();
+ notice.textContent=action==='stop'?'正在发送停车请求…':'正在发送启动请求…';
+ try{
+  const r=await fetch('/control',{method:'POST',headers:{'Content-Type':'application/json','X-Control-Token':token},
+   body:JSON.stringify(payload),signal:AbortSignal.timeout(2000)});
+  const result=await r.json();
+  if(!r.ok)throw Error(result.message||'请求失败');
+  notice.textContent=action==='stop'?'停车请求已接收，以上方实际状态为准。':'启动请求已接收，以上方实际状态为准。';
+ }catch(e){notice.textContent=e.message+'；请检查上方状态，必要时使用车上STOP或电源开关。';}
+ finally{if(starting)busy=false;await updateStatus();}
+}
+function setView(view){
+ if(!['all','raw','annotated','ground'].includes(view))view='all';
+ document.getElementById('video-window').dataset.view=view;
+ document.getElementById('labels').style.display=view==='all'?'flex':'none';
+ document.querySelectorAll('.view-controls button').forEach(b=>b.classList.toggle('selected',b.dataset.view===view));
+ try{localStorage.setItem('curve-camera-view',view)}catch(e){}
+}
+let initialView='all';try{initialView=localStorage.getItem('curve-camera-view')||'all'}catch(e){}
+setView(initialView);updateStatus();setInterval(updateStatus,500);setInterval(syncControls,200);
+</script></html>

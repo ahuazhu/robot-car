@@ -1,101 +1,93 @@
-"""Bundle the curve app and generate its preview-default deployment script."""
-from pathlib import Path
-import base64
+"""Package the normal Python application and emit a self-contained installer."""
+
 import argparse
-import ast
-parser=argparse.ArgumentParser()
-parser.add_argument("--drive",action="store_true",help="Enable manually started driving; default is forced preview")
-args=parser.parse_args()
-root=Path(__file__).resolve().parent
-project=root.parents[1]
-modules=('native_geometry','road_policy','geometry','ground_motion','road_model','road_recovery','tracker','crosswalk','controller','steering_control','drive_link','motor_channel','preview_transport','main')
-parts=[]
-for name in modules:
-    source=(root/(name+'.py')).read_text()
-    lines=source.splitlines(keepends=True)
-    # Local imports resolve to bundled definitions. AST line spans handle
-    # multi-line imports without depending on their formatting.
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node,ast.ImportFrom) and node.module in modules:
-            lines[node.lineno-1:node.end_lineno]=['\n']*(node.end_lineno-node.lineno+1)
-    parts.append(''.join(lines))
-app="import os\nos.environ['OPENBLAS_NUM_THREADS']='1'\nos.environ['OMP_NUM_THREADS']='1'\n"+'\n'.join(parts)
-compile(app,'standalone.py','exec')
-(root/'standalone.py').write_text(app)
-setup="from pathlib import Path\nimport os,base64,subprocess,time,hashlib\nroot=Path('/maixapp/apps/robot_curve_follow')\nroot.mkdir(parents=True,exist_ok=True)\n"
-setup+='''backup=root/'backups'/time.strftime('%Y%m%d-%H%M%S',time.gmtime())
-backup.mkdir(parents=True,exist_ok=True)
-for name in ('main.py','calibration.json','runtime.json','curve_fit_kernel.c','curve_fit_kernel.so','app.yaml'):
-    previous=root/name
-    if previous.exists():(backup/name).write_bytes(previous.read_bytes())
-print('DEVICE_BACKUP',str(backup),flush=True)
-'''
-for filename,data in [('app.yaml',(root/'app.yaml').read_bytes()),('main.py',app.encode()),('calibration.json',(root/'calibration.json').read_bytes()),('runtime.json',(root/'runtime.json').read_bytes()),('curve_fit_kernel.c',(root/'curve_fit_kernel.c').read_bytes())]:
-    setup+="temporary=root/%r\ntemporary.write_bytes(base64.b64decode(%r))\n\n"%(filename+'.next',base64.b64encode(data).decode())
-setup+='''compile_result=subprocess.run(['cc','-x','c','-std=c99','-O3','-fPIC','-shared',str(root/'curve_fit_kernel.c.next'),'-o',str(root/'curve_fit_kernel.so.next'),'-lm'],capture_output=True,text=True)
-if compile_result.returncode:
-    print(compile_result.stdout,compile_result.stderr,flush=True)
-    raise RuntimeError('Native quadratic kernel compilation failed; old files retained')
-import ctypes
-compiled=ctypes.CDLL(str(root/'curve_fit_kernel.so.next'))
-compiled.curve_fit_local
-compiled.curve_agree_local
-compiled.curve_fit_chain
-compiled.curve_project_polyline
-compiled.curve_boundary_chains
-compiled.curve_select_pursuit
-compiled.curve_agree_paths
-for name in ('curve_fit_kernel.c','curve_fit_kernel.so','main.py','calibration.json','runtime.json','app.yaml'):
-    (root/(name+'.next')).replace(root/name)
-print('NATIVE_KERNEL_READY',flush=True)
-# Register the same app that remote deployment runs. The old icon pointed to
-# an obsolete program; preserve it on disk but remove its launcher manifest.
-registry=root.parent/'app.info'
-if registry.exists():(backup/'app.info').write_bytes(registry.read_bytes())
-legacy=root.parent/'robot_lane_follow'
-legacy_manifest=legacy/'app.yaml'
-if legacy_manifest.exists():
-    (backup/'legacy-app.yaml').write_bytes(legacy_manifest.read_bytes())
-    if (legacy/'main.py').exists():
-        (backup/'legacy-main.py').write_bytes((legacy/'main.py').read_bytes())
-    legacy_manifest.replace(legacy/'app.yaml.disabled')
-try:
-    subprocess.run(['/usr/bin/python3',str(root.parent/'gen_app_info.py'),str(root.parent)],check=True)
-    import configparser
-    registered=configparser.ConfigParser(interpolation=None)
-    registered.read(registry)
-    if registered.get('robot_curve_follow','exec')!='main.py' or registered.has_section('robot_lane_follow'):
-        raise RuntimeError('Launcher registration does not select the current app')
-except Exception:
-    if (backup/'legacy-app.yaml').exists():
-        legacy_manifest.write_bytes((backup/'legacy-app.yaml').read_bytes())
-    if (backup/'app.info').exists():registry.write_bytes((backup/'app.info').read_bytes())
-    raise
-print('LAUNCHER_REGISTERED robot_curve_follow',flush=True)
-env=dict(os.environ,MAIXPY_DEBUG_IMAGES='0',TARGET_TEST_SECONDS='0',TARGET_PREVIEW_ONLY='1')
-with open('/tmp/robot_curve_follow.log','w') as log:
-    p=subprocess.Popen(['/usr/bin/python3','-u',str(root/'main.py')],cwd=str(root),stdout=log,stderr=log,env=env,start_new_session=True)
-import json,urllib.request
-received=set();deadline=time.monotonic()+30
-while time.monotonic()<deadline and p.poll() is None:
-    try:
-        with urllib.request.urlopen('http://127.0.0.1:8000/vision',timeout=1) as response:health=json.load(response)
-        if health.get('frame',0)>0:received.add(health['frame'])
-        if len(received)>=3:break
-    except (OSError,ValueError):pass
-    time.sleep(.25)
-if len(received)<3:
-    print(Path('/tmp/robot_curve_follow.log').read_text()[-5000:],flush=True)
-    raise RuntimeError('App did not produce three JSON telemetry frames')
-with urllib.request.urlopen('http://127.0.0.1:8000/status',timeout=2) as response:status=json.load(response)
-if status['active'] or status['left'] or status['right']:raise RuntimeError('Unexpected drive state after deployment')
-print('FIRST_FRAMES_READY',health['app_version'],sorted(received),'active',status['active'],flush=True)
-print('PID',p.pid,'running',p.poll() is None,'SHA256',hashlib.sha256((root/'main.py').read_bytes()).hexdigest(),flush=True)
-print(Path('/tmp/robot_curve_follow.log').read_text()[-3000:],flush=True)
-if p.poll() is not None:raise RuntimeError('Curve app exited')
-'''
-if args.drive:
-    setup=setup.replace("TARGET_PREVIEW_ONLY='1'", "TARGET_PREVIEW_ONLY='0'")
-name='install_curve_follow_drive.py' if args.drive else 'install_curve_follow.py'
-(project/'.maixpy'/name).write_text(setup)
-print('Built curve_follow and .maixpy/'+name+(' (manual START enabled)' if args.drive else ' (forced preview)'))
+import base64
+import io
+from pathlib import Path
+import zipfile
+
+APP_FILES = ("main.py", "app.yaml", "calibration.json", "runtime.json", "curve_fit_kernel.c")
+
+
+def build_archive(source_root):
+    """Preserve module namespaces and package resources; never rewrite imports."""
+    source_root = Path(source_root)
+    paths = [source_root / name for name in APP_FILES]
+    package = source_root / "robot"
+    for required in ("__init__.py", "application.py", "interface/preview.html"):
+        if not (package / required).is_file():
+            raise ValueError("Missing robot package file: " + required)
+    for path in sorted(package.rglob("*")):
+        relative = path.relative_to(package)
+        if any(part.startswith(".") or part == "__pycache__" for part in relative.parts):
+            continue
+        if path.is_symlink():
+            raise ValueError("Package symlinks are not deployable: " + str(relative))
+        if path.is_file() and path.suffix not in (".pyc", ".pyo", ".so", ".dylib", ".o"):
+            paths.append(path)
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in paths:
+            if path.is_symlink():
+                raise ValueError("Application symlinks are not deployable: " + str(path))
+            data = path.read_bytes()
+            name = path.relative_to(source_root).as_posix()
+            if path.suffix == ".py":
+                compile(data, name, "exec")
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o100644 << 16
+            archive.writestr(info, data)
+    return payload.getvalue()
+
+
+def build(source_root, output_dir, *, drive=False):
+    source_root, output_dir = Path(source_root), Path(output_dir)
+    payload = build_archive(source_root)
+    template = (source_root / "tools" / "install_app.py").read_text()
+    compile(template, "tools/install_app.py", "exec")
+    encoded = base64.b64encode(payload).decode("ascii")
+    installer = (
+        template
+        + '\n\nif __name__ == "__main__":\n    import base64\n    install_app(base64.b64decode('
+        + repr(encoded)
+        + "), force_preview="
+        + repr(not drive)
+        + ")\n"
+    )
+    compile(installer, "install_curve_follow.py", "exec")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    archive_dir = output_dir / "build"
+    archive_dir.mkdir(exist_ok=True)
+    archive_path = archive_dir / "curve_follow.zip"
+    archive_path.write_bytes(payload)
+    name = "install_curve_follow_drive.py" if drive else "install_curve_follow.py"
+    installer_path = output_dir / name
+    installer_path.write_text(installer)
+    return installer_path, archive_path
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--drive",
+        action="store_true",
+        help="Allow configured driving; deployment still starts unarmed",
+    )
+    parser.add_argument(
+        "--output-dir", type=Path, help="Local artifact directory (default: project .maixpy)"
+    )
+    args = parser.parse_args(argv)
+    source_root = Path(__file__).resolve().parent
+    output = args.output_dir or source_root.parents[1] / ".maixpy"
+    installer, archive = build(source_root, output, drive=args.drive)
+    print("Built package:", archive)
+    print(
+        "Installer:",
+        installer,
+        "(configured driving, unarmed)" if args.drive else "(forced preview)",
+    )
+
+
+if __name__ == "__main__":
+    main()
