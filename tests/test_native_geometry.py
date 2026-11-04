@@ -65,7 +65,7 @@ class NativeAgreementTests(unittest.TestCase):
 @unittest.skipUnless(native_fit_status().get("boundary_enabled"), "compile the contour kernel")
 class BoundaryKernelTests(unittest.TestCase):
     def test_real_contours_all_thresholds_seams_and_reversal_match_reference(self):
-        cal = json.loads((ROOT / "maixcam2/curve_follow/calibration.json").read_text())
+        cal = json.loads((ROOT / "tests/fixtures/camera_pose_20261031_191327.json").read_text())
         pixel = CurvePixels(cal)
         accepted = 0
         names = (
@@ -120,7 +120,7 @@ class BoundaryKernelTests(unittest.TestCase):
         self.assertGreater(accepted, 30)
 
     def test_entire_extraction_keeps_candidate_geometry_and_scores(self):
-        cal = json.loads((ROOT / "maixcam2/curve_follow/calibration.json").read_text())
+        cal = json.loads((ROOT / "tests/fixtures/camera_pose_20261031_191327.json").read_text())
         pixel = CurvePixels(cal)
         image = cv2.imread(str(ROOT / "tests/fixtures/curve_zebra_turn.jpg"))[:240, :320]
         for normalized in (False, True):

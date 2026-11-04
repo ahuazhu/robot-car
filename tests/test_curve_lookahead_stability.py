@@ -10,7 +10,7 @@ from robot.core.road_policy import RoadPolicy
 from robot.core import geometry
 from robot.core.geometry import support_projection
 
-CAL = json.loads((ROOT / "maixcam2/curve_follow/calibration.json").read_text())
+CAL = json.loads((ROOT / "tests/fixtures/camera_pose_20261031_191327.json").read_text())
 
 
 def controller():

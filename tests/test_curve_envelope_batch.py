@@ -12,7 +12,7 @@ from tests.reference.curve_envelope_reference import envelope_reference
 class EnvelopeBatchTests(unittest.TestCase):
     def test_random_curves_partial_support_visibility_and_command_time_transform(self):
         rng = np.random.default_rng(178)
-        cal = json.loads((ROOT / "maixcam2/curve_follow/calibration.json").read_text())
+        cal = json.loads((ROOT / "tests/fixtures/camera_pose_20261031_191327.json").read_text())
         for i in range(120):
             x = np.linspace(-0.15, 0.7, 80)
             k = rng.uniform(-4, 4)

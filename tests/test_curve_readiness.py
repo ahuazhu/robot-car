@@ -11,7 +11,7 @@ from robot.navigation.road_model import LocalRoadModel
 from robot.navigation.tracker import TargetTracker
 from robot.control.controller import assess_vision_command
 
-CAL = json.loads((ROOT / "maixcam2/curve_follow/calibration.json").read_text())
+CAL = json.loads((ROOT / "tests/fixtures/camera_pose_20261031_191327.json").read_text())
 
 
 def observation(start=0.12, end=0.65, y=0.0, quality=0.93):

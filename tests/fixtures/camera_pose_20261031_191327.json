@@ -1,0 +1,60 @@
+{
+  "H_normalized": [
+    [
+      0.03719201199046416,
+      -0.011062596626906594,
+      -0.37046208143364884
+    ],
+    [
+      0.5147276839714453,
+      -0.06813760377092533,
+      -0.21131386950419326
+    ],
+    [
+      0.2156545449674303,
+      -3.003185805635693,
+      1.0
+    ]
+  ],
+  "image_size": [
+    320,
+    240
+  ],
+  "pixels": [
+    [
+      47.43153381347656,
+      181.9199676513672
+    ],
+    [
+      272.39691162109375,
+      187.13479614257812
+    ],
+    [
+      210.5261688232422,
+      138.18524169921875
+    ],
+    [
+      98.23348999023438,
+      133.84925842285156
+    ]
+  ],
+  "near_m": 0.3,
+  "far_m": 0.6,
+  "road_width_m": 0.3,
+  "origin": "camera ground footprint",
+  "lens_rectified": false,
+  "drive_validated": false,
+  "camera_pose_verified": true,
+  "geometry_confirmed": true,
+  "source_image": "/Users/yang/work/robot-car/.maixpy/calibrations/20261031-191327-white30-60/raw.png",
+  "geometry_basis": "User confirmed2026-10-31: two transverse white lines at30cm and60cm from lens ground footprint; inner longitudinal white-edge width30cm; vehicle centred and aligned.",
+  "measurement_note": "Robust straight inner-side fits intersect transverse white stripe centre fits. Fits trained on two frames and checked on a third. This checks image localization consistency only, not independent metric accuracy; wrinkles, lens distortion and manual placement remain uncorrected.",
+  "validation_status": "stationary_four_point_calibration_heldout_checked_not_drive_validated",
+  "vision_roi_top_px": 65,
+  "vision_grid_step_m": 0.0075,
+  "calibration_reference": {
+    "near": "near transverse white stripe centre30cm",
+    "far": "far transverse white line centre60cm",
+    "width": "longitudinal white inner edges"
+  }
+}

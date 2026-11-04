@@ -9,7 +9,7 @@ from robot.perception.boundaries import CurvePixels
 
 class ExteriorPrefilterTests(unittest.TestCase):
     def test_real_glare_crosswalk_and_bends_match_unfiltered_contours(self):
-        cal = json.loads((ROOT / "maixcam2/curve_follow/calibration.json").read_text())
+        cal = json.loads((ROOT / "tests/fixtures/camera_pose_20261031_191327.json").read_text())
         for name in (
             "curve_shadow_glare.jpg",
             "curve_zebra_turn.jpg",

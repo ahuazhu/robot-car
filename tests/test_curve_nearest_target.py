@@ -92,7 +92,7 @@ class NearestTargetTests(unittest.TestCase):
 
     def test_complete_tracker_can_control_actual_accepted_single_edge(self):
         f = self.fixture()
-        cal = json.loads((ROOT / "maixcam2/curve_follow/calibration.json").read_text())
+        cal = json.loads((ROOT / "tests/fixtures/camera_pose_20261031_191327.json").read_text())
         cal["control_frame"] = {"origin_m": f["origin_m"]}
         t = TargetTracker(cal)
         t.pixels.measure = lambda *args: (
@@ -107,7 +107,7 @@ class NearestTargetTests(unittest.TestCase):
 
     def test_complete_tracker_prediction_metadata_serializes_for_live_web_and_logs(self):
         f = self.fixture()
-        cal = json.loads((ROOT / "maixcam2/curve_follow/calibration.json").read_text())
+        cal = json.loads((ROOT / "tests/fixtures/camera_pose_20261031_191327.json").read_text())
         for path in (np.asarray(f["path"]), np.c_[np.linspace(0.2, 0.6, 40), np.zeros(40)]):
             tracker = TargetTracker(cal)
             tracker.pixels.measure = lambda *args: (
@@ -122,7 +122,7 @@ class NearestTargetTests(unittest.TestCase):
     def test_user_reported_orange_extension_is_absent_without_observation_history(self):
         import cv2
 
-        cal = json.loads((ROOT / "maixcam2/curve_follow/calibration.json").read_text())
+        cal = json.loads((ROOT / "tests/fixtures/camera_pose_20261031_191327.json").read_text())
         cal["control_frame"] = json.loads(
             (ROOT / "maixcam2/curve_follow/runtime.json").read_text()
         )["control_frame"]

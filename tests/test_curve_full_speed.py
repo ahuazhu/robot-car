@@ -12,7 +12,7 @@ from robot.control.controller import compensate_pwm
 from robot.navigation.steering_control import SteeringControl
 from robot.core.road_policy import RoadPolicy
 
-CAL = json.loads((ROOT / "maixcam2/curve_follow/calibration.json").read_text())
+CAL = json.loads((ROOT / "tests/fixtures/camera_pose_20261031_191327.json").read_text())
 
 
 class FullSpeedTests(unittest.TestCase):

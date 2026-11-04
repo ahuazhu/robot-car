@@ -78,4 +78,4 @@ OPENBLAS_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1 \
 
 `/status` 提供运行和启动状态，`/vision` 提供当前帧、任务、道路证据及 `profile_ms`。`control_pipeline` 已包含算法子阶段，不能重复求和；`frame_period` 还包含帧间等待。预览原图、叠加图、地面投影分别用于检查可见性、识别与几何。
 
-设备日志：`/tmp/robot_curve_follow.log`；桌面启动失败日志：`/maixapp/tmp/last_run.log`。本地设备配置、原始录像和部署证据仅放 `.maixpy/`，不入库。清理前副本在 `.maixpy/cleanup-20261103/before.tar.gz`；这次结构清理未向设备安装。
+设备日志：`/tmp/robot_curve_follow.log`；桌面启动失败日志：`/maixapp/tmp/last_run.log`。本地设备配置、原始录像和部署证据仅放 `.maixpy/`，不入库。清理前副本在 `.maixpy/cleanup-20261103/before.tar.gz`；源码提交不代表设备已更新，应通过 `/vision` 的 `app_version` 核对实际部署版本。

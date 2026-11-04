@@ -51,7 +51,7 @@ miniAuto 麦克纳姆轮小车：MaixCAM2 巡线与任务识别，Arduino UNO �
 
 已删除旧Tracker状态镜像、未使用的时间参数、全局拼接部署和旧启动器迁移补丁。有限视觉扫视已成为独立状态机；所有电机输出由控制会话统一发布，STOP优先于同帧启动及完赛事件。重复的标量测试副本已用冻结结果替代，测试共享构造器与数值参考分别放在 `tests/support` 和 `tests/reference`。具体职责及构建流程见 [应用说明](maixcam2/curve_follow/README.md)。
 
-本次清理前工作副本保存在 `.maixpy/cleanup-20261103/before.tar.gz`；原有未提交修改和本地录像保留。本地源码版本不表示设备已更新，最近核实的车上版本仍是 v0.6.56。
+本次清理前工作副本保存在 `.maixpy/cleanup-20261103/before.tar.gz`；原有未提交修改和本地录像保留。源码提交不代表设备已更新，当前设备版本以网页 `/vision` 的 `app_version` 为准。当前相机姿态见 [标定记录](docs/标定记录-20261104.md)。
 
 ## 接线与标定
 

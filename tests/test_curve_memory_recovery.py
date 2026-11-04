@@ -7,7 +7,7 @@ import numpy as np
 from robot.navigation import tracker
 from robot.control.controller import RoadSupervisor, target_command
 
-CAL = json.loads((ROOT / "maixcam2/curve_follow/calibration.json").read_text())
+CAL = json.loads((ROOT / "tests/fixtures/camera_pose_20261031_191327.json").read_text())
 
 
 def line(x0, x1, y):

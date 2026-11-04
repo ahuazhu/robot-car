@@ -33,7 +33,7 @@ def motion(valid=True):
 
 class ContinuityTests(unittest.TestCase):
     def tracker(self):
-        c = json.loads((ROOT / "maixcam2/curve_follow/calibration.json").read_text())
+        c = json.loads((ROOT / "tests/fixtures/camera_pose_20261031_191327.json").read_text())
         c["control_frame"] = dict(
             origin_m=[-0.055, 0.0], body_m=[0.075, 0.105, 0.085], geometry_verified=True
         )

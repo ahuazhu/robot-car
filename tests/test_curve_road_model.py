@@ -12,7 +12,7 @@ from robot.core.ground_motion import GroundMotion, command_motion, apply_ground_
 from robot.navigation.tracker import TargetTracker
 from robot.perception.boundaries import CurvePixels
 
-CAL = json.loads((ROOT / "maixcam2/curve_follow/calibration.json").read_text())
+CAL = json.loads((ROOT / "tests/fixtures/camera_pose_20261031_191327.json").read_text())
 # Historical recordings retain their capture-time camera pose.
 RECORDED_CAL = json.loads(
     (ROOT / "tests/fixtures/road_model_recording_calibration.json").read_text()

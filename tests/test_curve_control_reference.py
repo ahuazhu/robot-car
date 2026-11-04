@@ -60,7 +60,8 @@ class ReferenceTests(unittest.TestCase):
 
         cal = json.loads(
             (
-                Path(__file__).resolve().parents[1] / "maixcam2/curve_follow/calibration.json"
+                Path(__file__).resolve().parents[1]
+                / "tests/fixtures/camera_pose_20261031_191327.json"
             ).read_text()
         )
         tracker = TargetTracker(cal)
@@ -167,7 +168,7 @@ class FeedbackTests(unittest.TestCase):
 class RecordedStopTests(unittest.TestCase):
     def test_recorded_unseen_body_corners_are_not_current_collisions(self):
         root = Path(__file__).resolve().parents[1]
-        cal = json.loads((root / "maixcam2/curve_follow/calibration.json").read_text())
+        cal = json.loads((root / "tests/fixtures/camera_pose_20261031_191327.json").read_text())
         fixture = json.loads((root / "tests/fixtures/curve_body_visibility_stop.json").read_text())
         target = fixture["target"]
         origin = np.array([-0.055, 0.0])
@@ -218,7 +219,8 @@ class PreviewContractTests(unittest.TestCase):
 
         cal = json.loads(
             (
-                Path(__file__).resolve().parents[1] / "maixcam2/curve_follow/calibration.json"
+                Path(__file__).resolve().parents[1]
+                / "tests/fixtures/camera_pose_20261031_191327.json"
             ).read_text()
         )
         image = np.zeros((240, 320, 3), np.uint8)

@@ -1,18 +1,18 @@
 {
   "H_normalized": [
     [
-      0.03719201199046416,
-      -0.011062596626906594,
-      -0.37046208143364884
+      0.04302104822205999,
+      0.2410724055626417,
+      -1.2339181794129954
     ],
     [
-      0.5147276839714453,
-      -0.06813760377092533,
-      -0.21131386950419326
+      1.4918956596199464,
+      0.023909557134641726,
+      -0.689967465623319
     ],
     [
-      0.2156545449674303,
-      -3.003185805635693,
+      0.024491281167870537,
+      -4.819557831274672,
       1.0
     ]
   ],
@@ -22,20 +22,20 @@
   ],
   "pixels": [
     [
-      47.43153381347656,
-      181.9199676513672
+      34.96157385823733,
+      217.67519266541507
     ],
     [
-      272.39691162109375,
-      187.13479614257812
+      249.07226662573063,
+      214.27934436643773
     ],
     [
-      210.5261688232422,
-      138.18524169921875
+      202.2348462983531,
+      139.1224908555804
     ],
     [
-      98.23348999023438,
-      133.84925842285156
+      86.99945018407546,
+      139.90394678513545
     ]
   ],
   "near_m": 0.3,
@@ -46,15 +46,34 @@
   "drive_validated": false,
   "camera_pose_verified": true,
   "geometry_confirmed": true,
-  "source_image": "/Users/yang/work/robot-car/.maixpy/calibrations/20261031-191327-white30-60/raw.png",
-  "geometry_basis": "User confirmed2026-10-31: two transverse white lines at30cm and60cm from lens ground footprint; inner longitudinal white-edge width30cm; vehicle centred and aligned.",
-  "measurement_note": "Robust straight inner-side fits intersect transverse white stripe centre fits. Fits trained on two frames and checked on a third. This checks image localization consistency only, not independent metric accuracy; wrinkles, lens distortion and manual placement remain uncorrected.",
-  "validation_status": "stationary_four_point_calibration_heldout_checked_not_drive_validated",
+  "source_image": "/Users/yang/work/robot-car/.maixpy/runs/20261104-180630-calibration_capture_20261104/artifacts/raw-2.png",
+  "geometry_basis": "User confirmed 2026-11-04: current fixed camera; car centred/aligned with straight road; two transverse WHITE STRIPE CENTRES at 30cm and 60cm from lens ground footprint; longitudinal WHITE INNER-edge gap 30cm. x forward, y left; centred vehicle reference absorbs camera lateral offset; runtime control origin remains [-0.055,0] without another lateral shift.",
+  "measurement_note": "Held-out frames show repeatability on the same physical markers, not independent metric accuracy. No unused measured distance/point is present. Wrinkled cloth, line thickness, lens distortion and ruler placement remain uncorrected. Local stripe/side fits extrapolate a short distance to each junction. No driving verification performed.",
+  "validation_status": "stationary_current_pose_four_point_heldout_checked_not_drive_validated",
   "vision_roi_top_px": 65,
   "vision_grid_step_m": 0.0075,
   "calibration_reference": {
-    "near": "near transverse white stripe centre30cm",
-    "far": "far transverse white line centre60cm",
-    "width": "longitudinal white inner edges"
+    "near": "near transverse white stripe centre 30cm",
+    "far": "far transverse white stripe centre 60cm",
+    "width": "longitudinal white inner edges",
+    "corner_order": [
+      "near-left",
+      "near-right",
+      "far-right",
+      "far-left"
+    ]
+  },
+  "image_repeatability": {
+    "training_frames": [
+      0,
+      1,
+      3
+    ],
+    "heldout_frames": [
+      2,
+      4
+    ],
+    "heldout_corner_max_px": 1.4286499014083869,
+    "independent_metric_accuracy_verified": false
   }
 }
