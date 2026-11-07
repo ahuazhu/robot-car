@@ -89,6 +89,7 @@ class TargetTracker:
             boundary_confirmed=self.boundaries.confirms(measurement, details.get("fits", {}), now),
         )
         path, support = self.model.support(now, current_only=require_current)
+        confidence_profile = support.pop("confidence_profile", [])
         model_ms = (time.perf_counter() - tick) * 1000
         tick = time.perf_counter()
         target = (
@@ -187,6 +188,7 @@ class TargetTracker:
             reference_inferred=bool(observed_mask and not all(observed_mask)),
             target_inferred=bool(target is not None and not target_observed),
             path_observed_mask=observed_mask,
+            path_confidence=confidence_profile if target else [],
             control_target_source=("OBSERVED" if target_observed else "HISTORY PREDICTION")
             if target
             else None,

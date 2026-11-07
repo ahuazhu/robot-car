@@ -432,6 +432,7 @@ class LocalRoadModel:
             blind_distance_m=float(self.travel[ids].max()),
             sigma_m=float(sigma[ids].max()),
             confidence=float(q[ids].min()),
+            confidence_profile=q[ids].tolist(),
             length_m=float(arc(path)[-1]),
             fresh_fraction=float(np.mean(age[ids] < 1e-6)),
             sample_count=len(path),

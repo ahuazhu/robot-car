@@ -2,7 +2,7 @@
 
 import math
 import numpy as np
-from robot.core.geometry import arc, support_projection, pursuit_point
+from robot.core.geometry import arc, support_projection, pursuit_point, nearest_forward_point
 from robot.control.controller import target_command
 
 
@@ -72,6 +72,7 @@ class SteeringControl:
         self.preview_speed = 0.0
         self.preview_interval = 0.0
         self.speed_ready_since = None
+        self.speed_observed_at = None
         self.observed_at = None
         self.filtered_lookahead = None
         self.lookahead_at = None
@@ -174,6 +175,60 @@ class SteeringControl:
             self.lookahead_at = now
         return self.filtered_lookahead
 
+    def _confirm_observed_road(self, result, age_s):
+        """Observation continuity and this command's feasibility are separate.
+
+        A short/far pursuit goal or a temporarily missing envelope sample cannot
+        erase an otherwise accepted road observation. Those conditions still
+        forbid boost on that command. Lost/weak/conflicting/stale observations,
+        a new adopted road and long image gaps start a new confirmation window.
+        """
+        now = self.observed_at
+        quality = float(result.get("observation_confidence", result.get("confidence", 0.0)))
+        accepted = bool(
+            result.get("valid") and result.get("state") == "OBSERVED"
+            and result.get("observed", False) and not result.get("transition_pending")
+            and quality >= self.policy.confirmation_quality and now is not None
+            and math.isfinite(age_s) and 0 <= age_s <= self.policy.missing_command_s
+        )
+        if not accepted:
+            self.speed_ready_since = self.speed_observed_at = None
+            return 0.0
+        if self.speed_observed_at != now:
+            if (self.speed_observed_at is None or now < self.speed_observed_at
+                    or now-self.speed_observed_at > self.policy.missing_command_s
+                    or result.get("reacquired")):
+                self.speed_ready_since = now
+            self.speed_observed_at = now
+        return max(0.0, now-self.speed_ready_since)
+
+    def _forward_quality(self, result, path, selected):
+        """Keep low quality inside the driven prefix; ignore unrelated tails.
+
+        The selected pursuit point and the body rollout horizon both contribute
+        to the prefix extent. No per-point evidence means the original global
+        quality. Geometry expiry, uncertainty and prediction gates are unchanged.
+        """
+        original = float(result.get("confidence", 0.0))
+        try:
+            profile = np.asarray(result.get("path_confidence", []), float)
+        except (ValueError, TypeError):
+            return original, "GLOBAL"
+        if (profile.shape != (len(path),) or not np.isfinite(profile).all()
+                or not (0 < original <= 1) or np.any(profile <= 0) or np.any(profile > 1)
+                or abs(float(profile.min())-original) > 1e-6):
+            return original, "GLOBAL"
+        anchor = nearest_forward_point(path, self.policy.forward_min_m)
+        if anchor is None:
+            return original, "GLOBAL"
+        positions = arc(path)
+        front = self.body[0]
+        end = max(selected["position_m"]+front, anchor[1]+self.width+front)
+        first = max(0, int(np.searchsorted(positions, anchor[1]))-1)
+        last = min(len(path), int(np.searchsorted(positions, end, side="right"))+1)
+        quality = float(profile[first:last].min())
+        return quality, "FORWARD_PROFILE"
+
     def command(self, result, age_s=0.0, *, lookahead_m=None, alternatives=True):
         """Follow geometry at command time, not at frame-receive time.
 
@@ -187,12 +242,7 @@ class SteeringControl:
         self.status.pop("envelope", None)
         self.status.pop("prediction", None)
         self.status.pop("handoff", None)
-        if (
-            not result.get("valid")
-            or result.get("state") != "OBSERVED"
-            or not result.get("observed", False)
-        ):
-            self.speed_ready_since = None
+        stable_s = self._confirm_observed_road(result, age_s)
         if (
             point is None
             or not result.get("valid")
@@ -357,17 +407,8 @@ class SteeringControl:
             and envelope["minimum_clearance_m"] > 0.0
             and self.observed_at is not None
         )
-        # Use measured time, not a frame counter. A single accepted frame must
-        # not immediately restore extra speed after a weak/occluded segment.
-        if not road_eligible:
-            self.speed_ready_since = None
-        elif self.speed_ready_since is None:
-            self.speed_ready_since = self.observed_at
-        stable_s = (
-            0.0
-            if self.speed_ready_since is None
-            else max(0.0, self.observed_at - self.speed_ready_since)
-        )
+        # The elapsed road-observation proof is maintained independently of
+        # pursuit/envelope feasibility; every boost still needs road_eligible.
         # Motion remains mandatory for this command; an isolated flow rejection
         # cannot erase otherwise continuous road observation history.
         boost_ready = (
@@ -378,10 +419,23 @@ class SteeringControl:
             self.gain * abs(float(result.get("path_curvature_m_inv", 0.0))),
         )
         load = min(1.0, self.lever * bend)
+        control_quality = float(raw.get("confidence", 0.0))
+        quality_source = "GLOBAL"
+        # Reusing local quality raises only normal baseline effort on an
+        # already feasible gentle segment. It never enables the extra cruise
+        # step, changes sharp-turn effort, or grants speed to unseen road.
+        if (road_eligible and "body_speed_m_s" in self.status
+                and self.straight_cruise / (1.0+load) > self.cruise):
+            control_quality, quality_source = self._forward_quality(result, path, selected)
+            if control_quality != raw.get("confidence", 0.0):
+                raw = dict(raw, confidence=control_quality)
+                command = target_command(raw, self.lever, self.gain, self.cruise)
         straight_candidate = (
             max(self.cruise, self.straight_cruise / (1.0 + load)) if boost_ready else self.cruise
         )
         cruise = max(self.confirmed_cruise, straight_candidate) if boost_ready else self.cruise
+        applied_quality = control_quality
+        applied_quality_source = quality_source
         if cruise > self.cruise:
             # Preserve the existing quality source. Raising bend cruise must
             # not also replace decayed history quality with fresh quality,
@@ -392,6 +446,9 @@ class SteeringControl:
                 else raw.get("confidence", 0.0)
             )
             command = target_command(dict(raw, confidence=quality), self.lever, self.gain, cruise)
+            applied_quality = float(quality)
+            if straight_candidate > self.cruise:
+                applied_quality_source = "CURRENT_OBSERVATION"
         self.status["speed_plan"] = dict(
             baseline_cruise_pwm=self.cruise,
             confirmed_cruise_pwm=self.confirmed_cruise,
@@ -403,6 +460,10 @@ class SteeringControl:
             required_road_confirm_s=self.response_s,
             observation_confidence=observation_quality,
             road_eligible=road_eligible,
+            global_confidence=float(result.get("confidence", 0.0)),
+            control_confidence=applied_quality,
+            control_quality_source=applied_quality_source,
+            forward_confidence=control_quality,
         )
         self.status.update(
             envelope=envelope, target_selection="ADAPTIVE_PURSUIT", target_speed_scale=target_scale

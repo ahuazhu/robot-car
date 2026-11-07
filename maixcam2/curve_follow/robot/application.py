@@ -107,7 +107,7 @@ def main(app_dir):
         device_screen = DeviceScreen(screen.width(), screen.height())
         print("DEVICE_SCREEN", json.dumps(device_screen.snapshot()), flush=True)
         print(
-            "CURVE FOLLOW v0.6.75 | ESP32 start signal | preview_only=%s | calibrated=%s | no session time limit"
+            "CURVE FOLLOW v0.6.76 | ESP32 start signal | preview_only=%s | calibrated=%s | no session time limit"
             % (preview_only, calibrated),
             flush=True,
         )
@@ -302,7 +302,7 @@ def main(app_dir):
             stream.metrics = dict(
                 device_screen=device_screen.snapshot(),
                 frame=frames,
-                app_version="0.6.75",
+                app_version="0.6.76",
                 geometry_backend=backend,
                 frame_received_at=captured,
                 read_ms=round((captured - read_began) * 1000, 1),
