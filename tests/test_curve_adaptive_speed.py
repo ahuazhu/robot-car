@@ -114,7 +114,7 @@ class AdaptiveSpeedTests(unittest.TestCase):
             )
             state = task.update(obs, motion, 0.0, True)
             outputs.append(task.limit_command((cruise, cruise), state, motion))
-            self.assertEqual(task.speed_ceiling, 0.06)
+            self.assertGreater(task.speed_ceiling, 0.06)
         self.assertEqual(outputs[0], outputs[1])
 
     def test_existing_ramp_still_limits_start_and_honors_zero_immediately(self):

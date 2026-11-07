@@ -44,6 +44,21 @@ class RoadPolicy:
     missing_command_s: float = 0.35
     startup_observations: int = 5
 
+    def confirmed_reacquisition(self, result):
+        """One shared proof for resuming an already active stopped mission."""
+        quality = float(result.get("observation_confidence") or 0.0)
+        age = float(result.get("age_s") or 0.0)
+        return bool(
+            result.get("valid") and result.get("observed")
+            and result.get("state") == "OBSERVED"
+            and result.get("road_evidence") == "OBSERVED"
+            and result.get("reacquired") is True
+            and result.get("pending_frames") == 0
+            and not result.get("transition_pending")
+            and math.isfinite(quality) and quality >= self.confirmation_quality
+            and math.isfinite(age) and 0 <= age <= self.missing_command_s
+        )
+
     @classmethod
     def from_config(cls, config=None):
         values = (config or {}).get("road_model", {})

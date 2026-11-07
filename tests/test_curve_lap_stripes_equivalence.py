@@ -57,9 +57,16 @@ class StripeEquivalenceTests(unittest.TestCase):
             after = calls[:]
         finally:
             pixels.sample = original
-        self.assertEqual(len(after), len(before), "evaluated candidate count changed")
-        for a, b in zip(after, before):
-            np.testing.assert_allclose(a, b, rtol=0, atol=1e-14)
+        self.assertLessEqual(len(after), 4, "sampling must be batched per threshold pass")
+        self.assertEqual(bool(after), bool(before))
+        if before:
+            # Every old value/saturation probe remains present, in the same
+            # candidate order; batching changes calls, not sampled evidence.
+            for channel in (0, 1):
+                np.testing.assert_allclose(
+                    np.vstack(after[channel::2]), np.vstack(before[channel::2]),
+                    rtol=0, atol=1e-14,
+                )
         self.assertEqual(len(actual), len(expected))
         for a, b in zip(actual, expected):
             self.assertEqual(a.keys(), b.keys())

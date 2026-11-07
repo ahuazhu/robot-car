@@ -1,0 +1,192 @@
+[
+  {
+    "source_frame": 2988,
+    "captured": 15864.299715846,
+    "result": {
+      "valid": true,
+      "observed": true,
+      "state": "OBSERVED",
+      "observation_confidence": 0.8086541578747476,
+      "confidence": 0.8086541578747476,
+      "age_s": 0.0,
+      "transition_pending": false,
+      "reacquired": false,
+      "road_evidence": "OBSERVED",
+      "pending_frames": 0,
+      "invalid_reason": ""
+    },
+    "crosswalk_phase": "APPROACH",
+    "crosswalk_distance_m": 0.322255350124394
+  },
+  {
+    "source_frame": 2991,
+    "captured": 15864.886576824,
+    "result": {
+      "valid": true,
+      "observed": true,
+      "state": "OBSERVED",
+      "observation_confidence": 0.8086541578747476,
+      "confidence": 0.8086541578747476,
+      "age_s": 0.0,
+      "transition_pending": false,
+      "reacquired": false,
+      "road_evidence": "OBSERVED",
+      "pending_frames": 0,
+      "invalid_reason": ""
+    },
+    "crosswalk_phase": "APPROACH",
+    "crosswalk_distance_m": 0.3222553620517047
+  },
+  {
+    "source_frame": 2994,
+    "captured": 15865.47566264,
+    "result": {
+      "valid": true,
+      "observed": true,
+      "state": "OBSERVED",
+      "observation_confidence": 0.8086541578747476,
+      "confidence": 0.8086541578747476,
+      "age_s": 0.0,
+      "transition_pending": false,
+      "reacquired": false,
+      "road_evidence": "OBSERVED",
+      "pending_frames": 0,
+      "invalid_reason": ""
+    },
+    "crosswalk_phase": "APPROACH",
+    "crosswalk_distance_m": 0.3222553620517047
+  },
+  {
+    "source_frame": 2997,
+    "captured": 15866.044787986,
+    "result": {
+      "valid": true,
+      "observed": true,
+      "state": "OBSERVED",
+      "observation_confidence": 0.8086541578747476,
+      "confidence": 0.8086541578747476,
+      "age_s": 0.0,
+      "transition_pending": false,
+      "reacquired": false,
+      "road_evidence": "OBSERVED",
+      "pending_frames": 0,
+      "invalid_reason": ""
+    },
+    "crosswalk_phase": "APPROACH",
+    "crosswalk_distance_m": 0.3222553620517047
+  },
+  {
+    "source_frame": 3000,
+    "captured": 15866.655039147,
+    "result": {
+      "valid": true,
+      "observed": true,
+      "state": "OBSERVED",
+      "observation_confidence": 0.8086541578747476,
+      "confidence": 0.8086541578747476,
+      "age_s": 0.0,
+      "transition_pending": false,
+      "reacquired": false,
+      "road_evidence": "OBSERVED",
+      "pending_frames": 0,
+      "invalid_reason": ""
+    },
+    "crosswalk_phase": "APPROACH",
+    "crosswalk_distance_m": 0.322255350124394
+  },
+  {
+    "source_frame": 3003,
+    "captured": 15867.194303433,
+    "result": {
+      "valid": true,
+      "observed": true,
+      "state": "OBSERVED",
+      "observation_confidence": 0.8086541578747476,
+      "confidence": 0.8086541578747476,
+      "age_s": 0.0,
+      "transition_pending": false,
+      "reacquired": false,
+      "road_evidence": "OBSERVED",
+      "pending_frames": 0,
+      "invalid_reason": ""
+    },
+    "crosswalk_phase": "APPROACH",
+    "crosswalk_distance_m": 0.3222553620517047
+  },
+  {
+    "source_frame": 3006,
+    "captured": 15867.7582206,
+    "result": {
+      "valid": true,
+      "observed": true,
+      "state": "OBSERVED",
+      "observation_confidence": 0.8086541578747476,
+      "confidence": 0.8086541578747476,
+      "age_s": 0.0,
+      "transition_pending": false,
+      "reacquired": false,
+      "road_evidence": "OBSERVED",
+      "pending_frames": 0,
+      "invalid_reason": ""
+    },
+    "crosswalk_phase": "APPROACH",
+    "crosswalk_distance_m": 0.322255350124394
+  },
+  {
+    "source_frame": 3009,
+    "captured": 15868.371241415,
+    "result": {
+      "valid": true,
+      "observed": true,
+      "state": "OBSERVED",
+      "observation_confidence": 0.8086541578747476,
+      "confidence": 0.8086541578747476,
+      "age_s": 0.0,
+      "transition_pending": false,
+      "reacquired": false,
+      "road_evidence": "OBSERVED",
+      "pending_frames": 0,
+      "invalid_reason": ""
+    },
+    "crosswalk_phase": "APPROACH",
+    "crosswalk_distance_m": 0.322255350124394
+  },
+  {
+    "source_frame": 3012,
+    "captured": 15868.998891524,
+    "result": {
+      "valid": true,
+      "observed": true,
+      "state": "OBSERVED",
+      "observation_confidence": 0.8086541578747476,
+      "confidence": 0.8086541578747476,
+      "age_s": 0.0,
+      "transition_pending": false,
+      "reacquired": false,
+      "road_evidence": "OBSERVED",
+      "pending_frames": 0,
+      "invalid_reason": ""
+    },
+    "crosswalk_phase": "APPROACH",
+    "crosswalk_distance_m": 0.32158793038894246
+  },
+  {
+    "source_frame": 3015,
+    "captured": 15869.690431275,
+    "result": {
+      "valid": true,
+      "observed": true,
+      "state": "OBSERVED",
+      "observation_confidence": 0.8086541578747476,
+      "confidence": 0.8086541578747476,
+      "age_s": 0.0,
+      "transition_pending": false,
+      "reacquired": false,
+      "road_evidence": "OBSERVED",
+      "pending_frames": 0,
+      "invalid_reason": ""
+    },
+    "crosswalk_phase": "APPROACH",
+    "crosswalk_distance_m": 0.3222553419185762
+  }
+]

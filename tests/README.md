@@ -22,7 +22,8 @@ Dependencies: NumPy and OpenCV. `tests.support` adds the application source root
 - `test_native_geometry.py`, `test_curve_nearest_fast.py`: native kernels against their independent Python/NumPy paths, including malformed input and fallback limits.
 - `test_crosswalk*`: observed bars, brightness changes, stop positions, verified dwell, spatial rearming, and recovery.
 - `test_curve_laps.py`, `test_curve_confirmed_forward.py`: departure suppression, measured crossings, rear clearance and confirmed forward-output runout time.
-- `test_curve_start_light.py`: startup brightness transition, false-trigger rejection and confirmation timing.
+- `test_curve_start_light.py`: archived Maix detector reference (offline only).
+- `test_esp_start_signal.py`: actual embedded detector, recorded lamp replay, remote event freshness, cancellation and one-shot consumption.
 - `test_build.py`: package build and offline installer behavior.
 
 Shared scene/clock/protocol constructors live under `support/`; tests do not import helpers from other test modules. Frozen numerical reference implementations live under `reference/`; images and captured calibration/telemetry remain under `fixtures/`. Machine-local `.maixpy` captures are benchmark inputs, not optional regression cases.

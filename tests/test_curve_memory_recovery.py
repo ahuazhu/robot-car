@@ -45,11 +45,15 @@ class MemoryRecoveryTests(unittest.TestCase):
                         )
                         if not result["observed"]:
                             self.assertEqual(result["state"], "CONFIRMING")
-                            self.assertEqual(result["confirmation_required_frames"], 4)
+                            self.assertEqual(
+                                result["confirmation_required_frames"],
+                                2 if result["association_kind"] == "REINITIALIZATION" else 4,
+                            )
                             self.assertIsNone(command)  # Still zero while old memory expires.
                         results.append(result)
-                    self.assertEqual(results[-2]["pending_frames"], 3)
-                    self.assertEqual(results[-2]["invalid_reason"], "ROAD SUPPORT EXPIRED")
+                    self.assertTrue(all(not r["observed"] for r in results[:3]))
+                    self.assertTrue(results[3]["observed"])  # Two fresh matching replacement frames.
+                    self.assertEqual(results[3]["pending_frames"], 0)
                     self.assertTrue(results[-1]["observed"])
                     self.assertIsNotNone(command)
                     self.assertEqual(guard.snapshot()["attempt_frames"], 0)

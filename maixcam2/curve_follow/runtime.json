@@ -13,10 +13,12 @@
     "geometry_verified": true,
     "brake_lamp_verified": true,
     "brake_deceleration_m_s2": 0.08,
-    "stop_clearance_m": 0.08,
+    "stop_clearance_m": 0.02,
     "approach_speed_m_s": 0.06,
     "speed_per_pwm_m_s": 0.006705385281385282,
-    "speed_response_s": 0.4
+    "speed_response_s": 0.4,
+    "brake_entry_m": 0.15,
+    "hold_s": 3.2
   },
   "crosswalk_calibration": {
     "body_source": "Latest user measurements: axle spacing11cm; lens at front axle; lens to front2cm; overall length18cm; optical lateral offset6/11cm yields17cm width. Calibrated lateral axis uses body/lane centre; longitudinal reference unchanged.",
@@ -40,40 +42,22 @@
   "motor_peak_boost_pwm": 37,
   "straight_cruise_pwm": 163,
   "search_cruise_pwm": 60,
-  "start_light": {
-    "enabled": true,
-    "auto_arm_on_launch": false,
-    "image_size": [
-      320,
-      240
-    ],
-    "delta_luma": 28.0,
-    "minimum_changed_pixels": 512,
-    "confirm_s": 0.6,
-    "confirm_frames": 4,
-    "maximum_frame_gap_s": 0.75,
-    "maximum_region_fraction": 1.0,
-    "minimum_region_fill": 0.25,
-    "maximum_region_aspect": 4.0,
-    "search_roi_fraction": [
-      0.4,
-      0.0,
-      0.2,
-      0.13333333333333333
-    ],
-    "minimum_confirmation_iou": 0.6,
-    "trigger_direction": "DARKER"
-  },
   "race": {
     "enabled": true,
     "laps": 2,
     "marker": "transverse_white_line",
-    "basis": "User 2026-11-01: count the transverse white line only. Initial departure crossing is skipped; two subsequent measured crossings complete the lap target.",
-    "finish_basis": "User 2026-11-01: after two counted laps and confirmed rear clearance of the counting white line, continue forward driving for 5 seconds, then stop. Paused, reverse and in-place rotation intervals do not count.",
-    "finish_runout_s": 5.0
+    "basis": "User 2026-11-07: classify the first confirmed counting-line visit by its earliest consistent observation after actual race start. At or before 30 seconds, skip that visit; after 30 seconds, count its measured crossing as lap 1. Later distinct measured crossings count normally. No time-only lap increment.",
+    "finish_basis": "User 2026-11-07: after the final counted white-line crossing, continue at normal road-controlled speed for 40cm of measured chassis-forward travel, then stop directly. No timer, finish creep or precise position adjustment.",
+    "finish_distance_m": 0.4,
+    "initial_line_ignore_s": 30.0
   },
   "confirmed_cruise_pwm": 140,
   "road_search": {
     "allow_visual_scan": true
+  },
+  "start_signal": {
+    "enabled": true,
+    "peer_url": "http://robot-esp32cam.local/",
+    "source": "ESP32"
   }
 }

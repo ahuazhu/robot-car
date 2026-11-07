@@ -1,48 +1,93 @@
-ESP32-S3近场摄像头视频预览（2026-10-22）
+ESP32-S3 发车灯检测与无线预览（2026-11-07）
 
-目标硬件：Hiwonder ESP32-S3 GC2145，8MB flash、OPI PSRAM。
-用途：安装高度、左右覆盖、俯角与弯道视野测试。不会控制电机。
-本固件取代颜色识别固件，不提供原0x52颜色数据或侧摄边线数据。
+硬件：Hiwonder ESP32-S3 / GC2145，8MB flash、OPI PSRAM。
+固件：0.4.6-larger-roi。搭配 Maix 巡线应用0.6.72。
+ESP32 上仰，只识别龙门架发车灯；Maix 下视巡线并决定是否启动。
+UNO 继续执行 Maix 电机/刹车灯指令，不需要修改。本固件不提供原0x52颜色数据。
 
-电脑USB预览（本次已启动并验证）：
-  http://127.0.0.1:8123/
-  保持ESP32-S3自己的USB线接电脑；不需要切换Wi-Fi。
-  这是低帧率调视角预览（115200串口传JPEG），不是巡线控制的数据通道。
-  重启服务：在 /Users/yang/work/robot-car 执行
-  .maixpy/.venv/bin/python esp32s3/video_preview/usb_preview.py --serial /dev/cu.usbserial-14210 --port 8123
-  端口名若改变，以当前ESP32-S3实际串口为准；不要选择UNO端口。
-  Ctrl+C停止本机服务；不要同时用Arduino串口监视器占用ESP32串口。
-  已验证：相机PID 0x2145、连续3张可解码且哈希不同的320x240 JPEG、浏览器显示实际画面。
-  Wi-Fi图传服务已启动，热点端实际播放尚待用户连接验证。
+日常使用：
+  打开 http://10.73.124.209:8000/，两路画面和控制同页。
+  原电脑入口 http://127.0.0.1:8123/ 跳转到该控制页。
+  ESP32和Maix连接同一可互访的2.4GHz网络，发车许可经Wi-Fi传送，不依赖电脑。
+  USB只需供电，可改接稳定5V充电宝；换电源时会重启，自动重新入网。
+  ESP32原图320x240；青色定位框 x80,y0,w160,h128，中心保持(160,64)不变。黄色框是锁定灯面的外包矩形，实际只检测分割得到的灯面核心像素。
+  让完整灯面处于框中央、四周留余量，车和相机摆稳后在Maix按ARM。
+  先确认稳定亮灯，再对同一灯面连续至少3帧、0.4秒确认熄灯；变亮不发车。
+  发车还需道路和电机通信就绪；Maix收到有效确认后锁存许可，等待就绪不设两秒过期。
+  STOP或最终圈数停车清除本次许可；许可锁存后ESP32断线、重启不影响本轮运行。直接启动可人工跳过等灯。
+  ESP32网页只观察，不直接控制电机。
 
-备份与恢复：
-  ../backups/before_preview_first_1MiB_20261022.bin 保存原闪存前1MiB。
-  它不是8MiB全盘备份，但包含本次写入涉及的引导/分区/当前应用区域；原应用校验与SHA均有效。
-  初始8MiB高速读取因串口数据损坏失败，不可使用该次不完整结果恢复。
-  恢复时仅向ESP32-S3地址0写回上述1MiB镜像，不执行整片擦除。
-  其余闪存区域本次未写入。
+首次无线配置 / 更换Wi-Fi：
+  ESP32的USB接电脑，执行：
+  .maixpy/.venv/bin/python esp32s3/video_preview/wireless_preview.py \
+    --serial /dev/cu.usbserial-14240 --ssid 'Xiaomi 14' \
+    --maix-url http://10.73.124.209:8000/ --port 8123
+  在 http://127.0.0.1:8123/setup 自行输入密码并连接。
+  密码只保存于ESP32 NVS，不写入项目、聊天、日志或主机状态文件。
+  电脑状态 .maixpy/esp32_wifi.local.json 只保存SSID与设备URL。
+  原热点仍保留为 HW_ESP32S3CAM，地址192.168.5.1；日常使用连接Maix同一网络。
 
-手机Wi-Fi预览：
-1. 摄像头上电，等待约5秒。
-2. 手机或电脑连接 Wi-Fi HW_ESP32S3CAM（开放热点，无密码）。
-3. 浏览器打开 http://192.168.5.1/ 。没有互联网提示时选择保持连接。
-4. 网页自动预览，可停止、重新开始、开关中心参考线。
-   参考线仅用于观察，不是边线识别结果。
-5. 原始MJPEG：http://192.168.5.1:81/stream
-   单张JPEG：http://192.168.5.1/capture
-手机预览不影响电脑继续连接原Wi-Fi。不要把Maix的192.168.3.244当成这块摄像头。
+首次 ESP32 / Maix 配对：
+  .maixpy/.venv/bin/python esp32s3/video_preview/pair_signal.py \
+    --serial /dev/cu.usbserial-14240 --peer-url http://robot-esp32cam.local/ \
+    --output .maixpy/start_signal.local.json
+  通过安全传输将私有配对文件复制到Maix应用目录并设权限600。
+  文件不提交Git、不打包到公共应用包；ESP32端密钥保存NVS。
+  Maix应用更新保留该私有文件。更换配对后需同步更新两端。
 
-画面：QVGA 320x240，RGB565采集后软件JPEG编码。实际帧率以实测为准。
-仅调试预览；比赛运行时应关闭无线图传。
-USB串口115200：S返回状态；J返回“JPEG 字节数\n”及其后的JPEG二进制。
+编译（本机已验证Arduino ESP32 2.0.12-cn）：
+  arduino-cli compile \
+    --fqbn 'esp32:esp32:esp32s3:PSRAM=opi,FlashSize=8M,PartitionScheme=huge_app,FlashMode=qio,USBMode=hwcdc,CDCOnBoot=default,UploadSpeed=115200' \
+    --jobs 4 --build-path .maixpy/permission-latch-20261107/build \
+    --output-dir .maixpy/permission-latch-20261107/firmware esp32s3/video_preview
+  注意：设备保留原OTA分区，app0为0x10000、大小0x330000。
+  常规更新只写app0，不用编译生成的分区表覆盖原表、不整片擦除。
+  不刷写UNO串口；当前ESP32是 /dev/cu.usbserial-14240，端口变化时重新确认。
 
-编译环境：esp32 by Espressif Systems 2.0.12-cn。
-FQBN：esp32:esp32:esp32s3:PSRAM=opi,FlashSize=8M,PartitionScheme=huge_app,FlashMode=qio,USBMode=hwcdc,CDCOnBoot=default,UploadSpeed=115200
+早期发车固件回滚材料（本地忽略目录）：
+  .maixpy/esp32-start-signal-20261106/flash-record.json
+  记录旧0.2.0-wifi应用文件及SHA256、写入前OTA选择备份、最终固件SHA256。
+  恢复旧应用时按记录写app0与OTA选择，不触碰NVS、bootloader和原分区表。
+  更早制造商固件备份见 esp32s3/backups/；不要使用不完整的8MiB读取结果。
 
-相机引脚和15MHz时钟依据厂家源码：
-https://github.com/Hiwonder/MiniHexa/tree/main/arduino-programming-projects
-4.4 AI视觉项目课程/7.2 颜色识别/esp32s3/ColorDetection/camera_setting.h
-HTTP和JPEG接口依据本机Espressif 2.0.12-cn CameraWebServer示例。
-厂家原厂图传使用方法：
-https://docs.hiwonder.com/projects/miniAuto/en/latest/docs/7.ai_vision_games_lesson.html#live-camera-feed
-此工程是针对该硬件编写的独立预览程序，不是厂家的image_transmit.bin。
+接口：
+  80端口 /capture：缓存JPEG，直接页面短请求刷新预览。
+  81端口 /status、POST /signal：独立发车控制服务；不与JPEG发送排队。
+  /status：相机和发车状态，不含密码/配对密钥。
+  81端口 POST /signal：经过配对认证的 arm / poll / cancel，会话及重启编号匹配才接受。
+  USB J=JPEG、S=状态、Q=无线状态、C+JSON=Wi-Fi配置、P+JSON=专用配对。
+  检测取帧独立于预览；无客户端时仍能检测。Maix主循环不等待无线请求。
+
+回测：
+  .maixpy/.venv/bin/python esp32s3/video_preview/replay.py \
+    --output .maixpy/esp32-rule-start-20261107/replay.json
+  编译同一C++检测内核；扩框后历史小灯原始构图熄灯样本通过，17张未切灯抖动无误触发。
+  大灯原始构图出框仍不锁定；保留完整上下文的整体平移后，大小灯亮→灭均通过，反向均不触发。
+  样本来自旧Maix镜头，不能代替最终上仰安装后的ESP32实测。
+  分工、失效处理、数据范围和限制详见 docs/双摄发车信号评审-20261106.md。
+
+自恢复：主循环／相机任务8秒看门狗；3秒无新鲜相机帧重启；断网每5秒重连。
+/status diagnostics提供重启原因、堆内存、RSSI及注册状态。重启后必须重新ARM。
+
+自恢复0.4.2历史回滚记录：.maixpy/esp32-recovery-20261107/flash-record.json，前版0.4.1镜像与SHA256已保留。
+
+录制工具：record_signal.py，仅ARM ESP32检测器，持续检查Maix停车；JPEG序列和状态日志保存在.maixpy/lamp-recordings。
+
+放大框版本的回滚记录：.maixpy/esp32-larger-roi-20261107/flash-record.json，前版0.4.2已保存。
+
+灯面分割：0.4.4按亮度及颜色寻找连通域，冻结实际像素掩膜；颜色类别每帧只计算一次。
+背景仅辅助曝光补偿及结构检查，不再因背景明显变暗直接否决。
+0.4.4历史回放：405帧，初次锁定约0.818秒，熄灯候选到确认659ms。当前0.4.5同一录像确认449ms；JPEG回放不等于现场延迟。
+复现录制数据：replay.py --recording .maixpy/lamp-recordings/lamp-trial-20261107-a --output .maixpy/esp32-lamp-mask-20261107/recording-replay.json
+纯色背景下增益与偏移不可同时辨识，遮挡或移走灯也可能误判；现场灯仍需验证。
+灯面分割0.4.4历史回滚记录：.maixpy/esp32-lamp-mask-20261107/flash-record.json，保留0.4.3前版镜像。
+详见 docs/灯面分割与回测-20261107.md。
+
+当前发车协议：Maix收到本次会话的有效熄灯确认后锁存permission=true，直到STOP或完成圈数最终停车。
+ESP32后续离线、重启、画面中断均不撤销Maix许可；首次许可仍要求匹配会话及有效确认。
+ESP32确认前2秒无通信取消；确认后保持到认证cancel，不再因租约过期清掉结果。
+当前OFF条件：3帧且400ms，至少60%灯面像素变暗，Lab L8变化下限8；ON基准仍为4帧且300ms。
+当前部署及回滚记录：.maixpy/permission-latch-20261107/flash-record.json，前版0.4.4已保存。
+协议与验证详见 docs/出发许可锁存-20261107.md。
+
+当前扩框部署、回测及回滚记录：.maixpy/esp32-roi-160x128-20261107/flash-record.json；详细说明 docs/ESP32定位框扩大-20261107.md。当前维护USB端口为/dev/cu.usbserial-14140（端口变化时重新确认）。

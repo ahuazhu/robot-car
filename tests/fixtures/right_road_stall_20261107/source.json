@@ -1,0 +1,7 @@
+{
+  "source_version": "0.6.72",
+  "source": "Unannotated original 320x240 panel decoded from cached 960x240 JPEG while stalled; PNG is not raw sensor data.",
+  "failure": "Near and distant visible road pieces separated by green were paired as opposite boundaries; EDGES DISAGREE and exhausted visual scan.",
+  "observed_behavior": "Current live outputs zero, active true, motor UART healthy.",
+  "expected": "Keep ambiguous same-surface hypotheses rejected; a verified green separator and uniquely nearer visible road component may establish one measured boundary hypothesis. Steering still owns drive feasibility."
+}

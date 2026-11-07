@@ -2,6 +2,7 @@
 
 from tests.support import ROOT
 import unittest
+import json
 from unittest.mock import patch
 
 
@@ -83,6 +84,60 @@ class VisualScanTests(unittest.TestCase):
                 self.assertIsNone(command)
         self.assertTrue(search.scan.finished)
         return pulses, now
+
+    def test_recorded_model_confirmations_resume_without_second_startup_streak(self):
+        rows=json.loads((ROOT/'tests/fixtures/reacquired_road_20261107.json').read_text())
+        for row in rows:
+            with self.subTest(frame=row['source_frame']):
+                search=self.search();self.call(search,row['missing_time'])
+                follow=(40,40)
+                self.assertEqual(self.call(search,row['reacquired_time'],result=row['result'],follow=follow),follow)
+                self.assertIsNone(search.scan.began);self.assertEqual(search.snapshot()['phase'],'IDLE')
+    def test_confirmation_flag_cannot_resume_unobserved_or_pending_road(self):
+        base=fresh(reacquired=True,road_evidence='OBSERVED',pending_frames=0)
+        for change in ({'observed':False},{'valid':False},{'state':'PREDICTED'},{'transition_pending':True},{'pending_frames':1},{'observation_confidence':.6}):
+            with self.subTest(change=change):
+                search=self.search();self.call(search,0.)
+                command=self.call(search,.1,result=dict(base,**change),follow=(40,40))
+                self.assertNotEqual(command,(40,40));self.assertIsNotNone(search.scan.began)
+    def test_confirmed_recovery_still_respects_body_block(self):
+        result = fresh(
+            reacquired=True, road_evidence="OBSERVED", pending_frames=0,
+            invalid_reason="BODY ENVELOPE BLOCKED",
+        )
+        search = self.search()
+        self.call(search, 0.0)
+        self.assertIsNone(self.call(search, 0.1, result=result, follow=(40, 40)))
+        self.assertTrue(search.scan.finished)
+
+    def test_recorded_crosswalk_cancel_allows_confirmed_follow_without_more_search(self):
+        rows = json.loads((ROOT / "tests/fixtures/yield_cancel_road_20261107.json").read_text())
+        search = self.search()
+        self.call(search, rows[0]["captured"] - 0.1)
+        # A nonzero steering proposal is supplied at this coordinator boundary;
+        # these PWM values are test inputs, not recorded physical wheel outputs.
+        follow = (31, 33)
+        for index, row in enumerate(rows):
+            with self.subTest(frame=row["source_frame"]):
+                command = self.call(
+                    search, row["captured"], result=row["result"],
+                    follow=follow, allowed=False,
+                )
+                self.assertEqual(command, (0, 0) if index < 4 else follow)
+                self.assertFalse(search.is_turning())
+                self.assertEqual(search.scan.pulse_index, 0)
+        self.assertIsNone(search.scan.began)
+
+    def test_crosswalk_cancel_rejects_old_pulse_and_waits_without_usable_road(self):
+        search = self.search()
+        pulse = self.first_pulse(search)
+        self.assertIsNone(self.call(search, 0.8, allowed=False))
+        self.assertFalse(search.applied(0.81, pulse))
+        for now in (1.0, 2.0, 10.0):
+            self.assertIsNone(self.call(search, now, allowed=False))
+            self.assertFalse(search.is_turning())
+            self.assertEqual(search.scan.pulse_index, 1)
+
 
     def test_four_equal_counterrotations_with_fixed_hint_and_bounded_lease(self):
         search = self.search()
@@ -195,13 +250,17 @@ class VisualScanTests(unittest.TestCase):
         self.assertEqual(self.call(search, 2.1), (0, 0))
         self.assertEqual(search.scan.pulse_index, 0)
 
-    def test_allowed_false_cannot_start_scan_or_return_recovered_follow(self):
+    def test_search_forbidden_cannot_start_or_continue_rotation(self):
         search = self.search()
         self.assertIsNone(self.call(search, 0.0, allowed=False))
         self.assertIsNone(search.scan.began)
         self.first_pulse(search)
-        self.assertIsNone(self.call(search, 0.8, allowed=False, result=fresh(), follow=(30, 30)))
+        self.assertEqual(
+            self.call(search, 0.8, allowed=False, result=fresh(), follow=(30, 30)), (0, 0)
+        )
         self.assertTrue(search.scan.finished)
+        self.assertFalse(search.is_turning())
+        self.assertIsNone(search.snapshot()["lease_s"])
 
     def test_explicit_body_envelope_block_prevents_or_aborts_scan(self):
         search = self.search()

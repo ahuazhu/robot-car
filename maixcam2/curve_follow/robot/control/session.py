@@ -109,19 +109,20 @@ class DrivingSession:
             blocked.append(self.crosswalk.failure)
         direct = bool(not self.active and not blocked)
         arm = (
-            not self.active and not s.preview_only and not self.start_light.armed
+            not self.active and not s.preview_only and not self.start_light.armed and self.start_light.available
             if self.start_light.enabled
             else direct
         )
         return dict(blocked_by=blocked, direct_start_ready=direct, arm_start_light_ready=bool(arm))
 
-    def stop(self, reason, *, reset_tasks=False):
-        self.link.stop()
+    def stop(self, reason, *, reset_tasks=False, clear_start_permission=False):
+        # Local STOP/finish reset must not depend on receiving a UNO reply.
+        self.start_light.cancel(clear_permission=clear_start_permission)
         self.active = False
         self.pwm = (0, 0)
+        self.link.stop()
         self.ramp.reset()
         self.search.reset(clear_map=True)
-        self.start_light.cancel()
         self.laps.stop()
         self.reason = reason
         self.control.stopped()
@@ -131,7 +132,11 @@ class DrivingSession:
             self.steering.reset()
 
     def _start(self, frame, direct, target=None):
-        if not self.start_light.armed:
+        was_armed = self.start_light.armed
+        if not direct and self.start_light.enabled and not self.start_light.consume():
+            self.reason = "ESP32 PERMISSION REQUIRED"
+            return
+        if not was_armed:
             self.laps.prepare(target)
         try:
             self.link.send(1)
@@ -152,7 +157,7 @@ class DrivingSession:
                         auto=self.start_light.enabled and not direct,
                         source="MANUAL"
                         if direct or not self.start_light.enabled
-                        else "VISUAL_CHANGE",
+                        else "ESP32_SIGNAL",
                         start_light=self.start_light.snapshot(),
                         total_laps=self.laps.total,
                     )
@@ -181,7 +186,7 @@ class DrivingSession:
         ]
         # STOP wins over all starts, target changes and completion events.
         if any(request.action == "stop" for request in requests):
-            self.stop("STOPPED", reset_tasks=True)
+            self.stop("STOPPED", reset_tasks=True, clear_start_permission=True)
         else:
             direct_request = next((r for r in requests if r.action == "start_now"), None)
             arm_request = next((r for r in requests if r.action == "start"), None)
@@ -199,9 +204,9 @@ class DrivingSession:
                 and not self.start_light.armed
             ):
                 self.laps.prepare(target)
-                self.start_light.arm(bgr)
+                accepted = self.start_light.arm()
                 frame.light_start = False
-                self.reason = "WAIT START LIGHT"
+                self.reason = "WAIT START LIGHT" if accepted is not False else "ESP32 NOT READY"
                 print(
                     "WAIT_START_LIGHT",
                     json.dumps(dict(self.start_light.snapshot(), total_laps=self.laps.total)),
@@ -239,7 +244,7 @@ class DrivingSession:
                             flush=True,
                         )
             if frame.lap_finished and self.active:
-                self.stop("LAPS COMPLETE")
+                self.stop("LAPS COMPLETE", clear_start_permission=True)
                 print("RACE COMPLETE", json.dumps(self.laps.snapshot()), flush=True)
         if self.active:
             self._drive(frame)
@@ -268,7 +273,10 @@ class DrivingSession:
             frame.processing_ms,
             s.vision_budget_ms,
             stop_verified=frame.zero_ack and rest,
-            road_ready=self.consecutive >= s.road_policy.startup_observations,
+            road_ready=(
+                self.consecutive >= s.road_policy.startup_observations
+                or s.road_policy.confirmed_reacquisition(frame.result)
+            ),
             search_pending=self.search.snapshot().get("search_pending", False),
         )
         if frame.command is None:
@@ -313,8 +321,8 @@ class DrivingSession:
             lease = (
                 self.search.snapshot().get("lease_s")
                 if self.search.is_turning()
-                else (self.steering.status.get("handoff") or {}).get("lease_s")
-                if frame.result.get("transition_pending")
+                else (self.steering.status.get("prediction") or {}).get("lease_s")
+                if frame.result.get("state") == "PREDICTED" or frame.result.get("transition_pending")
                 else None
             )
         try:
@@ -330,7 +338,7 @@ class DrivingSession:
             print("STOP EVENT", self.reason, str(exc), flush=True)
 
     def _driving_reason(self, frame):
-        if any(self.pwm) and self.laps.phase in ("FINISH_CLEAR_REAR", "FINISH_RUNOUT"):
+        if any(self.pwm) and self.laps.phase == "FINISH_DISTANCE":
             return self.laps.phase.replace("_", " ")
         if frame.follow_command is None and self.search.snapshot().get("search_pending"):
             return "ROAD SEARCH " + self.search.snapshot()["phase"]

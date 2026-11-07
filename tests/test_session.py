@@ -3,6 +3,10 @@
 from tests.support import ROOT
 import contextlib
 import io
+import json
+import tempfile
+from pathlib import Path
+from robot.tasks.start_signal import StartSignal
 from types import SimpleNamespace
 import unittest
 import numpy as np
@@ -15,7 +19,36 @@ from robot.navigation.steering_control import SteeringControl
 from robot.navigation.road_recovery import RoadSearch
 from robot.tasks.crosswalk import CrosswalkPolicy, CrosswalkTask
 from robot.tasks.lap_counter import LapCounter
-from robot.tasks.start_light import StartLight
+class StartLight:
+    """External sensor boundary; detector/protocol behavior is tested separately."""
+    available = True
+
+    def __init__(self, config):
+        self.enabled = config["enabled"]
+        self.armed = self.fired = False
+        self.reference = None
+        self.baseline_observations = 0
+
+    def arm(self):
+        if not self.armed:
+            self.armed = True
+            self.reference = object()
+            self.baseline_observations = 1
+        return True
+
+    def cancel(self, *, clear_permission=True):
+        self.armed = False
+        self.reference = None
+
+    def consume(self):
+        return True  # FrameDecision.light_start represents a valid peer event here.
+
+    def started(self):
+        self.armed, self.fired = False, True
+
+    def snapshot(self):
+        return dict(enabled=self.enabled, armed=self.armed, fired=self.fired)
+
 
 
 class MotorPeer:
@@ -67,7 +100,7 @@ class DrivingSessionTests(unittest.TestCase):
             SteeringControl(policy, [0.0, 0.0], [0.075, 0.105, 0.085], 0.3),
             RoadSearch(policy, [0.0, 0.0], [0.075, 0.105, 0.085], 0.3, allow_visual_scan=True),
             StartLight({"enabled": True}),
-            LapCounter({"enabled": True, "laps": 2, "finish_runout_s": 5.0}),
+            LapCounter({"enabled": True, "laps": 2, "finish_distance_m": 0.4}),
             CrosswalkTask(crosswalk_policy),
             CommandRamp(),
             RoadSupervisor(),
@@ -123,6 +156,124 @@ class DrivingSessionTests(unittest.TestCase):
         session.update(self.frame(session), ("start_now",))
         self.assertTrue(session.active)
 
+    def granted_signal(self):
+        folder=tempfile.TemporaryDirectory();self.addCleanup(folder.cleanup)
+        Path(folder.name,'start_signal.local.json').write_text(json.dumps(dict(peer_url='http://10.0.0.2',key='a'*64)))
+        peer=dict(boot='a'*16,paired=True,session='',armed=False,confirmed=False,sequence=10,frame_age_ms=10,roi=[96,8,128,112],protocol=2,control_port=81,trigger_direction='DARKER',target_locked=False,target_roi=[96,8,0,0],event_age_ms=0,required_frames=3,required_ms=400,phase='DISARMED')
+        def transport(op,session,boot):
+            if op=='arm':peer.update(armed=True,session=session,phase='WAIT_OFF')
+            if op=='cancel':peer.update(armed=False,confirmed=False,session='',target_locked=False,phase='DISARMED')
+            return dict(peer)
+        signal=StartSignal({'enabled':True},app_dir=Path(folder.name),clock=lambda:self.clock.now,transport=transport)
+        signal._step();self.assertTrue(signal.arm());signal._step()
+        peer.update(confirmed=True,sequence=11,target_locked=True,target_roi=[144,48,32,32],confirmation_frames=3,confirmed_ms=420,event_age_ms=420,phase='SIGNAL_READY')
+        signal._step();self.assertTrue(signal.permission)
+        return signal
+
+    def test_granted_permission_can_start_after_road_delay_and_survive_esp_loss(self):
+        s=self.session();signal=self.granted_signal();s.start_light=signal
+        signal.transport=lambda *args:(_ for _ in ()).throw(OSError())
+        self.clock.now+=30;signal._step()
+        self.assertTrue(signal.update(self.clock.now));self.assertFalse(s.active)
+        self.warm(s);self.clock.now+=.1
+        s.update(self.frame(s,light_start=signal.update(self.clock.now)))
+        self.assertTrue(s.active);self.assertTrue(signal.permission)
+        signal._step();self.clock.now+=.1;s.update(self.frame(s))
+        self.assertTrue(s.active);self.assertTrue(signal.permission)
+        self.assertTrue(any(call[0]==2 and call[1]>0 and call[2]>0 for call in s.link.calls))
+
+    def test_manual_stop_and_final_lap_clear_permission_and_cannot_restart(self):
+        for action in ('stop','final_lap'):
+            with self.subTest(action=action):
+                s=self.session();signal=self.granted_signal();s.start_light=signal
+                self.warm(s);self.clock.now+=.1;s.update(self.frame(s,light_start=signal.update(self.clock.now)))
+                self.assertTrue(s.active)
+                self.clock.now+=.1
+                if action=='stop':s.update(self.frame(s),('stop',))
+                else:s.update(self.frame(s,lap_finished=True))
+                self.assertFalse(s.active);self.assertFalse(signal.permission)
+                self.clock.now+=1;s.update(self.frame(s,light_start=signal.update(self.clock.now)))
+                self.assertFalse(s.active);self.assertFalse(signal.permission)
+
+    def test_motor_fault_stops_motion_but_does_not_erase_signal_permission(self):
+        s=self.session();signal=self.granted_signal();s.start_light=signal
+        self.warm(s);self.clock.now+=.1;s.update(self.frame(s,light_start=signal.update(self.clock.now)))
+        self.assertTrue(s.active);s.stop('MOTOR LINK STOP')
+        self.assertFalse(s.active);self.assertTrue(signal.permission)
+        self.clock.now+=1;s.update(self.frame(s,light_start=signal.update(self.clock.now)))
+        self.assertFalse(s.active);self.assertTrue(signal.permission)
+        self.clock.now+=.1;s.update(self.frame(s),('stop',))
+        self.assertFalse(signal.permission)
+
+    def test_stop_clears_permission_even_if_uno_stop_ack_fails(self):
+        s=self.session();signal=self.granted_signal();s.start_light=signal
+        self.warm(s);self.clock.now+=.1;s.update(self.frame(s,light_start=signal.update(self.clock.now)))
+        s.link.stop=lambda:(_ for _ in ()).throw(RuntimeError('UNO unavailable'))
+        self.clock.now+=.1
+        with self.assertRaises(RuntimeError):s.update(self.frame(s),('stop',))
+        self.assertFalse(signal.permission);self.assertFalse(s.active)
+
+    def test_recovered_follow_after_search_cancel_still_obeys_crosswalk_stop(self):
+        for phase in ("STOPPING", "HOLD", "RECOVERY_HOLD"):
+            with self.subTest(phase=phase):
+                s = self.session()
+                self.start(s)
+                config = json.loads((ROOT / "maixcam2/curve_follow/runtime.json").read_text())
+                policy = CrosswalkPolicy.from_config(config["crosswalk"])
+                s.settings.crosswalk_policy = policy
+                s.crosswalk = CrosswalkTask(policy)
+                frame = self.frame(s)
+                s.search.command(
+                    dict(valid=False, observed=False, state="LOST"), None,
+                    frame.details["ground_motion"], self.clock.now, active=True,
+                    stopped=True,
+                )
+                frame.result.update(reacquired=True, pending_frames=0)
+                self.clock.now += 0.1
+                command = s.search.command(
+                    frame.result, (40, 40), frame.details["ground_motion"],
+                    self.clock.now, active=True, allowed=False, stopped=True,
+                )
+                self.assertEqual(command, (40, 40))
+                frame.command = command
+                s.crosswalk.phase = phase
+                before = len(s.link.calls)
+                s.update(frame)
+                self.assertTrue(s.active)
+                self.assertEqual(s.pwm, (0, 0))
+                self.assertIsNone(s.recovery.failed)
+                self.assertEqual(s.link.calls[before:], [(2, 0, 0, None)])
+                self.assertFalse(s.search.is_turning())
+
+    def test_ordinary_predicted_road_publishes_its_own_short_motor_lease(self):
+        s = self.session()
+        self.start(s)
+        self.clock.now += 0.1
+        frame = self.frame(s)
+        frame.result.update(state="PREDICTED", observed=False)
+        s.steering.status["prediction"] = dict(lease_s=0.07)
+        s.update(frame)
+        self.assertTrue(any(s.pwm))
+        self.assertEqual(s.link.calls[-1][3], 0.07)
+
+    def test_confirmed_road_resumes_running_lost_mission_without_second_startup(self):
+        for change, resumed in (({}, True), ({"observed": False}, False),
+                                ({"pending_frames": 1}, False),
+                                ({"observation_confidence": 0.60}, False)):
+            with self.subTest(change=change):
+                s = self.session()
+                self.start(s)
+                s.recovery.failed = "ROAD NOT FOUND"
+                s.recovery.phase = "LOST_WAIT"
+                s.consecutive = 0
+                self.clock.now += 0.1
+                frame = self.frame(s)
+                frame.result.update(dict({"reacquired": True, "pending_frames": 0}, **change))
+                s.update(frame)
+                self.assertEqual(any(s.pwm), resumed)
+                self.assertTrue(s.active)
+                self.assertEqual(s.recovery.failed, None if resumed else "ROAD NOT FOUND")
+
     def test_stop_wins_over_simultaneous_start_visual_signal_and_finish(self):
         s = self.session()
         self.start(s)
@@ -144,6 +295,7 @@ class DrivingSessionTests(unittest.TestCase):
                 for op, left, right, _ in s.link.calls[before:]
             )
         )
+
 
     def test_arm_can_observe_without_road_but_direct_start_cannot_move(self):
         s = self.session()
@@ -265,6 +417,26 @@ class DrivingSessionTests(unittest.TestCase):
         self.assertFalse(s.active)
         self.assertEqual(sum(c[0] == 1 for c in s.link.calls), 1)
 
+    def test_measured_finish_completes_and_logs_without_numpy_serialization_crash(self):
+        s = self.session()
+        self.start(s)
+        s.laps.count = s.laps.total
+        s.laps.phase = "FINISH_DISTANCE"
+        s.laps.release_track = dict(normal=np.array([1., 0.]), distance=-.082, sigma=.036)
+        for i, travel in enumerate((.02, .15, .15, .10)):
+            self.clock.now += .1
+            frame = self.frame(s)
+            measured = frame.details["ground_motion"]
+            measured.update(translation=np.array([-travel, 0.]), sigma_m=.001)
+            frame.lap_finished = s.laps.update({}, measured, self.clock.now, s.active)
+            s.update(frame)
+            json.dumps(dict(laps=s.laps.snapshot()), allow_nan=False)
+            self.assertEqual(s.active, i < 3)
+        self.assertEqual(s.reason, "LAPS COMPLETE")
+        self.assertEqual(s.pwm, (0, 0))
+        self.assertTrue(s.laps.complete)
+        self.assertFalse(s.start_light.armed)
+
     def test_arm_selects_target_resets_old_race_and_does_not_rebaseline_when_repeated(self):
         s = self.session()
         s.laps.count, s.laps.complete, s.laps.phase = 2, True, "FINISHED"
@@ -275,16 +447,32 @@ class DrivingSessionTests(unittest.TestCase):
         self.assertEqual(s.laps.count, 0)
         self.assertFalse(s.laps.complete)
         self.assertFalse(s.laps.running)
-        self.assertEqual(s.laps.finish_seconds, 5.0)
-        baseline = s.start_light.reference.copy()
+        self.assertEqual(s.laps.finish_distance, 0.4)
+        baseline = s.start_light.reference
         observations = s.start_light.baseline_observations
         self.clock.now += 0.1
         s.update(self.frame(s), (ControlRequest("start", 9),), white)
         self.assertEqual(s.laps.total, 4)
         self.assertTrue(s.start_light.armed)
         self.assertFalse(s.active)
-        np.testing.assert_array_equal(s.start_light.reference, baseline)
+        self.assertIs(s.start_light.reference, baseline)
         self.assertEqual(s.start_light.baseline_observations, observations)
+
+    def test_thirty_second_first_line_window_starts_after_arm_wait_finishes(self):
+        s = self.session()
+        self.warm(s)
+        s.update(self.frame(s), (ControlRequest("start", 2),))
+        self.assertTrue(s.start_light.armed)
+        self.assertIsNone(s.laps.started_at)
+        self.clock.now += 60.
+        start_at = self.clock.now
+        marker = dict(normal=[1., 0.], distance_m=.4, sigma_m=.005)
+        observed = dict(confirmed=True, marker=marker, first_observed_at=start_at-40.)
+        s.update(self.frame(s, light_start=True, lap_observation=observed))
+        self.assertTrue(s.active)
+        self.assertEqual(s.laps.started_at, start_at)
+        self.assertEqual(s.laps.first_line_seen_at, start_at)
+        self.assertTrue(s.laps.first_line_ignored)
 
     def test_armed_target_is_used_for_visual_start(self):
         s = self.session()
@@ -295,7 +483,7 @@ class DrivingSessionTests(unittest.TestCase):
         self.assertTrue(s.active)
         self.assertTrue(s.laps.running)
         self.assertEqual(s.laps.total, 7)
-        self.assertEqual(s.laps.finish_seconds, 5.0)
+        self.assertEqual(s.laps.finish_distance, 0.4)
 
     def test_direct_start_changes_target_and_resets_progress_only_after_readiness(self):
         s = self.session()
@@ -367,7 +555,7 @@ class DrivingSessionTests(unittest.TestCase):
         self.start(s)
         self.assertEqual(s.laps.total, 7)
         self.assertEqual(s.laps.count, 0)
-        self.assertEqual(s.laps.finish_seconds, 5.0)
+        self.assertEqual(s.laps.finish_distance, 0.4)
 
     def test_stop_wins_over_target_change_and_preserves_finished_record(self):
         s = self.session()

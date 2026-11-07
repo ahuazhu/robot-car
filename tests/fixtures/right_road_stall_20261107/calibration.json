@@ -1,0 +1,93 @@
+{
+  "H_normalized": [
+    [
+      -0.022169285123631765,
+      -0.4440064974820094,
+      0.9144841785026084
+    ],
+    [
+      -1.0980241255741707,
+      -0.056064856326729556,
+      0.49096352041921176
+    ],
+    [
+      -0.03603749946461053,
+      2.65715235838022,
+      1.0
+    ]
+  ],
+  "image_size": [
+    320,
+    240
+  ],
+  "pixels": [
+    [
+      34.06687912765766,
+      118.58819291168685
+    ],
+    [
+      234.3936834588352,
+      117.21327339690225
+    ],
+    [
+      201.1910250069464,
+      36.98855237964084
+    ],
+    [
+      79.32467682624072,
+      37.01307031523496
+    ]
+  ],
+  "near_m": 0.3,
+  "far_m": 0.6,
+  "road_width_m": 0.3,
+  "origin": "camera ground footprint",
+  "lens_rectified": false,
+  "drive_validated": false,
+  "camera_pose_verified": true,
+  "geometry_confirmed": true,
+  "geometry_basis": "User confirmed 2026-11-07: current fixed camera; car centred/aligned with straight road; two transverse WHITE STRIPE CENTRES at 30cm and 60cm from lens ground footprint; longitudinal WHITE INNER-edge gap 30cm. x forward, y left; centred vehicle reference absorbs camera lateral offset; runtime control origin remains [-0.055,0] without another lateral shift.",
+  "measurement_note": "Held-out frames show repeatability on the same physical markers, not independent metric accuracy. No unused measured distance/point is present. Wrinkled cloth, line thickness, lens distortion and ruler placement remain uncorrected. Local stripe/side fits extrapolate a short distance to each junction. No driving verification performed.",
+  "validation_status": "stationary_current_pose_four_point_heldout_checked_not_drive_validated",
+  "vision_roi_top_px": 20,
+  "vision_grid_step_m": 0.0075,
+  "calibration_reference": {
+    "near": "near transverse white stripe centre 30cm",
+    "far": "far transverse white stripe centre 60cm",
+    "width": "longitudinal white inner edges",
+    "corner_order": [
+      "near-left",
+      "near-right",
+      "far-right",
+      "far-left"
+    ]
+  },
+  "image_repeatability": {
+    "training_frames": [
+      0,
+      1,
+      3
+    ],
+    "heldout_frames": [
+      2,
+      4
+    ],
+    "heldout_corner_max_px": 0.27249504070562125,
+    "independent_metric_accuracy_verified": false
+  },
+  "capture_run": "20261107-114528-calibration_capture_20261107",
+  "control_frame": {
+    "origin_m": [
+      -0.055,
+      0.0
+    ],
+    "body_m": [
+      0.075,
+      0.105,
+      0.085
+    ],
+    "geometry_verified": true,
+    "wheelbase_m": 0.11,
+    "basis": "User: lens approximately on front axle; axle spacing 11cm; camera to outer left/right wheel edges 6/11cm (total width17cm). Four-point road calibration established with centered car, so lateral origin is lane/body centre and optical offset is already absorbed; no second lateral shift."
+  }
+}

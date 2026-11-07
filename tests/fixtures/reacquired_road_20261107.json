@@ -1,0 +1,56 @@
+[
+  {
+    "source_frame": 917,
+    "missing_time": 12748.827024921,
+    "reacquired_time": 12749.95179413,
+    "result": {
+      "valid": true,
+      "observed": true,
+      "state": "OBSERVED",
+      "road_evidence": "OBSERVED",
+      "observation_confidence": 0.9446392579004798,
+      "age_s": 0.0,
+      "transition_pending": false,
+      "reacquired": true,
+      "pending_frames": 0,
+      "invalid_reason": ""
+    },
+    "old_search_reason": "CONFIRMING FRESH ROAD"
+  },
+  {
+    "source_frame": 1025,
+    "missing_time": 12769.55754479,
+    "reacquired_time": 12770.312760339,
+    "result": {
+      "valid": true,
+      "observed": true,
+      "state": "OBSERVED",
+      "road_evidence": "OBSERVED",
+      "observation_confidence": 0.8064147872040739,
+      "age_s": 0.0,
+      "transition_pending": false,
+      "reacquired": true,
+      "pending_frames": 0,
+      "invalid_reason": ""
+    },
+    "old_search_reason": "CONFIRMING FRESH ROAD"
+  },
+  {
+    "source_frame": 1131,
+    "missing_time": 12790.673979832,
+    "reacquired_time": 12791.23826348,
+    "result": {
+      "valid": true,
+      "observed": true,
+      "state": "OBSERVED",
+      "road_evidence": "OBSERVED",
+      "observation_confidence": 0.8049616414685085,
+      "age_s": 0.0,
+      "transition_pending": false,
+      "reacquired": true,
+      "pending_frames": 0,
+      "invalid_reason": ""
+    },
+    "old_search_reason": "CONFIRMING FRESH ROAD"
+  }
+]

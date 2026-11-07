@@ -62,14 +62,9 @@ class LapCounterTests(unittest.TestCase):
             self.assertEqual(c.count, n)
             self.assertFalse(done)
             if n == 3:
-                self.assertEqual(c.phase, "FINISH_CLEAR_REAR")
+                self.assertEqual(c.phase, "FINISH_DISTANCE")
                 self.assertFalse(c.complete)
-                self.assertFalse(
-                    c.update(observation(), motion(0.6), 3 * n + 0.3, True, driving=True)
-                )
-                self.assertTrue(
-                    c.update(observation(), motion(0.3), 3 * n + 3.8, True, driving=True)
-                )
+                self.assertTrue(c.update(observation(), motion(0.41), 3 * n + 0.3, True))
             if n < 3:
                 self.clear(c, 3 * n + 1.0)
         self.assertTrue(c.complete)
@@ -78,87 +73,42 @@ class LapCounterTests(unittest.TestCase):
             self.assertFalse(c.update(observation(0.2, True, True), motion(0.3), t, True))
         self.assertEqual(c.count, 3)
 
-    def test_current_runtime_two_returns_then_five_forward_seconds(self):
+    def test_current_runtime_counts_two_returns_then_measured_forty_centimetres(self):
         config = json.loads((ROOT / "maixcam2/curve_follow/runtime.json").read_text())["race"]
-        self.assertEqual((config["laps"], config["finish_runout_s"]), (2, 5.0))
+        self.assertEqual((config["laps"], config["finish_distance_m"]), (2, 0.4))
+        self.assertNotIn("finish_runout_s", config)
         c = LapCounter(config)
         c.begin(observation(0.4, True, True), 0.0)
         self.assertFalse(self.pass_line(c, 0.0))
-        self.assertEqual(c.count, 0)
         self.clear(c, 1.0)
         self.assertFalse(self.pass_line(c, 3.0))
-        self.assertEqual(c.count, 1)
         self.clear(c, 4.0)
         self.assertFalse(self.pass_line(c, 6.0))
-        self.assertEqual(c.count, 2)
-        self.assertEqual(c.phase, "FINISH_CLEAR_REAR")
-        self.assertEqual(c.finish_elapsed, 0.0)
-        self.assertFalse(c.update(observation(), motion(0.08), 6.3, True, driving=True))
-        self.assertEqual(c.phase, "FINISH_CLEAR_REAR")
-        self.assertEqual(c.finish_elapsed, 0.0)
-        self.assertFalse(c.update(observation(), motion(0.1), 6.5, True, driving=True))
-        self.assertEqual(c.phase, "FINISH_RUNOUT")
-        self.assertEqual(c.finish_elapsed, 0.0)
-        self.assertFalse(c.update(observation(), motion(0.1), 7.5, True, driving=True))
-        self.assertFalse(c.update(observation(), motion(), 17.5, True, driving=False))
-        self.assertEqual(c.finish_elapsed, 1.0)
-        self.assertFalse(
-            c.update(observation(0.4, True, True), motion(0.1), 21.49, True, driving=True)
-        )
-        self.assertTrue(c.update(observation(), motion(0.01), 21.5, True, driving=True))
-        self.assertEqual(c.count, 2)
-        self.assertEqual(c.finish_elapsed, 5.0)
-        self.assertEqual(c.phase, "FINISHED")
-        self.assertFalse(
-            c.update(observation(0.4, True, True), motion(0.3), 22.0, True, driving=True)
-        )
-        c.begin(observation(0.4, True, True), 23.0)
-        self.assertEqual(c.count, 0)
-        self.assertEqual(c.finish_elapsed, 0.0)
+        self.assertEqual((c.count, c.phase, c.finish_travel), (2, "FINISH_DISTANCE", 0.0))
+        self.assertFalse(c.update(observation(), motion(0.2), 6.3, True))
+        self.assertFalse(c.update(observation(), motion(), 100.0, True))
+        self.assertTrue(c.update(observation(), motion(0.21), 100.1, True))
+        self.assertEqual((c.count, c.phase), (2, "FINISHED"))
+        c.begin(observation(0.4, True, True), 101.0)
+        self.assertEqual((c.count, c.finish_travel), (0, 0.0))
 
-    def test_on_site_target_changes_actual_finish_count_and_keeps_five_ack_seconds(self):
+    def test_on_site_target_changes_actual_finish_count_and_keeps_distance_rule(self):
         for target in (1, 4):
             with self.subTest(target=target):
-                c = LapCounter(dict(enabled=True, laps=2, finish_runout_s=5.0))
+                c = LapCounter(dict(enabled=True, laps=2, finish_distance_m=0.4))
                 c.prepare(target)
                 c.begin(observation(0.4, True, True), 0.0)
                 self.assertFalse(self.pass_line(c, 0.0))
-                self.assertEqual(c.count, 0)
                 self.clear(c, 1.0)
                 for lap in range(1, target + 1):
                     self.assertFalse(self.pass_line(c, lap * 3.0))
                     self.assertEqual(c.count, lap)
                     if lap < target:
-                        self.assertNotEqual(c.phase, "FINISH_CLEAR_REAR")
+                        self.assertNotEqual(c.phase, "FINISH_DISTANCE")
                         self.clear(c, lap * 3.0 + 1.0)
-                self.assertEqual(c.phase, "FINISH_CLEAR_REAR")
-                now = target * 3.0 + 0.5
-                self.assertFalse(
-                    c.update(
-                        observation(), motion(0.3), now, True, driving=True, forward_total_s=100.0
-                    )
-                )
-                self.assertEqual(c.phase, "FINISH_RUNOUT")
-                self.assertFalse(
-                    c.update(
-                        observation(),
-                        motion(),
-                        now + 50.0,
-                        True,
-                        driving=True,
-                        forward_total_s=104.99,
-                    )
-                )
-                self.assertTrue(
-                    c.update(
-                        observation(),
-                        motion(),
-                        now + 50.1,
-                        True,
-                        driving=True,
-                        forward_total_s=105.0,
-                    )
-                )
+                self.assertEqual(c.phase, "FINISH_DISTANCE")
+                self.assertFalse(c.update(observation(), motion(0.39, sigma=0), 100.0, True))
+                self.assertTrue(c.update(observation(), motion(0.01, sigma=0), 100.1, True))
                 self.assertEqual((c.count, c.total, c.phase), (target, target, "FINISHED"))
 
     def test_repeated_visible_line_or_flicker_does_not_create_more_laps(self):
@@ -269,12 +219,7 @@ class LapCounterTests(unittest.TestCase):
             self.assertFalse(self.pass_line(c, 3 * n))
             self.assertEqual(c.count, n)
             if n == 3:
-                self.assertFalse(
-                    c.update(observation(), motion(0.6), 3 * n + 0.3, True, driving=True)
-                )
-                self.assertTrue(
-                    c.update(observation(), motion(0.3), 3 * n + 3.8, True, driving=True)
-                )
+                self.assertTrue(c.update(observation(), motion(0.41), 3 * n + 0.3, True))
             if n < 3:
                 self.clear(c, 3 * n + 1.0)
         self.assertTrue(c.complete)
@@ -294,173 +239,205 @@ class LapCounterTests(unittest.TestCase):
         self.assertFalse(c.update(observation(0.1, True, True), motion(0.5), 0.1, True))
 
 
+class FirstWhiteLineWindowTests(unittest.TestCase):
+    def counter(self, laps=2, start=100.):
+        c = LapCounter(dict(enabled=True, laps=laps, initial_line_ignore_s=30., finish_distance_m=.4))
+        c.begin(observation(), start)
+        return c
+
+    def test_first_line_at_or_before_thirty_seconds_is_skipped_after_crossing(self):
+        for delay in (0., 29.9, 30.):
+            with self.subTest(delay=delay):
+                c = self.counter()
+                LapCounterTests().pass_line(c, 100.+delay)
+                self.assertEqual(c.count, 0)
+                self.assertEqual(c.event, "DEPARTURE_SKIPPED")
+                self.assertTrue(c.first_line_ignored)
+
+    def test_first_line_after_thirty_seconds_counts_first_lap_and_next_counts_second(self):
+        c = self.counter()
+        h = LapCounterTests()
+        self.assertFalse(h.pass_line(c, 130.001))
+        self.assertEqual(c.count, 1)
+        self.assertFalse(c.first_line_ignored)
+        self.assertEqual(c.event, "LAP_COMPLETED")
+        h.clear(c, 131.)
+        self.assertFalse(h.pass_line(c, 140.))
+        self.assertEqual((c.count, c.phase), (2, "FINISH_DISTANCE"))
+        self.assertTrue(c.update(observation(), motion(.41), 140.3, True))
+        json.dumps(c.snapshot(), allow_nan=False)
+
+    def test_first_visit_before_deadline_remains_ignored_when_crossing_after_deadline(self):
+        c = self.counter()
+        c.update(observation(.4, True, True), motion(), 129.9, True)
+        LapCounterTests().pass_line(c, 131.)
+        self.assertEqual(c.count, 0)
+        self.assertEqual(c.first_line_seen_at, 129.9)
+        self.assertTrue(c.first_line_ignored)
+
+    def test_consistent_detection_before_deadline_is_retained_until_confirmation(self):
+        c = self.counter()
+        obs = dict(observation(.4, True, True), first_observed_at=129.9)
+        c.update(obs, motion(), 130.1, True)
+        LapCounterTests().pass_line(c, 131.)
+        self.assertEqual(c.count, 0)
+        self.assertAlmostEqual(c.snapshot()["first_line_seen_after_start_s"], 29.9)
+
+    def test_unconfirmed_flash_and_time_alone_never_create_a_lap_or_lock_skip(self):
+        c = self.counter()
+        c.update(observation(.4), motion(), 120., True)
+        c.update(observation(), motion(), 131., True)
+        self.assertEqual(c.count, 0)
+        self.assertIsNone(c.first_line_ignored)
+        LapCounterTests().pass_line(c, 140.)
+        self.assertEqual(c.count, 1)
+
+    def test_late_first_line_with_single_lap_target_still_requires_forty_cm(self):
+        c = self.counter(laps=1)
+        self.assertFalse(LapCounterTests().pass_line(c, 131.))
+        self.assertEqual((c.count, c.phase), (1, "FINISH_DISTANCE"))
+        self.assertFalse(c.update(observation(), motion(.39, sigma=0), 132., True))
+        self.assertTrue(c.update(observation(), motion(.01, sigma=0), 132.1, True))
+
+    def test_pre_start_detector_history_is_clamped_and_new_race_resets_window(self):
+        c = self.counter()
+        obs = dict(observation(.4, True, True), first_observed_at=50.)
+        c.begin(obs, 100.)
+        self.assertEqual(c.first_line_seen_at, 100.)
+        self.assertTrue(c.first_line_ignored)
+        c.stop()
+        c.begin(observation(), 300.)
+        self.assertIsNone(c.first_line_seen_at)
+        LapCounterTests().pass_line(c, 331.)
+        self.assertEqual(c.count, 1)
+
+    def test_invalid_window_cannot_enable_unsafe_implicit_counting(self):
+        for window in (-1, 0, True, "30", float("inf"), float("nan")):
+            with self.subTest(window=window), self.assertRaises(ValueError):
+                LapCounter(dict(enabled=True, initial_line_ignore_s=window))
+
+
+
 class FinishParkingTests(unittest.TestCase):
-    def setup_finish(self, front=0.02, rear=0.16, half=0.085):
-        c = LapCounter(dict(enabled=True, laps=1, finish_runout_s=3.5), front, rear, half)
+    def setup_finish(self, **kwargs):
+        c = LapCounter(dict(enabled=True, laps=1, finish_distance_m=0.4), **kwargs)
         c.begin(observation(0.4, True, True), 0.0)
         h = LapCounterTests()
         h.pass_line(c, 0.0)
         h.clear(c, 1.0)
         self.assertFalse(h.pass_line(c, 3.0))
-        self.assertEqual(c.phase, "FINISH_CLEAR_REAR")
-        self.assertEqual(c.count, 1)
-        self.assertFalse(c.complete)
+        self.assertEqual((c.phase, c.count, c.finish_travel), ("FINISH_DISTANCE", 1, 0.0))
         return c
 
-    def clear_rear(self, c):
-        self.assertFalse(c.update(observation(), motion(0.2), 3.4, True, driving=True))
-        self.assertEqual(c.phase, "FINISH_RUNOUT")
+    def test_crossing_frame_does_not_backfill_pre_line_travel(self):
+        c = self.setup_finish()
+        self.assertFalse(c.update(observation(), motion(0.39, sigma=0), 3.3, True))
+        self.assertTrue(c.update(observation(), motion(0.01, sigma=0), 3.4, True))
+        self.assertEqual(c.event, "FINISH_DISTANCE_REACHED")
         self.assertTrue(c.rear_cleared)
-        self.assertEqual(c.finish_elapsed, 0.0)
 
-    def test_three_laps_rear_clearance_and_timer_are_separate(self):
+    def test_no_elapsed_time_pwm_or_missing_flow_can_create_distance(self):
         c = self.setup_finish()
-        self.assertFalse(c.rear_cleared)
-        self.assertFalse(c.update(observation(), motion(0.08), 3.3, True, driving=True))
-        self.assertEqual(c.phase, "FINISH_CLEAR_REAR")
-        self.assertEqual(c.finish_elapsed, 0.0)
-        self.clear_rear(c)
+        self.assertFalse(c.update(observation(), motion(0.2, sigma=0), 3.3, True))
+        self.assertFalse(c.update(observation(), None, 300.0, True))
+        self.assertFalse(c.update(observation(), motion(sigma=0), 400.0, True))
+        self.assertEqual(c.finish_travel, 0.2)
+        self.assertTrue(c.update(observation(), motion(0.2, sigma=0), 400.1, True))
+
+    def test_reverse_undoes_measured_progress(self):
+        c = self.setup_finish()
+        c.update(observation(), motion(0.3, sigma=0), 3.3, True)
+        c.update(observation(), motion(-0.1, sigma=0), 3.4, True)
+        self.assertFalse(c.update(observation(), motion(0.1, sigma=0), 3.5, True))
+        self.assertAlmostEqual(c.finish_travel, 0.3)
+        self.assertTrue(c.update(observation(), motion(0.1, sigma=0), 3.6, True))
+
+    def test_chassis_rotation_does_not_count_camera_arc_as_forward_travel(self):
+        origin = np.array([-0.055, 0.0])
+        c = self.setup_finish(reference_origin_m=origin)
+        angle = 0.2
+        rotation = np.array([[math.cos(angle), -math.sin(angle)],
+                             [math.sin(angle), math.cos(angle)]])
+        spin = dict(valid=True, rotation=rotation, translation=origin-rotation@origin, sigma_m=0)
+        for i in range(10):
+            self.assertFalse(c.update(observation(), spin, 3.3 + i * 0.1, True))
+        self.assertAlmostEqual(c.finish_travel, 0.0)
+
+    def test_distance_lower_bound_accounts_for_measurement_uncertainty(self):
+        c = self.setup_finish()
+        self.assertFalse(c.update(observation(), motion(0.4, sigma=0.01), 3.3, True))
+        self.assertAlmostEqual(c.snapshot()["finish_remaining_m"], 0.02)
+        self.assertTrue(c.update(observation(), motion(0.021, sigma=0), 3.4, True))
+
+    def test_command_prior_never_counts_as_measured_progress(self):
+        c = self.setup_finish()
+        before = c.release_track["distance"]
+        self.assertFalse(c.update(observation(), motion(0.8, valid=False), 3.3, True))
+        self.assertEqual(c.finish_travel, 0.0)
+        self.assertEqual(c.release_track["distance"], before)
+        self.assertFalse(c.snapshot()["finish_motion_verified"])
+        self.assertFalse(c.update(observation(), motion(0.4), 3.4, True))
+
+    def test_other_stripes_do_not_replace_the_final_line_or_restart_distance(self):
+        c = self.setup_finish()
+        for i in range(3):
+            self.assertFalse(c.update(observation(0.5, True, True), motion(0.1), 3.3+i*.1, True))
+        self.assertEqual(c.count, 1)
+        self.assertAlmostEqual(c.finish_travel, 0.3)
+        self.assertTrue(c.update(observation(), motion(0.11), 3.6, True))
+
+    def test_stop_new_start_and_finish_latch(self):
+        c = self.setup_finish()
+        c.update(observation(), motion(0.2), 3.3, True)
+        c.stop()
+        self.assertFalse(c.update(observation(), motion(1.0), 3.4, False))
         self.assertFalse(c.complete)
-
-    def test_stops_at_first_update_after_3_5_driving_seconds(self):
+        c.begin(observation(0.4, True, True), 5.0)
+        self.assertEqual((c.count, c.finish_travel), (0, 0.0))
         c = self.setup_finish()
-        self.clear_rear(c)
-        self.assertFalse(c.update(observation(), motion(0.2), 6.89, True, driving=True))
-        self.assertTrue(c.update(observation(), motion(0.01), 6.91, True, driving=True))
+        self.assertTrue(c.update(observation(), motion(0.41), 3.3, True))
+        self.assertFalse(c.update(observation(0.4, True, True), motion(1.0), 3.4, True))
+        self.assertEqual((c.count, c.phase), (1, "FINISHED"))
+
+    def test_finish_configuration_rejects_invalid_distance_and_origin(self):
+        for value in (-0.1, 0, float("nan"), float("inf"), True, "0.4"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                LapCounter(dict(enabled=True, laps=1, finish_distance_m=value))
+        with self.assertRaises(ValueError):
+            LapCounter({}, reference_origin_m=[float("nan"), 0])
+
+    def test_nonfinite_motion_cannot_turn_distance_comparison_into_early_finish(self):
+        for valid in (True, False):
+            with self.subTest(valid=valid):
+                c = self.setup_finish()
+                c.update(observation(), motion(0.3, sigma=0), 3.3, True)
+                self.assertFalse(c.update(observation(), motion(float("nan"), valid=valid), 3.4, True))
+                self.assertFalse(c.update(observation(), motion(0.1, sigma=0), 3.5, True))
+                self.assertFalse(c.complete)
+
+    def test_every_finish_frame_is_strict_json_before_and_after_rear_clearance(self):
+        c = self.setup_finish()
+        seen = set()
+        for i, travel in enumerate((0.02, 0.15, 0.15, 0.10)):
+            done = c.update(observation(), motion(travel), 3.3+i*.1, True)
+            snapshot = c.snapshot()
+            self.assertIs(type(snapshot["rear_line_cleared"]), bool)
+            seen.add(snapshot["rear_line_cleared"])
+            decoded = json.loads(json.dumps(dict(laps=snapshot), allow_nan=False))
+            self.assertEqual(decoded["laps"]["complete"], done)
+            if i < 3:
+                self.assertFalse(done)
+        self.assertEqual(seen, {False, True})
         self.assertTrue(c.complete)
         self.assertEqual(c.phase, "FINISHED")
-        self.assertEqual(c.event, "FINISH_RUNOUT_ELAPSED")
 
-    def test_paused_time_does_not_reduce_required_driving_time(self):
+    def test_snapshot_exposes_distance_without_old_timer(self):
         c = self.setup_finish()
-        self.clear_rear(c)
-        self.assertFalse(c.update(observation(), motion(0.1), 4.4, True, driving=True))
-        self.assertAlmostEqual(c.finish_elapsed, 1.0)
-        self.assertFalse(c.update(observation(), motion(), 20.4, True, driving=False))
-        self.assertAlmostEqual(c.finish_elapsed, 1.0)
-        self.assertFalse(c.update(observation(), motion(0.1), 22.4, True, driving=True))
-        self.assertTrue(c.update(observation(), motion(0.1), 22.9, True, driving=True))
-
-    def test_reverse_or_in_place_commands_do_not_count(self):
-        c = self.setup_finish()
-        self.clear_rear(c)
-        self.assertFalse(c.update(observation(), motion(-0.1), 4.4, True, driving=False))
-        self.assertFalse(c.update(observation(), motion(), 5.4, True, driving=False))
-        self.assertEqual(c.finish_elapsed, 0.0)
-
-    def test_different_body_lengths_change_rear_clearance_trigger(self):
-        short = self.setup_finish(rear=0.10)
-        long = self.setup_finish(rear=0.22)
-        short.update(observation(), motion(0.1), 3.4, True, driving=True)
-        long.update(observation(), motion(0.1), 3.4, True, driving=True)
-        self.assertEqual(short.phase, "FINISH_RUNOUT")
-        self.assertEqual(long.phase, "FINISH_CLEAR_REAR")
-
-    def test_body_clearance_uncertainty_must_be_accounted_for(self):
-        c = self.setup_finish()
-        c.release_track["distance"] = -0.165
-        c.release_track["sigma"] = 0.02
-        self.assertFalse(c.update(observation(), motion(), 3.4, True, driving=True))
-        self.assertEqual(c.phase, "FINISH_CLEAR_REAR")
-        self.assertFalse(c.update(observation(), motion(0.05), 3.5, True, driving=True))
-        self.assertEqual(c.phase, "FINISH_RUNOUT")
-
-    def test_invalid_command_prior_cannot_falsely_prove_rear_crossing(self):
-        c = self.setup_finish()
-        before = c.release_track["distance"]
-        self.assertFalse(c.update(observation(), motion(0.8, valid=False), 3.4, True, driving=True))
-        self.assertEqual(c.release_track["distance"], before)
-        self.assertFalse(c.update(observation(), motion(), 3.5, True, driving=True))
-        self.assertFalse(c.rear_cleared)
-        self.assertEqual(c.finish_elapsed, 0.0)
-
-    def test_confirmed_rear_crossing_latches_no_later_odometry_requirement(self):
-        c = self.setup_finish()
-        self.clear_rear(c)
-        before = c.release_track["distance"]
-        self.assertTrue(c.update(observation(), motion(0.8, valid=False), 6.9, True, driving=True))
-        self.assertEqual(c.release_track["distance"], before)
-        self.assertTrue(c.complete)
-
-    def test_uncertain_rear_plane_is_retained(self):
-        c = self.setup_finish()
-        c.release_track["sigma"] = 0.09
-        self.assertFalse(c.update(observation(), motion(), 3.4, True))
-        self.assertIsNotNone(c.release_track)
-        self.assertEqual(c.phase, "FINISH_CLEAR_REAR")
-        self.assertEqual(c.missed, 0)
-        self.assertFalse(c.update(observation(), motion(0.9), 3.5, True, driving=True))
-        self.assertEqual(c.phase, "FINISH_RUNOUT")
-
-    def test_other_stripes_cannot_replace_final_plane_or_restart_timer(self):
-        c = self.setup_finish()
-        self.clear_rear(c)
-        distance = c.release_track["distance"]
-        for t in (3.5, 3.6, 3.7):
-            self.assertFalse(
-                c.update(observation(0.5, True, True), motion(0.01), t, True, driving=True)
-            )
-        self.assertEqual(c.release_track["distance"], distance)
-        self.assertEqual(c.count, 1)
-        self.assertAlmostEqual(c.finish_elapsed, 0.3)
-
-    def test_time_before_rear_crossing_is_not_counted(self):
-        c = self.setup_finish()
-        c.update(observation(), motion(), 100.0, True, driving=True)
-        self.assertEqual(c.finish_elapsed, 0.0)
-        self.assertEqual(c.phase, "FINISH_CLEAR_REAR")
-        c.update(observation(), motion(0.2), 101.0, True, driving=True)
-        self.assertEqual(c.phase, "FINISH_RUNOUT")
-        self.assertEqual(c.finish_elapsed, 0.0)
-
-    def test_oblique_vehicle_width_is_used_for_rear_crossing(self):
-        c = self.setup_finish()
-        n = np.array([math.sqrt(0.5), math.sqrt(0.5)])
-        r = c.release_track
-        r["normal"] = n
-        r["sigma"] = 0.005
-        rear_projection = -c.rear * n[0] - c.half * abs(n[1])
-        r["distance"] = rear_projection - 0.02
-        self.assertFalse(c.update(observation(), motion(), 3.4, True, driving=True))
-        self.assertEqual(c.phase, "FINISH_RUNOUT")
-
-    def test_stop_and_new_start_reset_all_finish_state(self):
-        c = self.setup_finish()
-        self.clear_rear(c)
-        c.update(observation(), motion(0.1), 4.4, True, driving=True)
-        c.stop()
-        self.assertFalse(c.update(observation(), motion(1.0), 9.0, False, driving=True))
-        self.assertFalse(c.complete)
-        c.begin(observation(0.4, True, True), 10.0)
-        self.assertEqual(c.count, 0)
-        self.assertFalse(c.rear_cleared)
-        self.assertEqual(c.finish_elapsed, 0.0)
-        self.assertIsNone(c.finish_last)
-
-    def test_finish_latch_prevents_extra_counts(self):
-        c = self.setup_finish()
-        self.clear_rear(c)
-        self.assertTrue(c.update(observation(), motion(0.6), 6.9, True, driving=True))
-        for t in (7.0, 8.0, 9.0):
-            self.assertFalse(
-                c.update(observation(0.4, True, True), motion(0.4), t, True, driving=True)
-            )
-        self.assertEqual(c.count, 1)
-        self.assertTrue(c.complete)
-
-    def test_finish_configuration_rejects_invalid_time(self):
-        for x in (-0.1, float("nan"), float("inf")):
-            with self.assertRaises(ValueError):
-                LapCounter(dict(enabled=True, laps=3, finish_runout_s=x))
-
-    def test_snapshot_shows_driving_countdown_not_35cm_target(self):
-        c = self.setup_finish()
-        self.clear_rear(c)
-        c.update(observation(), motion(0.1), 4.4, True, driving=True)
+        c.update(observation(), motion(0.2, sigma=0), 3.3, True)
         s = c.snapshot()
-        self.assertEqual(s["finish_runout_s"], 3.5)
-        self.assertEqual(s["finish_remaining_s"], 2.5)
-        self.assertNotIn("finish_rear_clearance_m", s)
+        self.assertEqual((s["finish_distance_m"], s["finish_remaining_m"]), (0.4, 0.2))
+        self.assertNotIn("finish_runout_s", s)
+        self.assertNotIn("finish_elapsed_s", s)
 
 
 class RecordedMarkerTests(unittest.TestCase):
@@ -476,6 +453,21 @@ class RecordedMarkerTests(unittest.TestCase):
         for t in (0.0, 0.15, 0.3):
             r = d.detect(im, details, road, t)
         return r
+
+    def test_first_detection_time_survives_confirmation_and_resets_on_loss(self):
+        d = self.detector()
+        candidates = iter([[marker()], [marker()], [marker()], [], [marker()], [marker()], [marker()]])
+        d.stripes = lambda *args: next(candidates)
+        for now in (29.8, 29.9, 30.1):
+            result = d.detect(None, {}, {}, now)
+        self.assertTrue(result["confirmed"])
+        self.assertEqual(result["first_observed_at"], 29.8)
+        result = d.detect(None, {}, {}, 30.2)
+        self.assertIsNone(result["first_observed_at"])
+        for now in (30.3, 30.4, 30.5):
+            result = d.detect(None, {}, {}, now)
+        self.assertTrue(result["confirmed"])
+        self.assertEqual(result["first_observed_at"], 30.3)
 
     def test_actual_confirmed_stripe_selected_and_nearer_reflection_rejected(self):
         d = self.detector()

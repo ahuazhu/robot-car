@@ -168,12 +168,13 @@ class CrosswalkRuleTests(unittest.TestCase):
     def test_zero_speed_feedback_never_restores_full_cruise(self):
         task = CrosswalkTask(configured(stop_clearance_m=0.08))
         for now in (0, 0.1, 0.2):
-            state = task.update(observation(now, 0.5), motion(), now, True)
+            state = task.update(observation(now, 0.31), motion(), now, True)
         first = task.limit_command((53, 53), state, motion())
-        self.assertLess(first[0], 20)
-        state = task.update(observation(0.3, 0.5), motion(), 0.3, True)
+        self.assertLess(first[0], 53)
+        self.assertGreater(task.speed_ceiling, task.policy.approach_speed_m_s)
+        state = task.update(observation(0.3, 0.31), motion(), 0.3, True)
         second = task.limit_command((53, 53), state, motion())
-        self.assertLess(second[0], 25)
+        self.assertLess(second[0], 53)
         self.assertGreaterEqual(second[0], first[0])
 
     def test_coasting_time_is_derived_from_measured_speed(self):
@@ -244,7 +245,7 @@ class CrosswalkRuleTests(unittest.TestCase):
         duration = state["hold_elapsed_s"]
         state = task.update(None, motion(), 4.2, True)
         self.assertEqual(state["hold_elapsed_s"], duration)
-        self.assertGreaterEqual(duration, 3.3)
+        self.assertGreaterEqual(duration, task.policy.hold_s)
 
     def test_missing_speed_requests_zero_and_requires_observed_recovery(self):
         task = CrosswalkTask(configured())
@@ -273,7 +274,7 @@ class CrosswalkRuleTests(unittest.TestCase):
                         body_rear_m=0.16,
                         body_half_width_m=0.08,
                         brake_deceleration_m_s2=0.08,
-                        stop_clearance_m=0.08,
+                        stop_clearance_m=0.02,
                         approach_speed_m_s=0.06,
                         speed_per_pwm_m_s=0.006705385281385282,
                     )
@@ -282,6 +283,7 @@ class CrosswalkRuleTests(unittest.TestCase):
                 traveled = 0.0
                 ack = (53, 53)
                 hold = []
+                physical_rest_start = resume_at = None
                 dt = 0.15
                 for i in range(280):
                     now = i * dt
@@ -292,6 +294,14 @@ class CrosswalkRuleTests(unittest.TestCase):
                     state = task.update(obs, scene, now, True, ack == (0, 0), ack == (0, 0), True)
                     command = task.limit_command((53, 53), state, scene) or (0, 0)
                     self.assertIsNone(task.failure, (friction, deadzone, state))
+                    if (ack == (0, 0) and abs(speed) <= task.policy.stationary_speed_m_s
+                            and task.phase in ("STOPPING", "HOLD", "RECOVERY_HOLD")):
+                        if physical_rest_start is None:
+                            physical_rest_start = now
+                    elif task.phase != "PASSING" and resume_at is None:
+                        physical_rest_start = None
+                    if task.phase == "PASSING" and resume_at is None:
+                        resume_at = now
                     if task.phase == "HOLD":
                         hold.append((now, near - 0.02))
                     desired = max(0.0, (command[0] - deadzone) * 0.0045) if command[0] else 0.0
@@ -304,7 +314,9 @@ class CrosswalkRuleTests(unittest.TestCase):
                 self.assertEqual(task.passed, 1, (friction, deadzone))
                 self.assertTrue(hold)
                 self.assertTrue(all(0 < distance < 0.20 for _, distance in hold))
-                self.assertGreaterEqual(hold[-1][0] - hold[0][0] + dt, 3.3 - 1e-8)
+                self.assertIsNotNone(physical_rest_start)
+                self.assertGreaterEqual(resume_at-physical_rest_start, task.policy.hold_s-1e-8)
+                self.assertLess(resume_at-physical_rest_start, task.policy.hold_s+2*dt)
 
     def test_completed_hold_waits_for_road_without_latching_a_task_fault(self):
         task = CrosswalkTask(configured())

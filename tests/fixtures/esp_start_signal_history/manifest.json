@@ -1,0 +1,29 @@
+{
+  "method": "Original 320x240 raw panel from archived Maix 960x240 previews. roi annotates historical lamp framing for whole-view integer alignment only; do not copy just this crop onto a new background. Native replay reports original and aligned views, retaining unframed/uncertain outcomes. These samples are not ESP32 camera accuracy measurements.",
+  "sources": [
+    {
+      "name": "large",
+      "archive": "lamp-start-focus-20261031",
+      "roi": [
+        128,
+        0,
+        64,
+        32
+      ],
+      "on_frames": 4,
+      "off_frames": 4
+    },
+    {
+      "name": "small",
+      "archive": "red-light-start-20261031",
+      "roi": [
+        128,
+        8,
+        64,
+        32
+      ],
+      "on_frames": 4,
+      "off_frames": 4
+    }
+  ]
+}

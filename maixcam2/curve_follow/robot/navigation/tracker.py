@@ -45,6 +45,7 @@ class TargetTracker:
         motion_ms = (time.perf_counter() - tick) * 1000
         tick = time.perf_counter()
         self.model.predict(motion)
+        self.model.retire_expired(now)
         self.boundaries.predict(motion, now)
         self.pixels.boundary_prior = self.boundaries.tracks
         prior, _ = self.model.support(now)
@@ -85,6 +86,7 @@ class TargetTracker:
             stationary,
             allow_handoff=bool(motion["valid"] and not require_current),
             continuation_clearance_m=continuation_margin,
+            boundary_confirmed=self.boundaries.confirms(measurement, details.get("fits", {}), now),
         )
         path, support = self.model.support(now, current_only=require_current)
         model_ms = (time.perf_counter() - tick) * 1000
@@ -215,6 +217,7 @@ class TargetTracker:
             motion=motion_summary(motion),
             counts=details.get("counts", {}),
             boundary_fallback=details.get("boundary_fallback"),
+            road_component_selection=details.get("road_component_selection"),
             white_value_min=details.get("white_value_min"),
             photometric_passes=details.get("photometric_passes", 0),
             exposure_normalized=details.get("exposure_normalized", False),

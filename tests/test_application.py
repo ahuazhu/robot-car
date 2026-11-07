@@ -30,7 +30,7 @@ class RuntimeSettingsTests(unittest.TestCase):
             ),
             (120.0, 140.0, 163.0, 37),
         )
-        self.assertEqual(settings.runtime["race"]["finish_runout_s"], 5.0)
+        self.assertEqual(settings.runtime["race"]["finish_distance_m"], 0.4)
 
     def test_preview_override_and_calibration_gate_both_prevent_driving(self):
         self.assertTrue(RuntimeSettings.load(APP_ROOT, {"TARGET_PREVIEW_ONLY": "1"}).preview_only)
@@ -44,17 +44,32 @@ class RuntimeSettingsTests(unittest.TestCase):
 
 
 class ApplicationBoundaryTests(unittest.TestCase):
-    def test_preview_frame_updates_ui_and_closes_without_drive_commands(self):
-        frame = np.full((240, 320, 3), 120, np.uint8)
-        shown = []
-        events = []
+    def run_application(
+        self, frames=1, *, show_delay=0.0, touch_actions=None, preview=True,
+        camera_intervals=None, debug=False,
+    ):
+        """Run the real application/session with clocked camera and output ports."""
+        clock = types.SimpleNamespace(now=100.0, frame=0)
+        events, shown, written, rendered, composed = [], [], [], [], []
+        control_frames, touch_frames, stops, saved = [], [], [], []
+        touch_actions = touch_actions or {}
+        layout = application.DeviceScreen(320, 240)
+        real_screen = application.DeviceScreen
+        real_session = application.DrivingSession
+        real_render = application.render_target
+
+        def advance(seconds):
+            clock.now = round(clock.now + seconds, 9)
 
         class Camera:
             def __init__(self, *args):
                 pass
 
             def read(self):
-                return frame.copy()
+                interval = camera_intervals[clock.frame] if camera_intervals else 0.05
+                advance(interval)
+                clock.frame += 1
+                return np.full((240, 320, 3), 120 + clock.frame, np.uint8)
 
             def close(self):
                 events.append("camera_closed")
@@ -67,41 +82,90 @@ class ApplicationBoundaryTests(unittest.TestCase):
                 return 240
 
             def show(self, picture):
-                shown.append(picture)
+                started = clock.now
+                advance(show_delay)
+                shown.append((clock.frame, started, clock.now, picture.copy()))
 
         class Touch:
             def clear(self):
                 pass
 
             def read(self):
-                return 0, 0, False
+                touch_frames.append(clock.frame)
+                action = touch_actions.get(clock.frame)
+                if action is None:
+                    return 0, 0, False
+                button = next(b for b in layout.buttons if b["action"] == action)
+                x, y, width, height = button["rect"]
+                return x + width // 2, y + height // 2, True
+
+        class Control(WebControl):
+            def update(self, *args, **kwargs):
+                super().update(*args, **kwargs)
+                control_frames.append(self.state["readiness"]["frame"])
 
         class Stream:
-            def __init__(self, *args):
-                self.control = WebControl()
+            def __init__(self):
+                self.control = Control()
                 self.metrics = {}
                 self.preview_error = None
 
             def write(self, picture):
-                self.picture = picture
+                self.picture = picture.copy()
+                written.append((clock.frame, clock.now, self.picture))
 
             def stop(self):
                 events.append("stream_closed")
 
         class Link(PreviewLink):
-            def send(self, op, left=0, right=0):
+            def __init__(self):
+                self.armed = False
+                self.ack = [0, 0, 0, 0, 0, 7]
+
+            def send(self, op, left=0, right=0, *, lease_s=None):
                 events.append(("send", op, left, right))
-                return super().send(op, left, right)
+                if preview:
+                    return super().send(op, left, right)
+                if op in (0, 1):
+                    self.armed = op == 1
+                self.ack = [self.ack[0] + 1, int(self.armed), left, right, 0, 7]
+                return self.ack
+
+            def snapshot(self):
+                return dict(
+                    ack=self.ack[:], armed=self.armed, ack_age_ms=0,
+                    brake_lamp_supported=True, brake_lamp_on=True,
+                    confirmed_forward_s=0.0,
+                )
 
             def stop(self):
+                answer = super().stop() if preview else self.send(0)
+                stops.append(clock.frame)
                 events.append("stopped")
-                return super().stop()
+                return answer
 
             def close(self):
                 events.append("link_closed")
 
+        class Screen(real_screen):
+            def compose(self, picture, reason, pwm, frame, **kwargs):
+                composed.append((frame, reason, pwm, kwargs["armed"]))
+                return super().compose(picture, reason, pwm, frame, **kwargs)
+
+        def render(bgr, result, details, calibration):
+            rendered.append(clock.frame)
+            out, bird = real_render(bgr, result, details, calibration)
+            if debug:
+                # Distinguish the renderer's current control image from raw data.
+                out[-1, -1] = 200 + clock.frame
+            return out, bird
+
+        def save(path, picture):
+            saved.append((Path(path).name, clock.frame, picture.copy()))
+            return True
+
         maix = types.ModuleType("maix")
-        maix.app = types.SimpleNamespace(need_exit=unittest.mock.Mock(side_effect=[False, True]))
+        maix.app = types.SimpleNamespace(need_exit=lambda: clock.frame >= frames)
         maix.camera = types.SimpleNamespace(Camera=Camera)
         maix.display = types.SimpleNamespace(Display=Display)
         maix.touchscreen = types.SimpleNamespace(TouchScreen=Touch)
@@ -110,33 +174,107 @@ class ApplicationBoundaryTests(unittest.TestCase):
             image2cv=lambda picture, **kwargs: picture,
             cv2image=lambda picture, **kwargs: picture,
         )
-        stream = Stream()
-        with (
-            patch.dict("sys.modules", {"maix": maix}),
-            patch.dict(
-                "os.environ",
-                {
-                    "TARGET_PREVIEW_ONLY": "1",
-                    "TARGET_TEST_SECONDS": "0",
-                    "MAIXPY_DEBUG_IMAGES": "0",
-                },
-            ),
-            patch.object(application, "LiveStream", return_value=stream),
-            patch.object(application, "PreviewLink", Link),
-            patch.object(
-                application, "DriveLink", side_effect=AssertionError("Preview opened UART")
-            ),
-            contextlib.redirect_stdout(io.StringIO()),
-        ):
+        stream, link = Stream(), Link()
+        with tempfile.TemporaryDirectory() as run_dir, contextlib.ExitStack() as stack:
+            stack.enter_context(patch.dict("sys.modules", {"maix": maix}))
+            stack.enter_context(patch.dict("os.environ", {
+                "TARGET_PREVIEW_ONLY": "1" if preview else "0",
+                "TARGET_TEST_SECONDS": "0", "START_LIGHT_DISARMED": "1",
+                "MAIXPY_DEBUG_IMAGES": "1" if debug else "0",
+                "MAIXPY_SKILL_RUN_DIR": run_dir,
+            }))
+            stack.enter_context(patch.object(application, "time", types.SimpleNamespace(
+                monotonic=lambda: clock.now, perf_counter=lambda: clock.now,
+            )))
+            signal = application.StartSignal({"enabled": True}, clock=lambda: clock.now)
+            signal.key = "a" * 64
+            signal.peer = dict(boot="1234567890abcdef", paired=True, armed=False)
+            signal.received, signal.error = clock.now, ""
+            # The disabled worker has completed its initial idle-peer check.
+            signal.start = lambda: setattr(signal, "reset_remote_pending", False)
+            signal.close = lambda: None
+            stack.enter_context(patch.object(application, "StartSignal", return_value=signal))
+            stack.enter_context(patch.object(application, "DrivingSession", side_effect=(
+                lambda *args: real_session(*args, clock=lambda: clock.now)
+            )))
+            stack.enter_context(patch.object(application, "LiveStream", return_value=stream))
+            stack.enter_context(patch.object(application, "DeviceScreen", Screen))
+            stack.enter_context(patch.object(application, "render_target", side_effect=render))
+            stack.enter_context(patch.object(application, "PreviewLink", return_value=link))
+            drive = stack.enter_context(patch.object(application, "DriveLink", return_value=link))
+            if preview:
+                drive.side_effect = AssertionError("Preview opened UART")
+            stack.enter_context(patch.object(application, "MotorChannel", side_effect=lambda x: x))
+            stack.enter_context(patch.object(application.cv2, "imwrite", side_effect=save))
+            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
             application.main(APP_ROOT)
-        self.assertEqual(len(shown), 1)
-        self.assertEqual(stream.picture.shape, (240, 960, 3))
-        self.assertEqual(stream.metrics["frame"], 1)
-        self.assertFalse(stream.control.status()["active"])
-        self.assertTrue(stream.metrics["preview_only"])
-        self.assertTrue(all(event[1] in (0, 3) for event in events if isinstance(event, tuple)))
-        self.assertEqual(events[-4:], ["stopped", "stream_closed", "camera_closed", "link_closed"])
+        return types.SimpleNamespace(
+            shown=shown, written=written, rendered=rendered, composed=composed,
+            controls=control_frames, touches=touch_frames, stops=stops,
+            saved=saved, events=events, stream=stream,
+        )
 
+    def test_preview_frame_updates_ui_and_closes_without_drive_commands(self):
+        run = self.run_application()
+        self.assertEqual(len(run.shown), 1)
+        self.assertEqual(run.stream.picture.shape, (240, 960, 3))
+        self.assertEqual(run.stream.metrics["frame"], 1)
+        self.assertFalse(run.stream.control.status()["active"])
+        self.assertTrue(run.stream.metrics["preview_only"])
+        self.assertTrue(all(e[1] in (0, 3) for e in run.events if isinstance(e, tuple)))
+        self.assertEqual(run.events[-4:], ["stopped", "stream_closed", "camera_closed", "link_closed"])
+
+    def test_control_and_touch_update_every_frame_while_both_previews_are_throttled(self):
+        run = self.run_application(20)
+        self.assertEqual(run.controls, list(range(1, 21)))
+        self.assertEqual(run.touches, run.controls)
+        self.assertEqual(run.stream.metrics["frame"], 20)
+        self.assertTrue(4 <= len(run.shown) <= 6)
+        self.assertTrue(8 <= len(run.written) <= 10)
+        self.assertLess(len(run.shown), len(run.written))
+        self.assertNotIn(2, run.rendered)
+        self.assertEqual(set(run.rendered), {r[0] for r in run.shown + run.written})
+        for _, _, picture in run.written:
+            self.assertEqual(picture.shape, (240, 960, 3))
+
+    def test_slow_display_schedules_after_completion_without_catchup_frames(self):
+        run = self.run_application(12, show_delay=0.30)
+        self.assertEqual(run.controls, list(range(1, 13)))
+        self.assertGreaterEqual(len(run.shown), 2)
+        self.assertLessEqual(len(run.shown), 4)
+        self.assertNotIn(2, run.rendered)
+        for before, after in zip(run.shown, run.shown[1:]):
+            self.assertGreaterEqual(after[1] - before[2], 0.20 - 1e-8)
+            self.assertGreater(after[0] - before[0], 1)
+
+    def test_touch_stop_is_handled_on_a_frame_with_no_rendering(self):
+        run = self.run_application(4, touch_actions={2: "stop"})
+        self.assertNotIn(2, run.rendered)
+        self.assertIn(2, run.stops)
+        self.assertEqual(run.controls, [1, 2, 3, 4])
+        self.assertFalse(run.stream.control.status()["active"])
+
+    def test_arm_and_stop_refresh_screen_immediately_between_display_deadlines(self):
+        run = self.run_application(4, preview=False, touch_actions={2: "start", 4: "stop"})
+        composed = {row[0]: row for row in run.composed}
+        self.assertIn(2, composed)
+        self.assertTrue(composed[2][3])
+        self.assertIn(4, composed)
+        self.assertFalse(composed[4][3])
+        self.assertIn(4, run.stops)
+        self.assertTrue(all(e[1] in (0, 3) for e in run.events if isinstance(e, tuple)))
+
+    def test_debug_deadline_renders_current_frame_even_when_previews_are_not_due(self):
+        run = self.run_application(2, camera_intervals=[1.95, 0.05], debug=True)
+        self.assertEqual([r[0] for r in run.shown], [1])
+        self.assertEqual([r[0] for r in run.written], [1])
+        self.assertEqual(run.rendered, [1, 2])
+        images = {name: (frame, picture) for name, frame, picture in run.saved}
+        self.assertEqual(set(images), {"raw-2.jpg", "control-2.jpg"})
+        self.assertEqual(images["raw-2.jpg"][0], 2)
+        self.assertEqual(images["control-2.jpg"][0], 2)
+        self.assertEqual(int(images["raw-2.jpg"][1][-1, -1, 0]), 122)
+        self.assertEqual(int(images["control-2.jpg"][1][-1, -1, 0]), 202)
 
 if __name__ == "__main__":
     unittest.main()

@@ -25,6 +25,9 @@ class CurvePixels:
         self.H = np.asarray(cal["H_normalized"], float)
         self.Hinv = np.linalg.inv(self.H)
         self.width = float(cal.get("road_width_m", 0.30))
+        self.reference_origin = np.asarray(cal.get("control_frame", {}).get("origin_m", [0., 0.]), float)
+        if self.reference_origin.shape != (2,) or not np.isfinite(self.reference_origin).all():
+            raise ValueError("Invalid road surface reference origin")
         # Photometric calibration, shared by every frame and curve source.
         self.white_value_levels = tuple(cal.get("white_value_levels", (210, 180)))
         if not self.white_value_levels or any(
@@ -250,7 +253,9 @@ class CurvePixels:
         # modes. Every level uses the same boundary and curve validity checks.
         # Cache the ground projection and region masks once for this frame.
         prepared = self.prepare(bgr)
-        surface = RoadSurfaceEvidence(self, prepared[4], prepared[1])
+        surface = RoadSurfaceEvidence(
+            self, prepared[4], prepared[1], road_value=prepared[5], reference_origin=self.reference_origin
+        )
         best = None
         best_score = -1.0
         first_failure = None
@@ -370,6 +375,22 @@ class CurvePixels:
                         mode = "ONE " + f["side"].upper()
                         confidence = self.policy.single_edge_quality_scale * f["confidence"]
                         details["boundary_fallback"] = "ASSOCIATED " + f["side"].upper()
+                if curve is None and len(eligible) == 2 and details.get("surface") is not None:
+                    hypotheses = []
+                    for f in eligible:
+                        normal = np.c_[-f["tangent"][:, 1], f["tangent"][:, 0]]
+                        hypotheses.append((f["path"], normal if f["side"] == "right" else -normal))
+                    sigma = self.policy.observation_sigma_m / min(f["confidence"] for f in eligible)
+                    proof = details["surface"].nearer_separated_component(hypotheses, sigma)
+                    if proof is not None:
+                        f = eligible[proof["index"]]
+                        if not details["surface"].contradiction(f["center"]["path"], sigma)["contradicted"]:
+                            curve = f["center"]
+                            mode = "ONE " + f["side"].upper()
+                            confidence = self.policy.single_edge_quality_scale * f["confidence"]
+                            details["fits"] = {side: f if side == f["side"] else None for side in ("left", "right")}
+                            details["boundary_fallback"] = "NEAREST CONNECTED ROAD"
+                            details["road_component_selection"] = dict(proof, selected_side=f["side"])
         elif left is not None or right is not None:
             f = left if left is not None else right
             curve = f["center"]

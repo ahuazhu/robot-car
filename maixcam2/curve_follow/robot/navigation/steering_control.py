@@ -185,6 +185,8 @@ class SteeringControl:
         """
         point = result.get("control_target_m", result.get("target_m"))
         self.status.pop("envelope", None)
+        self.status.pop("prediction", None)
+        self.status.pop("handoff", None)
         if (
             not result.get("valid")
             or result.get("state") != "OBSERVED"
@@ -331,41 +333,6 @@ class SteeringControl:
             )
             scale = min(scale, shared["speed_scale"])
             self.status["continuation_envelope"] = shared
-        if result.get("transition_pending"):
-            # Use the SAME supported historical curve and quality-based drive
-            # law as an ordinary occlusion. Bound its motor command lifetime,
-            # rather than treating the watchdog timeout as braking delay or an
-            # old PWM/speed proxy as a new speed measurement. Those conversions
-            # repeatedly reduced useful commands below the motor dead zone.
-            speed = self.status.get("speed_upper_m_s")
-            model = result.get("road_model") or {}
-            room = (
-                min(
-                    self.policy.maximum_blind_distance_m
-                    - float(model.get("blind_distance_m", 0.0)),
-                    float(model.get("length_m", 0.0)),
-                )
-                - support_sigma
-                - prediction_sigma
-            )
-            remaining = self.policy.maximum_prediction_s - float(model.get("age_s", 0.0)) - age_s
-            lease = (
-                0.0
-                if speed is None
-                or speed <= 0
-                or self.status.get("body_speed_m_s", 0.0) <= 0
-                or room <= 0
-                or remaining <= 0
-                else min(0.15, remaining, room / speed)
-            )
-            self.status["handoff"] = dict(
-                remaining_distance_m=room,
-                remaining_time_s=remaining,
-                lease_s=lease,
-                speed_scale=1.0 if lease > 0 else 0.0,
-            )
-            if lease <= 0:
-                return None
         # Extra effort is allowed only on a currently measured, supported
         # pursuit segment with measured motion and a clear body envelope.
         # Reuse the ordinary dimensionless bend load: the straight ceiling
@@ -440,6 +407,38 @@ class SteeringControl:
         self.status.update(
             envelope=envelope, target_selection="ADAPTIVE_PURSUIT", target_speed_scale=target_scale
         )
+        if result.get("state") == "PREDICTED" or result.get("transition_pending"):
+            # Short dropouts and pending handoffs share the same physical
+            # budget. Processing latency already consumes unseen travel; a
+            # fresh UART heartbeat cannot extend this road evidence.
+            speed = self.status.get("speed_upper_m_s")
+            model = result.get("road_model") or {}
+            room = min(
+                self.policy.maximum_blind_distance_m - float(model.get("blind_distance_m", 0.0)),
+                float(model.get("length_m", 0.0)),
+            ) - support_sigma - prediction_sigma
+            remaining = self.policy.maximum_prediction_s - float(model.get("age_s", 0.0)) - age_s
+            measured = speed is not None and math.isfinite(speed) and speed > 0
+            if measured:
+                room -= speed * age_s
+            lease = (
+                min(0.15, remaining, room / speed)
+                if measured and self.status.get("body_speed_m_s", 0.0) > 0
+                and room > 0 and remaining > 0 else 0.0
+            )
+            horizon = max(float(self.status.get("motion_interval_s") or 0.0), age_s)
+            prediction_scale = min(1.0, room / (speed * horizon)) if lease > 0 and horizon > 0 else 0.0
+            budget = dict(
+                remaining_distance_m=room, remaining_time_s=remaining,
+                lease_s=lease, speed_scale=prediction_scale,
+                measured_motion=bool(measured),
+            )
+            self.status["prediction"] = budget
+            if result.get("transition_pending"):
+                self.status["handoff"] = budget
+            if lease <= 0:
+                return None
+            scale = min(scale, prediction_scale)
         output = tuple(round(v * scale) for v in command) if scale > 0 else None
         if output is not None and any(output):
             return output
@@ -507,7 +506,7 @@ class SteeringControl:
             )
             if selected is not None:
                 target = selected["point"]
-                curvature = 2 * target[1] / max(float(target @ target), 1e-8)
+                curvature = self.gain * 2 * target[1] / max(float(target @ target), 1e-8) + self.trim
         poses = np.asarray(poses)
         c, s = np.cos(poses[:, 2]), np.sin(poses[:, 2])
         rotations = np.stack((c, -s, s, c), axis=1).reshape(-1, 2, 2)

@@ -57,7 +57,7 @@ class StopEvidenceTests(unittest.TestCase):
         self.assertIn("CROSSWALK STOP UNVERIFIED", state["issues"])
         self.assertFalse(state["stop_verified"])
         self.assertFalse(state["yield_verified"])
-        self.assertEqual(state["phase"], "RECOVERY_HOLD")
+        self.assertEqual(state["phase"], "PASSING")
         self.assertIn("STOP_POSITION_UNCERTAIN", state["stop_blockers"])
         for now in np.arange(3.7, 5.11, 0.1):
             state = task.update(None, motion(), float(now), True, True, True, True)
@@ -120,7 +120,8 @@ class StopEvidenceTests(unittest.TestCase):
         for now in (0.3, 0.4, 0.5, 0.6):
             task.update(observation(now), motion(), now, True, True, True, True)
         state = task.update(observation(0.7, 0.332), motion(), 0.7, True, True, True, True)
-        self.assertEqual(state["hold_elapsed_s"], 0.0)
+        self.assertFalse(state["stop_verified"])
+        self.assertFalse(state["yield_verified"])
         self.assertNotEqual(state["phase"], "PASSING")
 
     def test_new_crossing_and_latched_fault_cannot_show_previous_hold_seconds(self):

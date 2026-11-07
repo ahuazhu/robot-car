@@ -5,9 +5,9 @@ import json, unittest
 from unittest.mock import patch
 import cv2, numpy as np
 
-from robot.tasks.start_light import StartLight
+from tests.reference.legacy_start_light import StartLight
 
-CONFIG = json.loads((ROOT / "maixcam2/curve_follow/runtime.json").read_text())["start_light"]
+CONFIG = json.loads((ROOT / "tests/reference/start_light_config.json").read_text())
 
 
 def gate(**changes):

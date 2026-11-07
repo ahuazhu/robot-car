@@ -2,6 +2,7 @@
 
 from tests.support import ROOT
 import json, unittest
+from unittest.mock import patch
 import cv2
 import numpy as np
 
@@ -135,6 +136,75 @@ class PersistentRoadTests(unittest.TestCase):
         self.assertEqual(bank.summary(0.3)["right"], [])
 
 
+class ExpiredReferenceTests(unittest.TestCase):
+    def test_expired_history_does_not_veto_independently_confirmed_road(self):
+        for cause in ("age", "travel", "uncertainty"):
+            with self.subTest(cause=cause):
+                model = LocalRoadModel()
+                model.update(measure(line()), 0.0)
+                now = 0.7 if cause == "age" else 0.1
+                if cause == "travel":
+                    model.travel[:] = 0.08
+                if cause == "uncertainty":
+                    model.variance[:] = 0.06 ** 2
+                fresh = measure(line(y=0.10))
+                event = model.update(fresh, now)
+                self.assertEqual(event["association_kind"], "REINITIALIZATION")
+                self.assertIsNone(event["alignment"])
+                self.assertFalse(event["observed"])
+                self.assertIsNone(model.path)
+                self.assertEqual(model.support(now)[1]["reason"], "ROAD SUPPORT EXPIRED")
+                event = model.update(fresh, now + 0.1)
+                self.assertTrue(event["observed"])
+                self.assertTrue(event["reacquired"])
+                np.testing.assert_allclose(model.path, fresh["path"])
+                self.assertTrue(np.all(model.seen == now + 0.1))
+
+    def test_expired_recovery_rejects_flicker_weak_or_missing_candidates(self):
+        model = LocalRoadModel()
+        model.update(measure(line()), 0.0)
+        a, b = measure(line(y=0.10)), measure(line(y=-0.10))
+        for now, candidate in ((0.7, a), (0.8, b), (0.9, a), (1.0, None),
+                               (1.1, measure(line(y=0.10), quality=0.60)), (1.2, a)):
+            self.assertFalse(model.update(candidate, now)["observed"])
+            self.assertIsNone(model.path)
+        self.assertTrue(model.update(a, 1.3)["observed"])
+
+    def test_tracker_never_passes_expired_geometry_to_boundary_selection(self):
+        tracker = TargetTracker(CAL)
+        tracker.model.update(measure(line()), 0.0)
+        priors = []
+        tracker.pixels.measure = lambda image, prior: (priors.append(prior) or measure(line(y=0.10)), {})
+        result, _ = tracker.update(None, 0.7)
+        self.assertIsNone(priors[0])
+        self.assertEqual(result["state"], "CONFIRMING")
+        self.assertFalse(result["valid"])
+
+    def test_only_current_selected_strong_boundary_can_confirm_paired_road(self):
+        bank = BoundaryTrackBank()
+        selected = dict(line(), confidence=0.95, score=0.95, center=line())
+        bank.update({"left": [selected]}, 0.0)
+        bank.update({"left": [selected]}, 0.1)
+        fits = {"left": selected, "right": dict(line(y=0.01), confidence=0.57)}
+        current = measure(line(y=0.003), quality=0.57, mode="TWO EDGES")
+        self.assertTrue(bank.confirms(current, fits, 0.1))
+        self.assertFalse(bank.confirms(current, fits, 0.2))  # Missing this frame.
+        self.assertFalse(bank.confirms(measure(line(y=0.03), 0.57, "TWO EDGES"), fits, 0.1))
+        other = dict(selected, path=line(y=0.10)["path"])
+        self.assertFalse(bank.confirms(current, dict(fits, left=other), 0.1))
+        selected["confidence"] = 0.60
+        self.assertFalse(bank.confirms(current, fits, 0.1))
+
+    def test_partial_expiry_keeps_only_continuous_live_curve(self):
+        model = LocalRoadModel()
+        model.update(measure(line()), 0.0)
+        model.seen[model.path[:, 0] > 0.35] = 0.5
+        model.retire_expired(0.7)
+        self.assertGreater(model.path[0, 0], 0.35)
+        self.assertTrue(np.all(model.seen == 0.5))
+        self.assertIsNone(model.retired_support)
+
+
 class GroundMotionTests(unittest.TestCase):
     def test_metric_flow_sees_motion_even_when_motor_command_is_zero(self):
         folder = ROOT / "tests/fixtures/road_model_sequence"
@@ -154,6 +224,36 @@ class GroundMotionTests(unittest.TestCase):
         after = curve_agreement(apply_ground_motion(a["path"], result), b["path"])["distance_m"]
         self.assertLess(after, 0.015)
         self.assertLess(after, before * 0.5)
+
+    def test_reuses_only_successfully_measured_features_and_reseeds_after_failure(self):
+        image = cv2.imread(str(ROOT / "tests/fixtures/road_model_sequence/frame-000862.png"))
+        motion = GroundMotion(RECORDED_CAL)
+        with patch("cv2.goodFeaturesToTrack", wraps=cv2.goodFeaturesToTrack) as detect:
+            motion.update(image, 0.0)
+            for now in (0.1, 0.2, 0.3):
+                result = motion.update(image, now)
+                self.assertTrue(result["valid"], result)
+                self.assertLessEqual(len(motion.previous_features), motion.policy.motion_max_features)
+            self.assertEqual(detect.call_count, 1)
+            blank = np.zeros_like(image)
+            self.assertFalse(motion.update(blank, 0.4)["valid"])
+            self.assertIsNone(motion.previous_features)
+            self.assertFalse(motion.update(blank, 0.5)["valid"])
+            self.assertEqual(detect.call_count, 2)
+            motion.update(image, 2.0)
+            self.assertIsNone(motion.previous_features)
+            self.assertTrue(motion.update(image, 2.1)["valid"])
+            self.assertEqual(detect.call_count, 3)
+
+    def test_fast_ground_mask_preserves_exact_threshold_and_visibility(self):
+        rng = np.random.default_rng(487)
+        motion = GroundMotion(RECORDED_CAL)
+        for _ in range(4):
+            image = rng.integers(0, 256, (240, 320, 3), dtype=np.uint8)
+            actual = motion.road_mask(image)
+            _, saturation, value = cv2.split(cv2.cvtColor(image, cv2.COLOR_BGR2HSV))
+            expected = ((saturation < 120) & (value > 30) & motion.ground_visible).astype(np.uint8) * 255
+            np.testing.assert_array_equal(actual, expected)
 
     def test_textureless_frame_uses_explicit_uncertain_prior(self):
         motion = GroundMotion(CAL)

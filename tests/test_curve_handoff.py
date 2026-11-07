@@ -104,7 +104,12 @@ class HandoffModelTests(unittest.TestCase):
             e = m.update(measurement(path(0.22, 0.65)), now, allow_handoff=allow)
             self.assertFalse(e["observed"])
             self.assertFalse(e["continuation_allowed"])
-            self.assertEqual(e["required"], m.policy.stopped_confirmation_frames)
+            if now > m.policy.maximum_prediction_s:
+                self.assertEqual(e["association_kind"], "REINITIALIZATION")
+                self.assertEqual(e["required"], math.ceil(m.policy.confirmation_evidence / 0.9))
+                self.assertIsNone(m.path)
+            else:
+                self.assertEqual(e["required"], m.policy.stopped_confirmation_frames)
 
     def test_true_geometric_conflict_is_still_confirmed_while_stopped(self):
         m = self.model()
@@ -200,6 +205,29 @@ class HandoffControlTests(unittest.TestCase):
         self.assertLessEqual(
             lease * (0.04 + 0.002), pending.status["handoff"]["remaining_distance_m"]
         )
+
+    def test_short_dropout_reduces_effort_as_trusted_distance_is_consumed(self):
+        outputs = []
+        for blind in (0.005, 0.041, 0.043):
+            c, command = self.control(dict(road_model=dict(
+                sigma_m=0.005, blind_distance_m=blind, age_s=0.05, length_m=0.4,
+            )))
+            self.assertIsNotNone(command)
+            budget = c.status["prediction"]
+            self.assertGreater(budget["lease_s"], 0.0)
+            self.assertLessEqual(budget["lease_s"], 0.15)
+            self.assertLessEqual(budget["lease_s"] * c.status["speed_upper_m_s"], budget["remaining_distance_m"] + 1e-12)
+            self.assertNotIn("handoff", c.status)
+            outputs.append(sum(command))
+        self.assertGreater(outputs[0], outputs[1])
+        self.assertGreater(outputs[1], outputs[2])
+
+    def test_dropout_cannot_drive_after_processing_consumes_remaining_distance(self):
+        c, command = self.control(dict(road_model=dict(
+            sigma_m=0.005, blind_distance_m=0.0445, age_s=0.05, length_m=0.4,
+        )), speed=0.10)
+        self.assertIsNone(command)
+        self.assertEqual(c.status["prediction"]["lease_s"], 0.0)
 
     def test_no_motion_or_remaining_support_blocks_pending_command(self):
         for model in (

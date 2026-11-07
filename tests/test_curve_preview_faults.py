@@ -1,9 +1,11 @@
 from tests.support import ROOT
-import unittest, threading
+import unittest, threading, json
+from urllib.request import urlopen
 from unittest.mock import patch
 import numpy as np
 
 from robot.interface.preview_transport import LiveStream
+from robot.tasks.lap_counter import LapCounter
 
 
 class PreviewFaultTests(unittest.TestCase):
@@ -27,6 +29,38 @@ class PreviewFaultTests(unittest.TestCase):
                 self.assertTrue(stream.condition.wait_for(lambda: stream.sequence == 1, timeout=2))
             self.assertIsNone(stream.preview_error)
             self.assertEqual(stream.sequence, 1)
+        finally:
+            stream.stop()
+
+    def test_finish_frames_keep_logging_status_and_vision_json_available(self):
+        # The observed final crossing was at -8.2cm, sigma 3.6cm. The first
+        # measured runout frame produced a NumPy boolean and killed v0.6.73.
+        counter = LapCounter(dict(enabled=True, laps=2, finish_distance_m=.4))
+        counter.begin({}, 0.)
+        counter.count = 2
+        counter.phase = "FINISH_DISTANCE"
+        counter.release_track = dict(normal=np.array([1., 0.]), distance=-.082, sigma=.036)
+        stream = LiveStream(0)
+        try:
+            base = "http://127.0.0.1:%d" % stream.server.server_address[1]
+            for i, travel in enumerate((.02, .15, .15, .10)):
+                done = counter.update({}, dict(valid=True, rotation=np.eye(2),
+                    translation=np.array([-travel, 0.]), sigma_m=.001), i*.1, True)
+                snapshot = counter.snapshot()
+                json.dumps(dict(active=not done, laps=snapshot), allow_nan=False)
+                stream.metrics = dict(laps=snapshot)
+                stream.control.update(not done, True, counter.phase,
+                                      (0, 0) if done else (100, 100), readiness=dict(laps=snapshot))
+                for path in ("/vision", "/status"):
+                    with urlopen(base+path, timeout=2) as response:
+                        self.assertEqual(response.status, 200)
+                        data = json.load(response)
+                    laps = data["laps"] if path == "/vision" else data["readiness"]["laps"]
+                    self.assertIs(type(laps["rear_line_cleared"]), bool)
+                    self.assertEqual(laps["complete"], done)
+            self.assertTrue(done)
+            with urlopen(base+"/", timeout=2) as response:
+                self.assertEqual(response.status, 200)
         finally:
             stream.stop()
 

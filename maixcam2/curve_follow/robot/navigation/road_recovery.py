@@ -81,6 +81,7 @@ class RoadSearch:
         self.targets = []
         self.last_action = False
         self.awaiting_rest = False
+        self._map_proposal = None
         self.finished = False
         self.status = dict(phase="IDLE", reason="", search_pending=False, lease_s=None)
         self.scan.reset()
@@ -93,8 +94,23 @@ class RoadSearch:
         return self.scan.last_action if self.scan.began is not None else self.last_action
 
     def applied(self, now, command, issued=True):
-        """Forward actual command publication to the strategy that needs it."""
-        return self.scan.applied(now, command, issued=issued)
+        """Advance pulse/rest state only after matching command publication."""
+        if self.scan.began is not None:
+            return self.scan.applied(now, command, issued=issued)
+        proposal = self._map_proposal
+        if (
+            not issued
+            or proposal is None
+            or self.began is None
+            or self.finished
+            or command is None
+            or tuple(command) != proposal[1]
+            or (proposal[0] == "pulse" and not any(command))
+        ):
+            return False
+        self._map_proposal = None
+        self.awaiting_rest = proposal[0] == "pulse"
+        return True
 
     def observe_hint(self, result):
         """Keep the idle scan direction without building or transporting a map."""
@@ -293,6 +309,7 @@ class RoadSearch:
 
     def command(self, result, follow, motion, now, *, active=False, allowed=True, stopped=False):
         self.last_action = False
+        self._map_proposal = None
         if not active:
             self.reset()
             return follow
@@ -457,7 +474,9 @@ class RoadSearch:
         )
         if self.awaiting_rest:
             if resting:
-                self.awaiting_rest = False
+                # The measured-rest frame must also publish zero before another
+                # pulse; a slow or unsent zero proposal cannot release the wait.
+                self._map_proposal = ("rest_zero", (0, 0))
             return (0, 0)
         if not resting:
             return (0, 0)
@@ -465,6 +484,9 @@ class RoadSearch:
         effort = max(self.cruise / 6, effort)
         direction = math.copysign(1.0, remaining)
         self.last_action = True
-        self.awaiting_rest = True
         self.status["lease_s"] = self.limits.pulse_s
-        return (-round(direction * effort), round(direction * effort))
+        command = (-round(direction * effort), round(direction * effort))
+        # Vision timing, task limits or the control scheduler may suppress this
+        # proposal. Only applied() can start the post-pulse rest requirement.
+        self._map_proposal = ("pulse", command)
+        return command

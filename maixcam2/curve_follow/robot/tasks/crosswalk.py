@@ -11,6 +11,8 @@ from statistics import median
 import cv2
 import numpy as np
 
+from robot.core.stationarity import StationaryEvidence
+
 
 # Original race rules, visual racing IV.1(3): whole-body projection strictly
 # before the crossing and less than20cm away. The braking buffer is separate.
@@ -35,9 +37,10 @@ class CrosswalkPolicy:
     geometry_verified: bool = False
     brake_lamp_verified: bool = False
     brake_deceleration_m_s2: object = None
-    hold_s: float = 3.3
+    hold_s: float = 3.2
     maximum_hold_s: float = 4.8
     stop_clearance_m: float = 0.14
+    brake_entry_m: float = 0.15
     distance_error_m: float = 0.015
     observation_max_age_s: float = 1.0
     maximum_position_error_m: float = 0.035
@@ -89,6 +92,8 @@ class CrosswalkPolicy:
             raise ValueError("Yield hold must be >3s and <5s")
         if not 0 < p.stop_clearance_m < CROSSWALK_STOP_LIMIT_M:
             raise ValueError("Stop clearance must be below 20cm")
+        if not 0 < p.brake_entry_m < CROSSWALK_STOP_LIMIT_M:
+            raise ValueError("Brake entry must be below 20cm")
         if not isinstance(p.confirmation_frames, int) or p.confirmation_frames < 2:
             raise ValueError("Need multiple observations")
         if not isinstance(p.minimum_bars, int) or not 4 <= p.minimum_bars <= 7:
@@ -352,6 +357,10 @@ class CrosswalkTask:
         self.speed_ceiling = None
         self.last_visual_speed = 0.0
         self.speed_missing_since = None
+        self.rest = StationaryEvidence(
+            self.policy.stationary_speed_m_s, self.policy.stationary_yaw_rad_s,
+            self.policy.stationary_confirm_s, self.policy.confirmation_gap_s,
+        )
 
     def _begin_track(self, observation):
         self.identity += 1
@@ -364,6 +373,7 @@ class CrosswalkTask:
         self.yield_completed = False
         self.stationary_since = self.hold_since = self.stopping_since = None
         self.stop_deadline = self.physical_rest_since = None
+        self.rest.reset()
         self.hold_completed_s = 0.0
         self.stop_evidence = None
         self.stop_blockers = []
@@ -649,12 +659,17 @@ class CrosswalkTask:
             self.phase = "APPROACH"
         if p.mode != "yield" or not active or p.blockers():
             return self.snapshot(now)
-        stationary = (
-            valid_motion
-            and motion.get("speed_m_s") is not None
-            and abs(motion["speed_m_s"]) <= p.stationary_speed_m_s
-            and abs(motion["yaw_rad_s"]) <= p.stationary_yaw_rad_s
+        stationary = self.rest.observe(
+            motion, now,
+            self.phase in ("STOPPING", "HOLD", "RECOVERY_HOLD") and zero_ack and lamp_on,
         )
+        # During approach an already stopped legal pose needs no extra move.
+        if self.phase == "APPROACH":
+            stationary = bool(
+                valid_motion and motion.get("speed_m_s") is not None
+                and abs(motion["speed_m_s"]) <= p.stationary_speed_m_s
+                and abs(motion["yaw_rad_s"]) <= p.stationary_yaw_rad_s
+            )
         # A continuously measured stationary scene preserves a stopped pose;
         # it does not refresh the time of the last zebra observation.
         stationary_hold = self.phase in ("STOPPING", "HOLD", "RECOVERY_HOLD") and stationary
@@ -700,7 +715,16 @@ class CrosswalkTask:
                 stopping_distance = speed * p.command_latency_s + speed * speed / (
                     2 * float(p.brake_deceleration_m_s2)
                 )
-                if clearance <= p.stop_clearance_m + sigma + stopping_distance:
+                # Brake as soon as every possible resting position lies in
+                # the legal window. Braking distance bounds forward coasting;
+                # it is not an exact offset to subtract from the 20 cm limit.
+                # The lower buffer remains an independent last-brake boundary,
+                # never a centimetre setpoint to creep toward inside the window.
+                stopping_interval = [clearance - sigma - stopping_distance, clearance + sigma]
+                if (
+                    (clearance <= p.brake_entry_m and legal_stop_interval(stopping_interval))
+                    or clearance <= p.stop_clearance_m + sigma + stopping_distance
+                ):
                     self._request_stop(now)
         if self.phase in ("STOPPING", "HOLD", "RECOVERY_HOLD"):
             verified_rest = stationary and zero_ack and lamp_on
@@ -730,54 +754,31 @@ class CrosswalkTask:
                 self.stationary_since = self.hold_since = self.stopping_since = None
                 self.stop_deadline = self.physical_rest_since = None
                 return self.snapshot(now)
-            recovering = self.phase == "RECOVERY_HOLD"
-            if not recovering:
-                self._verify_stop(
-                    now,
-                    stationary,
-                    zero_ack,
-                    lamp_on,
-                    position_available,
-                    clearance,
-                    sigma,
-                    fresh_position=matched,
-                )
-            elif not verified_rest:
-                self.hold_since = None
-            elif self.hold_since is None:
-                self.hold_since = now
-            if (
-                self.phase == "HOLD"
-                and self.hold_since is not None
-                and now - self.hold_since >= p.hold_s
-            ):
-                self.hold_completed_s = now - self.hold_since
-                self.yield_verified = True
-                self.yield_completed = True
-                self.recovery_reason = None
-                self.phase = "PASSING"
-            elif (
-                self.phase == "RECOVERY_HOLD"
-                and self.hold_since is not None
-                and now - self.hold_since >= p.hold_s
-            ):
-                self.hold_completed_s = now - self.hold_since
-                self.yield_completed = True
-                self.yield_verified = False
-                self.phase = "PASSING"
-            if (
-                self.phase == "STOPPING"
-                and self.stop_evidence is None
-                and self.stop_deadline is not None
-                and now > self.stop_deadline
-            ):
+            self._verify_stop(
+                now, stationary, zero_ack, lamp_on, position_available,
+                clearance, sigma, fresh_position=matched,
+            )
+            # One physical dwell clock serves both a legally located stop and
+            # a recorded position exception. Position verification never adds
+            # a second full hold, and ordinary flow jitter cannot restart it.
+            rest_elapsed = (0.0 if self.physical_rest_since is None
+                            else now-self.physical_rest_since)
+            if verified_rest and rest_elapsed >= p.stationary_confirm_s:
+                located = legal_stop_interval(self._stop_interval(now))
+                self.phase = "HOLD" if located else "RECOVERY_HOLD"
+                self.hold_since = self.physical_rest_since
+                if not located:
+                    self._issue("CROSSWALK STOP UNVERIFIED")
+                if rest_elapsed >= p.hold_s:
+                    self.hold_completed_s = rest_elapsed
+                    self.yield_completed = True
+                    self.yield_verified = located
+                    if located:
+                        self.recovery_reason = None
+                    self.phase = "PASSING"
+            elif (self.stop_deadline is not None and now > self.stop_deadline
+                  and self.stop_evidence is None):
                 self._issue("CROSSWALK STOP UNVERIFIED")
-                # A physical yield can still be completed without claiming a
-                # legal stop position. This is a recorded task exception, not
-                # authority to drive without a confirmed road or zero ACK.
-                if verified_rest and now - self.physical_rest_since >= p.stationary_confirm_s:
-                    self.phase = "RECOVERY_HOLD"
-                    self.hold_since = now
             if (
                 self.phase in ("STOPPING", "HOLD", "RECOVERY_HOLD")
                 and self.physical_rest_since is not None
@@ -839,6 +840,10 @@ class CrosswalkTask:
             passed=self.passed,
             blockers=p.blockers(),
             failure=self.failure,
+            physical_rest_elapsed_s=(max(0.0, now-self.physical_rest_since)
+                                     if self.physical_rest_since is not None else 0.0),
+            required_hold_s=p.hold_s,
+            brake_entry_m=p.brake_entry_m,
             speed_ceiling_m_s=self.speed_ceiling,
             regulated_pwm=self.speed_pwm,
             legal_stop_window_m=[0.0, CROSSWALK_STOP_LIMIT_M],
@@ -888,12 +893,24 @@ class CrosswalkTask:
             self.recovery_reason = None
         available = max(0.0, clearance - approach["sigma_m"] - p.stop_clearance_m)
         decel = float(p.brake_deceleration_m_s2)
-        delay = p.command_latency_s
+        # Speed feedback takes time to settle. Plan the next speed early
+        # enough that this response cannot repeatedly hit the emergency-stop
+        # boundary while the crossing is still outside the legal window.
+        delay = p.command_latency_s + p.speed_response_s
         safe_speed = max(
             0.0, math.sqrt((decel * delay) ** 2 + 2 * decel * available) - decel * delay
         )
-        ceiling = min(p.approach_speed_m_s, safe_speed)
+        # The task imposes only a distance-dependent braking envelope. A
+        # fixed 6cm/s approach cap caused long crawls and repeated early stops.
+        ceiling = safe_speed
+        previous_ceiling = self.speed_ceiling
         self.speed_ceiling = ceiling
+        if (self.speed_pwm is not None and previous_ceiling
+                and ceiling < previous_ceiling):
+            # Apply a falling reference immediately; integral-only feedback
+            # otherwise keeps the old torque until overspeed causes an early
+            # emergency stop. Both wheels retain their requested curvature.
+            self.speed_pwm *= ceiling / previous_ceiling
         requested = max(0.0, sum(command) / 2.0)
         now = self.last_update
         dt = (

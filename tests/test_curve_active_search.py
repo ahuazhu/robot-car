@@ -79,15 +79,76 @@ class ActiveSearchTests(unittest.TestCase):
             )
             self.assertFalse(r.last_action)
 
+    def test_unsent_or_replaced_pulse_does_not_add_a_rest_frame(self):
+        for outcome in ("not_sent", "rejected", "replaced_by_zero"):
+            with self.subTest(outcome=outcome):
+                r = self.ready()
+                pulse = r.command(missing(), None, motion(), 0.1, active=True)
+                if outcome == "rejected":
+                    self.assertFalse(r.applied(0.11, pulse, issued=False))
+                elif outcome == "replaced_by_zero":
+                    self.assertFalse(r.applied(0.11, (0, 0)))
+                self.assertFalse(r.awaiting_rest)
+                self.assertEqual(r.command(missing(), None, motion(), 0.2, active=True), pulse)
+                self.assertTrue(r.is_turning())
+                self.assertEqual(r.snapshot()["lease_s"], 0.08)
+
+    def test_zero_rounded_effort_does_not_count_as_a_pulse(self):
+        r = self.ready()
+        r.cruise = 1.0
+        command = r.command(missing(), None, motion(), 0.1, active=True)
+        self.assertEqual(command, (0, 0))
+        self.assertFalse(r.applied(0.11, command))
+        self.assertFalse(r.awaiting_rest)
+
+    def test_pulse_publication_is_matched_and_consumed_once(self):
+        r = self.ready()
+        pulse = r.command(missing(), None, motion(), 0.1, active=True)
+        self.assertFalse(r.applied(0.11, tuple(-v for v in pulse)))
+        self.assertTrue(r.applied(0.12, pulse))
+        self.assertTrue(r.awaiting_rest)
+        self.assertFalse(r.applied(0.13, pulse))
+        self.assertTrue(r.awaiting_rest)
+
     def test_pulse_requires_an_explicit_zero_frame_and_measured_rest(self):
         r = self.ready()
-        r.command(missing(), None, motion(), 0.1, active=True)
+        pulse = r.command(missing(), None, motion(), 0.1, active=True)
+        self.assertTrue(r.applied(0.11, pulse))
         for now, m in ((0.2, motion(yaw=0.01)), (0.3, motion())):
             r.observe(missing(), m, now)
-            self.assertEqual(r.command(missing(), None, m, now, active=True), (0, 0))
+            zero = r.command(missing(), None, m, now, active=True)
+            self.assertEqual(zero, (0, 0))
             self.assertFalse(r.last_action)
+            self.assertEqual(r.applied(now + 0.01, zero), now == 0.3)
         self.assertIsNotNone(r.command(missing(), None, motion(), 0.4, active=True))
         self.assertTrue(r.last_action)
+
+    def test_unsent_rest_zero_cannot_release_an_actual_pulse(self):
+        r = self.ready()
+        pulse = r.command(missing(), None, motion(), 0.1, active=True)
+        r.applied(0.11, pulse)
+        self.assertEqual(r.command(missing(), None, motion(), 0.2, active=True), (0, 0))
+        self.assertFalse(r.applied(0.21, (0, 0), issued=False))
+        self.assertEqual(r.command(missing(), None, motion(), 0.3, active=True), (0, 0))
+        self.assertTrue(r.applied(0.31, (0, 0)))
+        self.assertFalse(r.applied(0.32, (0, 0)))
+        self.assertEqual(r.command(missing(), None, motion(), 0.4, active=True), pulse)
+
+    def test_superseded_pulse_cannot_be_confirmed_after_permission_or_evidence_changes(self):
+        for outcome in ("inactive", "yield", "follow", "invalid_motion", "exhausted"):
+            with self.subTest(outcome=outcome):
+                r = self.ready()
+                pulse = r.command(missing(), None, motion(), 0.1, active=True)
+                r.command(
+                    missing(),
+                    (35, 40) if outcome == "follow" else None,
+                    motion(valid=outcome != "invalid_motion"),
+                    10.0 if outcome == "exhausted" else 0.2,
+                    active=outcome != "inactive",
+                    allowed=outcome != "yield",
+                )
+                self.assertFalse(r.applied(10.1, pulse))
+                self.assertFalse(r.awaiting_rest)
 
     def test_recovered_follow_command_ends_search_without_rearming_anything(self):
         r = self.ready()

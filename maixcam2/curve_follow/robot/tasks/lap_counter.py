@@ -21,6 +21,7 @@ class LapMarkerDetector:
             raise ValueError("race.enabled must be boolean")
         self.status = {}
         self.confirmation_frames = 0
+        self.confirmation_since = None
         self.previous = None
         self._profile_cache = None
 
@@ -84,6 +85,7 @@ class LapMarkerDetector:
             for i in np.flatnonzero(abs(abs(alignment) - 0.35) < 1e-12):
                 directions[i] = delta[i] / np.linalg.norm(delta[i])
                 alignment[i] = directions[i] @ forwards[i]
+            probes = []
             for i in np.flatnonzero(~(abs(alignment) > 0.35)):
                 t = directions[i]
                 mid = mids[i]
@@ -101,19 +103,15 @@ class LapMarkerDetector:
                 if len(evaluated) >= 32:
                     break
                 evaluated.append((center, n))
-                # profile samples a whole transverse strip, including gray before/after
-                points = center + offs[:, None, None] * n + lat[None, :, None] * t
-                vals, valid = grid.sample(details["value"], points.reshape(-1, 2))
-                sat, _ = grid.sample(details["saturation"], points.reshape(-1, 2))
-                vals = vals.reshape(len(offs), -1)
-                valid = valid.reshape(vals.shape)
-                sat = sat.reshape(vals.shape)
-                profile = np.median(vals, axis=1)
-                baseline = cv2.morphologyEx(
-                    profile.astype(np.float32).reshape(-1, 1), cv2.MORPH_OPEN, kernel
-                ).ravel()
-                peak = profile - baseline
-                peak[valid.mean(axis=1) < 0.85] = 0
+                probes.append((center, n, t))
+            if not probes:
+                continue
+            values, visibility, saturations, peaks, baselines = self._profiles(
+                probes, details, offs, lat, kernel
+            )
+            for (center, n, _), vals, valid, sat, peak, baseline in zip(
+                probes, values, visibility, saturations, peaks, baselines
+            ):
                 centerid = int(np.argmax(peak))
                 p = float(peak[centerid])
                 b = float(baseline[centerid])
@@ -164,6 +162,31 @@ class LapMarkerDetector:
                 )
         return candidates
 
+    def _profiles(self, probes, details, offsets, lateral, kernel):
+        """Sample all qualified strip geometries together, preserving order.
+
+        The candidate budget and pixel coordinates are unchanged. Morphology
+        runs down each independent profile column; no adjacent candidate is
+        mixed into its brightness baseline.
+        """
+        centers, normals, tangents = (np.asarray(items) for items in zip(*probes))
+        points = (
+            centers[:, None, None, :]
+            + offsets[None, :, None, None] * normals[:, None, None, :]
+            + lateral[None, None, :, None] * tangents[:, None, None, :]
+        )
+        shape = points.shape[:-1]
+        values, visible = self.pixels.sample(details["value"], points.reshape(-1, 2))
+        saturation, _ = self.pixels.sample(details["saturation"], points.reshape(-1, 2))
+        values, visible, saturation = (a.reshape(shape) for a in (values, visible, saturation))
+        profiles = np.median(values, axis=2)
+        baseline = cv2.morphologyEx(
+            profiles.T.astype(np.float32), cv2.MORPH_OPEN, kernel
+        ).T
+        peaks = profiles - baseline
+        peaks[visible.mean(axis=2) < 0.85] = 0
+        return values, visible, saturation, peaks, baseline
+
     def detect(self, bgr, details, road, now, motion=None):
         if not self.enabled:
             return dict(stripes=[], marker_visible=False, confirmed=False, marker=None)
@@ -192,6 +215,7 @@ class LapMarkerDetector:
                 consistent = error < min(0.15, 0.03 + 3 * math.hypot(sigma, current["sigma_m"]))
         if not consistent:
             current = min(stripes, key=lambda s: s["distance_m"]) if stripes else None
+            self.confirmation_since = float(now) if current is not None else None
         self.confirmation_frames = (
             self.confirmation_frames + 1 if consistent else int(current is not None)
         )
@@ -219,6 +243,7 @@ class LapMarkerDetector:
             confirmed=confirmed,
             marker=current if confirmed else None,
             confirmation_frames=self.confirmation_frames,
+            first_observed_at=self.confirmation_since if confirmed else None,
             reason=reason,
         )
         self.status = dict(result, marker=current)
@@ -252,13 +277,25 @@ class LapMarkerDetector:
 
 
 class LapCounter:
-    def __init__(self, config, front_m=0.02, rear_m=0.16, half_width_m=0.085):
+    def __init__(self, config, front_m=0.02, rear_m=0.16, half_width_m=0.085,
+                 *, reference_origin_m=(0.0, 0.0)):
         self.enabled = config.get("enabled", False)
         self.total = validate_laps(config.get("laps", 3))
         self.front = float(front_m)
-        self.finish_seconds = float(config.get("finish_runout_s", 3.5))
-        if not math.isfinite(self.finish_seconds) or self.finish_seconds < 0:
-            raise ValueError("Invalid finish runout duration")
+        ignore = config.get("initial_line_ignore_s", 30.0)
+        if (isinstance(ignore, bool) or not isinstance(ignore, (int, float))
+                or not math.isfinite(ignore) or ignore <= 0):
+            raise ValueError("Invalid initial white-line ignore window")
+        self.initial_line_ignore_s = float(ignore)
+        distance = config.get("finish_distance_m", 0.40)
+        if isinstance(distance, bool) or not isinstance(distance, (int, float)):
+            raise ValueError("Invalid finish distance")
+        self.finish_distance = float(distance)
+        if not math.isfinite(self.finish_distance) or self.finish_distance <= 0:
+            raise ValueError("Invalid finish distance")
+        self.origin = np.asarray(reference_origin_m, float)
+        if self.origin.shape != (2,) or not np.isfinite(self.origin).all():
+            raise ValueError("Invalid finish reference origin")
         self.rear = float(rear_m)
         self.half = float(half_width_m)
         if not all(math.isfinite(v) and v > 0 for v in (self.front, self.rear, self.half)):
@@ -282,24 +319,29 @@ class LapCounter:
         self.phase = "WAIT_START"
         self.track = None
         self.departing = True
+        self.started_at = None
+        self.first_line_seen_at = None
+        self.first_line_ignored = None
         self.visit_done = False
         self.clear_since = None
         self.event = None
         self.missed = 0
         self.release_track = None
         self.finish_motion_verified = False
-        self.finish_elapsed = 0.0
-        self.finish_last = None
+        self.finish_travel = 0.0
+        self.finish_variance = 0.0
+        self.finish_unknown = 0.0
         self.rear_cleared = False
-        self.finish_forward_total = None
-        self.finish_use_forward_total = False
 
     def begin(self, observation, now):
         self.reset()
+        self.started_at = float(now)
+        if not math.isfinite(self.started_at):
+            raise ValueError("Invalid race start time")
         self.running = True
         self.phase = "SEEK_DEPARTURE" if self.enabled else "DEPARTURE"
         if self.enabled and observation.get("confirmed") and observation.get("marker"):
-            self._acquire(observation["marker"], now)
+            self._acquire(observation["marker"], now, observation.get("first_observed_at"))
             self.phase = "DEPARTURE"
 
     def stop(self):
@@ -307,7 +349,19 @@ class LapCounter:
         if not self.complete:
             self.phase = "STOPPED"
 
-    def _acquire(self, marker, now):
+    def _acquire(self, marker, now, first_observed_at=None):
+        if self.departing and self.first_line_seen_at is None:
+            # Classify the first confirmed visit once, by the beginning of its
+            # consistent observations. Crossing later cannot change that vote.
+            seen = float(now)
+            if (isinstance(first_observed_at, (int, float))
+                    and not isinstance(first_observed_at, bool)
+                    and math.isfinite(first_observed_at) and first_observed_at <= seen):
+                seen = float(first_observed_at)
+            self.first_line_seen_at = max(self.started_at, seen)
+            self.first_line_ignored = bool(
+                self.first_line_seen_at-self.started_at <= self.initial_line_ignore_s
+            )
         self.track = dict(
             normal=np.array(marker["normal"], float),
             distance=float(marker["distance_m"]),
@@ -336,85 +390,80 @@ class LapCounter:
             motion_verified=self.finish_motion_verified,
         )
 
-    @staticmethod
-    def _valid_forward_total(value):
-        return (
-            float(value)
-            if isinstance(value, (int, float))
-            and not isinstance(value, bool)
-            and math.isfinite(value)
-            and value >= 0
-            else None
-        )
+    def _finish_update(self, motion):
+        """Run at normal road-controlled speed, then stop once, without docking.
 
-    def _finish_update(self, motion, now, driving, forward_total_s=None):
-        total = self._valid_forward_total(forward_total_s)
-        if self.phase == "FINISH_CLEAR_REAR":
-            self.finish_motion_verified = bool(motion and motion.get("valid"))
-            r = self.release_track
-            if (
-                r is None
-                or not self.finish_motion_verified
-                or self._rear_limit(r["normal"]) - r["distance"] - 2 * r["sigma"] < 0
-            ):
-                return False
-            self.rear_cleared = True
-            self.phase = "FINISH_RUNOUT"
-            self.finish_last = now
-            self.finish_forward_total = total
-            self.event = "REAR_LINE_CLEARED"
-            # The interval that first proves rear clearance is not runout time.
-            if self.finish_seconds > 0:
-                return False
-        elif self.finish_use_forward_total:
-            # Once ACK time is selected, a missing/invalid/reset counter must
-            # never fall back to wall time or backfill an uncertain interval.
-            previous = self.finish_forward_total
-            if total is not None and previous is not None and total >= previous:
-                self.finish_elapsed += total - previous
-            self.finish_forward_total = total
-        elif self.finish_last is not None and math.isfinite(now):
-            interval = now - self.finish_last
-            if driving and interval > 0:
-                self.finish_elapsed += interval
-        self.finish_last = now if math.isfinite(now) else None
-        if self.finish_elapsed >= self.finish_seconds:
-            self.complete = True
-            self.running = False
-            self.phase = "FINISHED"
-            self.event = "FINISH_RUNOUT_ELAPSED"
-            return True
-        return False
+        Integrate measured chassis-forward displacement from the confirmed
+        final crossing. The crossing frame starts the baseline and contributes
+        no pre-line movement. Rotation about the chassis origin is not travel;
+        reverse travel undoes progress. Time and motor PWM never create metres.
+        """
+        self.finish_motion_verified = False
+        if not motion:
+            return False
+        try:
+            rotation = np.asarray(motion["rotation"], float)
+            translation = np.asarray(motion["translation"], float)
+            sigma = float(motion["sigma_m"])
+            finite = (rotation.shape == (2, 2) and translation.shape == (2,)
+                      and np.isfinite(rotation).all() and np.isfinite(translation).all()
+                      and math.isfinite(sigma) and sigma >= 0)
+        except (KeyError, ValueError, TypeError):
+            finite = False
+        if not finite:
+            # Malformed motion cannot poison the distance comparison with NaN.
+            self.finish_travel = self.finish_variance = self.finish_unknown = 0.0
+            return False
+        if not motion.get("valid"):
+            # A command prior is not measured travel. Its magnitude only widens
+            # the bound for motion that could have undone previous progress.
+            self.finish_unknown += (
+                float(np.linalg.norm(translation)) + sigma
+                + 2 * float(np.linalg.norm(self.origin))
+                * abs(math.sin(math.atan2(rotation[1, 0], rotation[0, 0]) / 2))
+            )
+            return False
+        self.finish_motion_verified = True
+        translated = self.origin @ rotation.T + translation - self.origin
+        forward = float((-translated @ rotation)[0])
+        self.finish_travel += forward
+        self.finish_variance += sigma * sigma
+        # Retain the final line only for rear-clearance diagnostics. Neither a
+        # new stripe nor a lost line restarts the measured distance runout.
+        r = self.release_track
+        if r is not None:
+            n = rotation @ r["normal"]
+            r["distance"] += float(n @ translation)
+            r["normal"] = n
+            r["sigma"] = math.hypot(r["sigma"], sigma)
+            # State flags cross the logging/HTTP boundary and must be Python
+            # bools: comparison against NumPy geometry returns numpy.bool_.
+            self.rear_cleared = bool(
+                self._rear_limit(n) - r["distance"] - 2 * r["sigma"] >= 0
+            )
+        if self._finish_lower() + 1e-9 < self.finish_distance:
+            return False
+        self.complete = True
+        self.running = False
+        self.phase = "FINISHED"
+        self.event = "FINISH_DISTANCE_REACHED"
+        return True
 
-    def update(self, observation, motion, now, active, *, driving=False, forward_total_s=None):
+    def _finish_lower(self):
+        return self.finish_travel - 2 * math.sqrt(self.finish_variance) - self.finish_unknown
+
+    def update(self, observation, motion, now, active):
         self.event = None
         if not self.enabled or not active or not self.running or self.complete:
             return False
-        if forward_total_s is not None:
-            self.finish_use_forward_total = True
-        # Without ACK totals, driving describes the command during the frame
-        # interval. Paused, reversing and rotating-in-place intervals do not count.
-        if self.phase == "FINISH_RUNOUT":
-            return self._finish_update(motion, now, driving, forward_total_s)
+        if self.phase == "FINISH_DISTANCE":
+            return self._finish_update(motion)
         if self.release_track is not None and motion:
             r = self.release_track
-            if self.phase == "FINISH_CLEAR_REAR" and not motion.get("valid"):
-                # PWM fallback must not masquerade as measured progress toward
-                # the final parking position. Keep the plane, widen its bound.
-                yaw = math.atan2(motion["rotation"][1, 0], motion["rotation"][0, 0])
-                rotation_bound = math.hypot(max(self.front, self.rear), self.half) * abs(yaw)
-                r["sigma"] += (
-                    float(np.linalg.norm(motion["translation"]))
-                    + float(motion["sigma_m"])
-                    + rotation_bound
-                )
-            else:
-                n = np.asarray(motion["rotation"]) @ r["normal"]
-                r["distance"] += float(n @ motion["translation"])
-                r["normal"] = n
-                r["sigma"] = math.hypot(r["sigma"], float(motion["sigma_m"]))
-        if self.phase == "FINISH_CLEAR_REAR":
-            return self._finish_update(motion, now, driving, forward_total_s)
+            n = np.asarray(motion["rotation"]) @ r["normal"]
+            r["distance"] += float(n @ motion["translation"])
+            r["normal"] = n
+            r["sigma"] = math.hypot(r["sigma"], float(motion["sigma_m"]))
         if self.track is not None:
             t = self.track
             if motion:
@@ -448,20 +497,22 @@ class LapCounter:
                 self.release_track = dict(t, normal=t["normal"].copy())
                 self.visit_done = True
                 self.track = None
-                if self.departing:
+                if self.departing and self.first_line_ignored:
                     self.event = "DEPARTURE_SKIPPED"
                 else:
                     self.count += 1
                     self.event = "LAP_COMPLETED"
                     if self.count >= self.total:
-                        self.phase = "FINISH_CLEAR_REAR"
-                        return self._finish_update(motion, now, driving, forward_total_s)
+                        self.phase = "FINISH_DISTANCE"
+                        # Baseline is this confirmed crossing, not the beginning
+                        # of the frame interval that approached the white line.
+                        return False
                 self.phase = "WAIT_CLEAR"
             elif t["sigma"] >= 0.08:
                 self.release_track = dict(t, normal=t["normal"].copy())
                 self.track = None
                 self.visit_done = True
-                self.missed += int(not self.departing)
+                self.missed += int(not (self.departing and self.first_line_ignored))
                 self.phase = "WAIT_CLEAR"
                 self.event = "CROSSING_UNVERIFIED"
         if self.visit_done:
@@ -485,8 +536,8 @@ class LapCounter:
             else:
                 self.clear_since = None
         elif self.track is None and observation.get("confirmed") and observation.get("marker"):
-            self._acquire(observation["marker"], now)
-            self.phase = "DEPARTURE" if self.departing else "TRACK_RETURN"
+            self._acquire(observation["marker"], now, observation.get("first_observed_at"))
+            self.phase = "DEPARTURE" if self.departing and self.first_line_ignored else "TRACK_RETURN"
         return False
 
     def snapshot(self):
@@ -499,9 +550,11 @@ class LapCounter:
             complete=self.complete,
             event=self.event,
             unverified_crossings=self.missed,
-            finish_runout_s=self.finish_seconds,
-            finish_elapsed_s=round(self.finish_elapsed, 3),
-            finish_remaining_s=round(max(0.0, self.finish_seconds - self.finish_elapsed), 3),
+            finish_distance_m=self.finish_distance,
+            finish_travel_m=round(self.finish_travel, 3),
+            finish_travel_lower_m=round(max(0.0, self._finish_lower()), 3),
+            finish_remaining_m=round(max(0.0, self.finish_distance - self._finish_lower()), 3),
+            finish_motion_verified=self.finish_motion_verified,
             rear_line_cleared=self.rear_cleared,
             finish_position=self.finish_position(),
             marker_distance_m=None if track is None else round(track["distance"], 3),
@@ -509,5 +562,11 @@ class LapCounter:
             clearing_distance_m=None
             if self.release_track is None
             else round(self.release_track["distance"], 3),
-            departure_not_counted=True,
+            initial_line_ignore_s=self.initial_line_ignore_s,
+            first_line_seen_after_start_s=(
+                None if self.first_line_seen_at is None
+                else round(self.first_line_seen_at-self.started_at, 3)
+            ),
+            first_line_ignored=self.first_line_ignored,
+            departure_not_counted=self.first_line_ignored,
         )

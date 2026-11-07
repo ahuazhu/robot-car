@@ -1,0 +1,151 @@
+"""Compile and replay the exact ESP32 detector on RGB565 frames (no motor I/O)."""
+import ctypes
+from pathlib import Path
+import subprocess
+import tempfile
+import numpy as np
+
+
+class State(ctypes.Structure):
+    _fields_ = [(name, ctypes.c_uint32) for name in ("armed", "confirmed", "baseline", "sequence", "hits", "elapsed", "count", "locked", "phase", "target_x", "target_y", "target_w", "target_h", "contrast", "baseline_contrast", "event_age")]
+
+
+class Diagnostic(ctypes.Structure):
+    _fields_ = [(name,ctypes.c_float) for name in ("background_change","background_residual","darkened_fraction","required_drop","noise","exposure_gain")]+[("mask_pixels",ctypes.c_uint32),("reason",ctypes.c_char_p)]
+
+
+class NativeDetector:
+    def __init__(self):
+        self.folder = tempfile.TemporaryDirectory(prefix="esp-start-replay-")
+        root = Path(self.folder.name)
+        header = Path(__file__).with_name("start_signal.h")
+        source = root / "replay.cpp"
+        source.write_text('#include "'+str(header)+'"\n' + '''
+extern "C" {
+struct State {unsigned armed,confirmed,baseline,sequence,hits,elapsed,count,locked,phase,target_x,target_y,target_w,target_h,contrast,baseline_contrast,event_age;};
+struct Diagnostic {float background_change,background_residual,darkened_fraction,required_drop,noise,exposure_gain;unsigned mask_pixels;const char *reason;};
+Diagnostic diagnostic(void *p){auto &d=*(start_signal::Detector*)p;return {d.backgroundChangeL,d.backgroundResidualL,d.darkenedFraction,d.requiredDrop,d.noise,d.exposureGain,d.baseline?d.maskPixels:0,d.rejectionReason};}
+void *create(){return new start_signal::Detector();}
+void destroy(void *p){delete (start_signal::Detector*)p;}
+void mask(void *p,unsigned char *out){((start_signal::Detector*)p)->copyMask(out);}
+void arm(void *p){((start_signal::Detector*)p)->arm();}
+void cancel(void *p){((start_signal::Detector*)p)->cancel();}
+unsigned geometry(unsigned i){const unsigned a[]={start_signal::Detector::X,start_signal::Detector::Y,start_signal::Detector::RW,start_signal::Detector::RH};return i<4?a[i]:0;}
+unsigned replayNow=0;
+void process(void *p,const unsigned char *pixels,unsigned now,int y){replayNow=now;((start_signal::Detector*)p)->process(pixels,now,y<0?start_signal::Detector::Y:y);}
+State state(void *p){auto &d=*(start_signal::Detector*)p;return {d.armed,d.confirmed,d.baseline,d.sequence,d.hits,d.elapsed,(unsigned)d.region.count,d.baseline,(unsigned)d.phase,(unsigned)(start_signal::Detector::X+d.target.x*2),(unsigned)(start_signal::Detector::Y+d.target.y*2),(unsigned)(d.target.w*2),(unsigned)(d.target.h*2),(unsigned)(d.contrast>0?d.contrast:0),(unsigned)(d.baselineContrast>0?d.baselineContrast:0),d.eventAge(replayNow)};}
+}
+''')
+        library = root / "detector.so"
+        subprocess.run(["c++", "-std=c++11", "-O2", "-shared", "-fPIC", str(source), "-o", str(library)],check=True,capture_output=True)
+        self.lib = ctypes.CDLL(str(library))
+        self.lib.create.restype=ctypes.c_void_p
+        self.lib.geometry.argtypes=[ctypes.c_uint];self.lib.geometry.restype=ctypes.c_uint
+        self.roi=[int(self.lib.geometry(i)) for i in range(4)]
+        for method in ("destroy","arm","cancel"):
+            getattr(self.lib,method).argtypes=[ctypes.c_void_p]
+        self.lib.diagnostic.argtypes=[ctypes.c_void_p];self.lib.diagnostic.restype=Diagnostic
+        self.lib.mask.argtypes=[ctypes.c_void_p,ctypes.c_void_p]
+        self.lib.process.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_uint32,ctypes.c_int]
+        self.lib.state.argtypes=[ctypes.c_void_p];self.lib.state.restype=State
+        self.handle=self.lib.create()
+
+    def arm(self): self.lib.arm(self.handle)
+    def cancel(self): self.lib.cancel(self.handle)
+    def process(self, bgr, now_ms, roi_y=-1):
+        if bgr.shape != (240,320,3):raise ValueError('Replay requires an unscaled 320x240 BGR frame')
+        b,g,r=[bgr[:,:,i].astype(np.uint16) for i in range(3)]
+        packed=((r>>3)<<11)|((g>>2)<<5)|(b>>3)
+        data=packed.astype('>u2').tobytes()
+        self.lib.process(self.handle,ctypes.c_char_p(data),now_ms,roi_y)
+        return self.state()
+    def state(self):
+        s=self.lib.state(self.handle)
+        return {name:int(getattr(s,name)) for name,_ in State._fields_}
+    def diagnostics(self):
+        d=self.lib.diagnostic(self.handle)
+        return {name:(d.reason.decode() if name=="reason" else int(getattr(d,name)) if name=="mask_pixels" else float(getattr(d,name))) for name,_ in Diagnostic._fields_}
+    def mask(self):
+        # One pixel represents a 2x2 native camera block; no contour/bbox fill.
+        out=np.empty((self.roi[3]//2,self.roi[2]//2),dtype=np.uint8)
+        self.lib.mask(self.handle,out.ctypes.data)
+        return out
+    def close(self):
+        if self.handle:self.lib.destroy(self.handle);self.handle=None
+        self.folder.cleanup()
+
+
+def replay_history(root):
+    import cv2,json
+    root=Path(root);manifest=json.loads((root/'manifest.json').read_text())
+    detector=NativeDetector();results=[]
+    def load(path,dy):
+        image=cv2.imread(str(path))[:,:320]
+        if not dy:return image
+        # Move the entire view by an integer offset. Unknown pixels are never
+        # accepted as evidence: target plus background margin must be original.
+        out=np.zeros_like(image)
+        out[max(0,dy):min(240,240+dy)] = image[max(0,-dy):min(240,240-dy)]
+        return out
+    try:
+        for source in manifest['sources']:
+            dy=64-(source['roi'][1]+source['roi'][3]//2)
+            for framing,shift in (('original',0),('whole_view_aligned',dy)):
+                for before,after in (('on','off'),('off','on')):
+                    detector.arm()
+                    initial=[detector.process(load(root/(source['name']+'-'+before+'-%d.png'%i),shift),i*100) for i in range(4)]
+                    states=[detector.process(load(root/(source['name']+'-'+after+'-%d.png'%i),shift),400+i*210) for i in range(4)]
+                    state=initial[-1]
+                    supported=bool(state['locked'] and state['target_y']-12>=max(0,shift) and state['target_y']+state['target_h']+12<=min(240,240+shift))
+                    confirmed=bool(states[-1]['confirmed'])
+                    results.append(dict(sample=source['name'],framing=framing,vertical_shift_px=shift,transition=before+'->'+after,
+                                        locked_before_change=bool(state['locked']),target_roi=[state[k] for k in ('target_x','target_y','target_w','target_h')],
+                                        original_context_available=supported,confirmed=confirmed,usable_confirmation=confirmed and supported,
+                                        confirmation_ms=states[-1]['elapsed'],final_phase=states[-1]['phase']))
+        jitter=sorted((root.parent/'start_signal_jitter_20261031').glob('*.png'))
+        detector.arm();events=[]
+        for i,p in enumerate(jitter):
+            if detector.process(load(p,0),i*210)['confirmed']:events.append(p.name)
+        return dict(method='Exact firmware C++ kernel, RGB565 quantization. Four distinct ON and four distinct OFF images, assigned 100ms baseline / 210ms confirmation intervals; source timestamps unavailable. Original views and integer translation of the WHOLE view are reported separately. Padding cannot qualify as lamp/background evidence.',
+                    limitation='Old Maix camera, changed framing/people between ON and OFF, two short samples only. Not an ESP32 accuracy or latency measurement. Unlocked, uncertain and unavailable-context outcomes are retained.',
+                    results=results,jitter_frames=len(jitter),jitter_false_triggers=len(events),jitter_events=events)
+    finally:detector.close()
+
+
+def replay_recording(root):
+    """Replay captured JPEGs in recorded monotonic time; never reads credentials."""
+    import cv2,json
+    root=Path(root);detector=NativeDetector();rows=[];transitions=[];previous=None
+    try:
+        detector.arm()
+        for line in (root/'events.jsonl').read_text().splitlines():
+            frame=json.loads(line)
+            if frame['kind']!='frame':continue
+            state=detector.process(cv2.imread(str(root/frame['file'])),int(frame['t']*1000))
+            diagnostic=detector.diagnostics()
+            row=dict(t=frame['t'],file=frame['file'],state=state,diagnostic=diagnostic);rows.append(row)
+            signature=(state['phase'],diagnostic['reason'])
+            if signature!=previous:
+                transitions.append(row);previous=signature
+        locked=next((r for r in rows if r['state']['locked']),None)
+        off=next((r for r in rows if r['state']['hits']),None)
+        fired=next((r for r in rows if r['state']['confirmed']),None)
+        return dict(method='Exact firmware C++ kernel; recorded JPEGs re-quantized to RGB565, using capture timestamps. No motor I/O.',
+                    limitation='JPEGs are not original sensor RGB565 frames; sample timing does not measure physical lamp latency or on-track accuracy.',
+                    frames=len(rows),first_lock_s=locked['t'] if locked else None,
+                    first_off_evidence_s=off['t'] if off else None,confirmation_s=fired['t'] if fired else None,
+                    confirmation_span_ms=fired['state']['elapsed'] if fired else None,
+                    mask_pixels_at_confirmation=fired['diagnostic']['mask_pixels'] if fired else None,
+                    transitions=transitions)
+    finally:detector.close()
+
+
+if __name__=='__main__':
+    import argparse,json
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--fixtures',type=Path,default=Path('tests/fixtures/esp_start_signal_history'))
+    parser.add_argument('--recording',type=Path,help='Recorder directory with events.jsonl and frames/')
+    parser.add_argument('--output',type=Path)
+    args=parser.parse_args();report=replay_recording(args.recording) if args.recording else replay_history(args.fixtures)
+    if args.output:args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
+    print(json.dumps(report,ensure_ascii=False,indent=2))

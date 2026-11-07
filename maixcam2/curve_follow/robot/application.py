@@ -14,7 +14,7 @@ from robot.config import RuntimeSettings
 from robot.interface.preview_transport import LiveStream
 from robot.navigation.steering_control import SteeringControl
 from robot.navigation.road_recovery import RoadSearch
-from robot.tasks.start_light import StartLight
+from robot.tasks.start_signal import StartSignal
 from robot.tasks.lap_counter import LapMarkerDetector, LapCounter
 from robot.interface.screen_view import DeviceScreen
 from robot.core.native_geometry import native_fit_status
@@ -30,13 +30,14 @@ def main(app_dir):
     road_cal = settings.road_calibration
     control_frame = runtime.get("control_frame", {})
     crosswalk_task = CrosswalkTask(crosswalk_policy)
-    start_light = StartLight(runtime.get("start_light"))
+    start_light = StartSignal(runtime.get("start_signal"), app_dir=app_dir)
     lap_config = runtime.get("race", {})
     laps = LapCounter(
         lap_config,
         float(crosswalk_policy.body_front_m or 0.02),
         float(crosswalk_policy.body_rear_m or 0.16),
         float(crosswalk_policy.body_half_width_m or 0.085),
+        reference_origin_m=control_frame.get("origin_m", [0.0, 0.0]),
     )
     if os.environ.get("START_LIGHT_DISARMED") == "1":
         start_light.cancel()
@@ -73,7 +74,8 @@ def main(app_dir):
     link = PreviewLink() if preview_only else MotorChannel(DriveLink())
     stream = cam = None
     was_pressed = False
-    next_log = next_stream = 0.0
+    next_log = next_stream = next_display = 0.0
+    last_display_state = None
     last_tracking_state = previous_captured = None
     began = time.monotonic()
     frames = observed_frames = 0
@@ -93,6 +95,7 @@ def main(app_dir):
             ramp,
             recovery,
         )
+        start_light.start()
         session.connect()
         vision = TargetTracker(road_cal)
         crosswalk_detector = CrosswalkDetector(vision.pixels, crosswalk_policy)
@@ -104,7 +107,7 @@ def main(app_dir):
         device_screen = DeviceScreen(screen.width(), screen.height())
         print("DEVICE_SCREEN", json.dumps(device_screen.snapshot()), flush=True)
         print(
-            "CURVE FOLLOW v0.6.58 | rectangle brightness signal | preview_only=%s | calibrated=%s | no session time limit"
+            "CURVE FOLLOW v0.6.75 | ESP32 start signal | preview_only=%s | calibrated=%s | no session time limit"
             % (preview_only, calibrated),
             flush=True,
         )
@@ -146,8 +149,6 @@ def main(app_dir):
                 details.get("ground_motion"),
                 captured,
                 active,
-                driving=bool(active and sum(pwm) > 0),
-                forward_total_s=(motor_before or {}).get("confirmed_forward_s", 0.0),
             )
             if laps.event:
                 print("LAP EVENT", json.dumps(laps.snapshot()), flush=True)
@@ -236,15 +237,8 @@ def main(app_dir):
             profile_ms.update(result["timings_ms"])
             profile_ms["crosswalk"] = round(crosswalk_ms, 2)
             profile_ms["steering"] = round((steering_done - steering_tick) * 1000, 2)
-            lamp_tick = time.monotonic()
-            lamp_observation = (
-                start_light.detect(bgr) if start_light.armed else start_light.observation
-            )
-            profile_ms["start_light"] = round((time.monotonic() - lamp_tick) * 1000, 2)
             detection_ms = (time.monotonic() - captured) * 1000
-            lamp_start = start_light.update(
-                lamp_observation, captured, active=active, timely=detection_ms <= vision_budget_ms
-            )
+            lamp_start = start_light.update(captured, active=active, timely=detection_ms <= vision_budget_ms)
             profile_ms["control_pipeline"] = round(detection_ms, 2)
             supervisor_tick = time.monotonic()
             x, y, pressed = touch.read()
@@ -308,7 +302,7 @@ def main(app_dir):
             stream.metrics = dict(
                 device_screen=device_screen.snapshot(),
                 frame=frames,
-                app_version="0.6.58-surface-evidence",
+                app_version="0.6.75",
                 geometry_backend=backend,
                 frame_received_at=captured,
                 read_ms=round((captured - read_began) * 1000, 1),
@@ -334,63 +328,68 @@ def main(app_dir):
             profile_ms["supervision_motor_telemetry"] = round(
                 (time.monotonic() - supervisor_tick) * 1000, 2
             )
-            overlay_tick = time.monotonic()
-            # The red marker must show the actual pursuit goal in the received
-            # image's coordinate frame, not the nearest geometric anchor.
-            display_result = dict(result, target_m=None)
-            if command is not None and steering.status.get("receive_target_m") is not None:
-                display_result["target_m"] = (
-                    np.asarray(steering.status["receive_target_m"]) + steering.origin
-                ).tolist()
-            out, bird = render_target(bgr, display_result, details, cal)
-            draw_crosswalk_overlay(out, crosswalk_task.snapshot(captured), cal)
-            lap_detector.draw(out)
-            if laps.enabled:
-                cv2.putText(
-                    out, "LAPS %d/%d" % (laps.count, laps.total), (4, 69), 0, 0.45, (0, 255, 255), 1
-                )
-            raw_preview = bgr.copy()
-            start_light.draw_search_region(raw_preview)
-            start_light.draw_search_region(out)
-            if start_light.enabled and not active:
-                if start_light.roi is not None:
-                    lx, ly, lw, lh = start_light.roi
-                    cv2.rectangle(out, (lx, ly), (lx + lw, ly + lh), (0, 255, 255), 1)
-                cv2.putText(
-                    out,
-                    "START ROI "
-                    + start_light.observation.get(
-                        "direction", start_light.observation.get("state", "UNKNOWN")
-                    ),
-                    (4, 52),
-                    0,
-                    0.35,
-                    (0, 255, 255),
-                    1,
-                )
-            if not calibrated:
-                cv2.putText(out, "REFERENCE GEOMETRY ONLY", (4, 200), 0, 0.40, (0, 0, 255), 1)
-            screen_out = device_screen.compose(
-                out,
-                reason,
-                applied_pwm,
-                frames,
-                arm_ready=readiness["arm_start_light_ready"],
-                armed=start_light.armed,
+            preview_now = time.monotonic()
+            display_state = (active, start_light.armed, bool(any(applied_pwm)))
+            display_due = preview_now >= next_display or display_state != last_display_state
+            stream_due = preview_now >= next_stream
+            debug_seconds = (
+                [second for second in (2, 4, 6) if preview_now - began >= second and second not in saved]
+                if os.environ.get("MAIXPY_DEBUG_IMAGES") == "1" else []
             )
-            profile_ms["overlay"] = round((time.monotonic() - overlay_tick) * 1000, 2)
-            display_tick = time.monotonic()
-            screen_image = image.cv2image(screen_out, bgr=True, copy=True)
-            display_ready = time.monotonic()
-            screen.show(screen_image)
-            profile_ms["display_conversion"] = round((display_ready - display_tick) * 1000, 2)
-            profile_ms["display_show"] = round((time.monotonic() - display_ready) * 1000, 2)
-            stream_tick = time.monotonic()
+            profile_ms.update(
+                overlay=0.0, display_compose=0.0, display_conversion=0.0,
+                display_show=0.0, stream_publish=0.0,
+            )
+            # Control and touch handling run on every frame. Presentation has
+            # its own cadence and never catches up by drawing old frames.
+            if display_due or stream_due or debug_seconds:
+                overlay_tick = time.monotonic()
+                # The red marker must show the actual pursuit goal in the received
+                # image's coordinate frame, not the nearest geometric anchor.
+                display_result = dict(result, target_m=None)
+                if command is not None and steering.status.get("receive_target_m") is not None:
+                    display_result["target_m"] = (
+                        np.asarray(steering.status["receive_target_m"]) + steering.origin
+                    ).tolist()
+                out, bird = render_target(bgr, display_result, details, cal)
+                draw_crosswalk_overlay(out, crosswalk_task.snapshot(captured), cal)
+                lap_detector.draw(out)
+                if laps.enabled:
+                    cv2.putText(
+                        out, "LAPS %d/%d" % (laps.count, laps.total), (4, 69), 0, 0.45, (0, 255, 255), 1
+                    )
+                raw_preview = bgr.copy()
+                if not calibrated:
+                    cv2.putText(out, "REFERENCE GEOMETRY ONLY", (4, 200), 0, 0.40, (0, 0, 255), 1)
+                profile_ms["overlay"] = round((time.monotonic() - overlay_tick) * 1000, 2)
+                if display_due:
+                    display_tick = time.monotonic()
+                    screen_out = device_screen.compose(
+                        out,
+                        reason,
+                        applied_pwm,
+                        frames,
+                        arm_ready=readiness["arm_start_light_ready"],
+                        armed=start_light.armed,
+                    )
+                    display_composed = time.monotonic()
+                    screen_image = image.cv2image(screen_out, bgr=True, copy=True)
+                    display_ready = time.monotonic()
+                    screen.show(screen_image)
+                    displayed_at = time.monotonic()
+                    profile_ms["display_compose"] = round((display_composed - display_tick) * 1000, 2)
+                    profile_ms["display_conversion"] = round((display_ready - display_composed) * 1000, 2)
+                    profile_ms["display_show"] = round((displayed_at - display_ready) * 1000, 2)
+                    # Schedule from completion, including slow SDK calls; never
+                    # spend the next control frame repaying a display backlog.
+                    next_display = displayed_at + 0.20
+                    last_display_state = display_state
+                if stream_due:
+                    stream_tick = time.monotonic()
+                    stream.write(np.hstack((raw_preview, out, bird)))
+                    next_stream = time.monotonic() + 0.10
+                    profile_ms["stream_publish"] = round((time.monotonic() - stream_tick) * 1000, 2)
             now = time.monotonic()
-            if now >= next_stream:
-                stream.write(np.hstack((raw_preview, out, bird)))
-                next_stream = now + 0.10
-            profile_ms["stream_publish"] = round((time.monotonic() - stream_tick) * 1000, 2)
             log_tick = time.monotonic()
             if (
                 now >= next_log
@@ -433,16 +432,14 @@ def main(app_dir):
             stream.metrics["profile_ms"] = profile_ms
             readiness["profile_ms"] = profile_ms
             last_tracking_state = result["state"]
-            if os.environ.get("MAIXPY_DEBUG_IMAGES") == "1":
-                for second in (2, 4, 6):
-                    if now - began >= second and second not in saved:
-                        folder = os.path.join(os.environ["MAIXPY_SKILL_RUN_DIR"], "artifacts")
-                        os.makedirs(folder, exist_ok=True)
-                        for label, picture in [("raw", bgr), ("control", out)]:
-                            path = os.path.join(folder, "%s-%d.jpg" % (label, second))
-                            cv2.imwrite(path, picture)
-                            print("MAIXPY_SKILL_IMAGE", path, flush=True)
-                        saved.add(second)
+            for second in debug_seconds:
+                folder = os.path.join(os.environ["MAIXPY_SKILL_RUN_DIR"], "artifacts")
+                os.makedirs(folder, exist_ok=True)
+                for label, picture in [("raw", bgr), ("control", out)]:
+                    path = os.path.join(folder, "%s-%d.jpg" % (label, second))
+                    cv2.imwrite(path, picture)
+                    print("MAIXPY_SKILL_IMAGE", path, flush=True)
+                saved.add(second)
     except Exception as exc:
         print("CONTROL FAULT", repr(exc), flush=True)
         raise
@@ -454,6 +451,7 @@ def main(app_dir):
         )
         with ExitStack() as cleanup:
             cleanup.callback(link.port.close)
+            cleanup.callback(start_light.close)
             if cam:
                 cleanup.callback(cam.close)
             if stream:

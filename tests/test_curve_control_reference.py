@@ -140,6 +140,29 @@ class FeedbackTests(unittest.TestCase):
         self.assertGreater(good["speed_scale"], 0.9)
         self.assertGreater(good["minimum_clearance_m"], 0.05)
 
+    def test_nearly_zero_gain_cannot_predict_following_a_tight_circle(self):
+        radius = 0.3
+        angle = np.linspace(-0.3, 1.5, 120)
+        path = radius * np.c_[np.sin(angle), 1 - np.cos(angle)]
+        normal = SteeringControl(RoadPolicy(), [0., 0.], [0.075, 0.105, 0.085], 0.3)
+        weak = SteeringControl(RoadPolicy(), [0., 0.], [0.075, 0.105, 0.085], 0.3, gain=1e-6)
+        a = normal.envelope(path, 1 / radius, 0.005, 0.3, lookahead_m=0.18)
+        b = weak.envelope(path, 1e-6 / radius, 0.005, 0.3, lookahead_m=0.18)
+        self.assertGreater(a["minimum_clearance_m"], 0.0)
+        self.assertLess(b["minimum_clearance_m"], 0.0)
+        self.assertIsNotNone(b["first_unsafe_m"])
+        self.assertLessEqual(b["first_unsafe_m"], 0.20)
+
+    def test_future_trim_changes_clearance_and_mirrors_with_turn_direction(self):
+        c = self.control([0.075, 0.105, 0.085])
+        baseline = c.envelope(line(), 0.0, 0.005, 0.3)
+        c.trim = 1.0
+        left = c.envelope(line(), 1.0, 0.005, 0.3)
+        c.trim = -1.0
+        right = c.envelope(line(), -1.0, 0.005, 0.3)
+        self.assertLess(left["minimum_clearance_m"], baseline["minimum_clearance_m"])
+        self.assertAlmostEqual(left["minimum_clearance_m"], right["minimum_clearance_m"])
+
     def test_body_sweep_is_symmetric_and_partial_support_is_reported(self):
         c = self.control([0.075, 0.105, 0.085])
         x = np.linspace(-0.2, 0.7, 100)

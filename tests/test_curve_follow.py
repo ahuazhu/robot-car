@@ -215,8 +215,16 @@ class VisionTests(unittest.TestCase):
     def test_live_one_side_continues(self):
         t = tracker.TargetTracker(CAL)
         img = scene("right")
-        for now in (0, 0.1, 0.5, 1.0, 3.0, 5.0):
+        for now in (0, 0.1, 0.5, 1.0):
             r, _ = t.update(img, now)
+            self.assertTrue(r["observed"])
+        # Multi-second gaps retire both the road and boundary identities.
+        # Fresh repeated observations recover without reusing expired support.
+        for now in (3.0, 5.0):
+            first, _ = t.update(img, now)
+            self.assertFalse(first["valid"])
+            self.assertEqual(first["association_kind"], "REINITIALIZATION")
+            r, _ = t.update(img, now + 0.1)
             self.assertTrue(r["observed"])
 
     def test_bend_reduces_speed_and_mirrors_steering(self):
@@ -253,17 +261,17 @@ class BoundaryHandoffTests(unittest.TestCase):
         self.assertTrue(r["observed"])
         r, _ = t.update(None, 0.70)
         self.assertFalse(r["observed"])
+        self.assertFalse(r["valid"])
+        self.assertEqual(r["state"], "CONFIRMING")
+        self.assertEqual(r["confirmation_required_frames"], 2)
+        self.assertIsNone(RoadSupervisor().update(r, None, 0.7, 170, 280))
+        self.assertIsNone(target_command(r))  # No blind driving on first candidate.
         r, _ = t.update(None, 0.90)
-        self.assertFalse(r["valid"])  # The old path memory is still expired.
-        self.assertEqual(r["state"], "CONFIRMING")
-        self.assertIsNone(RoadSupervisor().update(r, None, 0.9, 170, 280))
-        self.assertIsNone(target_command(r))  # No blind driving.
-        r, _ = t.update(None, 1.10)
-        self.assertEqual(r["state"], "CONFIRMING")
-        r, _ = t.update(None, 1.30)
         self.assertTrue(r["observed"])
+        self.assertTrue(r["reacquired"])
         self.assertEqual(r["mode"], "ONE RIGHT")
         self.assertEqual(r["state"], "OBSERVED")
+        self.assertIsNotNone(target_command(r))
 
     def test_new_opposite_side_candidate_stops_old_prediction_immediately(self):
         t = tracker.TargetTracker(CAL)

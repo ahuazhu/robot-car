@@ -38,13 +38,23 @@ class BoundedVisualScan:
     def command(self, result, follow, motion, now, *, allowed, stopped, hint):
         """Continue one scan, including stopped confirmation of a fresh road."""
         self.last_action = False
-        if not allowed:
-            return self._finish("YIELD TASK CANCELLED VISUAL SCAN")
+        # Task ownership cancels rotation, not accepted road following. Finish
+        # once so subsequent fresh observations can complete recovery; repeating
+        # _finish() would erase that evidence on every crosswalk approach frame.
+        # DrivingSession applies the crosswalk's stop/speed limit afterwards.
+        if not allowed and not self.finished:
+            self._finish("YIELD TASK CANCELLED VISUAL SCAN")
         if result.get("invalid_reason") == "BODY ENVELOPE BLOCKED":
             return self._finish("BODY ENVELOPE BLOCKED")
         if not self.finished and now - self.began >= 6.0:
             self._finish("VISUAL SCAN TIME BUDGET EXHAUSTED")
         if self._fresh_follow(result, follow):
+            # The road model has already confirmed this replacement across
+            # observations. Reuse that proof instead of starting a second
+            # startup streak in the search coordinator.
+            if self.policy.confirmed_reacquisition(result):
+                self.reset()
+                return follow
             if self.recovery_at is None or now > self.recovery_at:
                 self.recovery_frames += 1
                 self.recovery_at = now

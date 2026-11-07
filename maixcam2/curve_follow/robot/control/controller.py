@@ -12,6 +12,10 @@ class CommandRamp:
     This is command shaping, not measured acceleration feedback.
     """
 
+    # MotorChannel sends zero once a published command reaches 300 ms old.
+    # A gap at that boundary starts a new ramp, never banked acceleration.
+    MAX_CONTINUOUS_INTERVAL_S = 0.30
+
     def __init__(self, rise_pwm_s=180.0):
         self.rise_pwm_s = rise_pwm_s
         self.reset()
@@ -27,10 +31,14 @@ class CommandRamp:
         must not erase all acceleration history while the chassis is visibly
         moving; stale/no-motion evidence always takes the normal zero restart.
         """
-        if not rolling or self.last is None:
+        if (
+            not rolling
+            or self.last is None
+            or not 0.0 <= now - self.last < self.MAX_CONTINUOUS_INTERVAL_S
+        ):
             self.reset()
             return (0, 0)
-        dt = max(0.0, now - self.last)
+        dt = now - self.last
         peak = max(abs(v) for v in self.previous)
         scale = max(0.0, 1.0 - self.rise_pwm_s * dt / peak) if peak else 0.0
         self.previous = tuple(v * scale for v in self.previous)
@@ -41,7 +49,10 @@ class CommandRamp:
         if command is None or command == (0, 0):
             self.reset()
             return (0, 0)
-        dt = 0.05 if self.last is None else max(0.0, min(0.1, now - self.last))
+        dt = None if self.last is None else now - self.last
+        if dt is None or not 0.0 <= dt < self.MAX_CONTINUOUS_INTERVAL_S:
+            self.reset()
+            dt = 0.05
         self.last = now
         increase = self.rise_pwm_s * dt
         scale = min(

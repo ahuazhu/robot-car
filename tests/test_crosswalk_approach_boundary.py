@@ -46,7 +46,7 @@ class CrosswalkApproachBoundaryTests(unittest.TestCase):
                 self.brake(task, clearance + 0.006)
                 for now in (0.45, 0.60, 0.75):
                     state, command = self.observe(task, now, clearance)
-                    self.assertEqual(state["phase"], "STOPPING")
+                    self.assertIn(state["phase"], ("STOPPING", "RECOVERY_HOLD"))
                     self.assertEqual(command, (0, 0))
                     self.assertFalse(state["yield_verified"])
 

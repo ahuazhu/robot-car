@@ -47,6 +47,8 @@ class GroundMotion:
         self.roi_top = int(calibration.get("vision_roi_top_px", 100))
         self.previous = self.previous_mask = self.previous_time = None
         self.ground_visible = None
+        self.ground_mask = None
+        self.previous_features = None
 
     def project(self, uv):
         p = np.column_stack((np.asarray(uv) / [320.0, 240.0], np.ones(len(uv)))) @ self.H.T
@@ -54,12 +56,11 @@ class GroundMotion:
             return p[:, :2] / p[:, 2, None]
 
     def road_mask(self, bgr):
-        h, s, v = cv2.split(cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV))
-        # Ground candidates on gray/white road; do not track colored signs.
-        mask = ((s < 120) & (v > 30)).astype(np.uint8) * 255
-        if self.ground_visible is not None:
-            mask[~self.ground_visible] = 0
-            return mask
+        # The same gray/white thresholds, computed without full-image NumPy
+        # temporaries and repeated channel splitting on the ARM control path.
+        mask = cv2.inRange(cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV), (0, 0, 31), (179, 119, 255))
+        if self.ground_mask is not None:
+            return cv2.bitwise_and(mask, self.ground_mask)
         yy, xx = np.indices(mask.shape)
         ground = self.project(np.column_stack((xx.ravel(), yy.ravel()))).reshape(240, 320, 2)
         good = (
@@ -71,8 +72,8 @@ class GroundMotion:
             & (yy < 236)
         )
         self.ground_visible = good
-        mask[~good] = 0
-        return mask
+        self.ground_mask = good.astype(np.uint8) * 255
+        return cv2.bitwise_and(mask, self.ground_mask)
 
     def update(self, bgr, now, v=0.0, omega=0.0):
         p = self.policy
@@ -80,18 +81,25 @@ class GroundMotion:
         fallback = command_motion(v, omega, dt, p)
         if bgr is None:
             self.previous = self.previous_mask = None
+            self.previous_features = None
             self.previous_time = now
             return fallback
         gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
         mask = self.road_mask(bgr)
         previous, old_mask = self.previous, self.previous_mask
+        features = self.previous_features
+        self.previous_features = None
         self.previous, self.previous_mask, self.previous_time = gray, mask, now
         if previous is None or not 0 < dt <= p.motion_max_interval_s:
             fallback["reason"] = "FIRST FRAME" if previous is None else "FRAME INTERVAL"
             return fallback
-        features = cv2.goodFeaturesToTrack(
-            previous, p.motion_max_features, 0.015, 7, mask=old_mask, blockSize=5
-        )
+        # Reuse only points actually tracked in the preceding valid image.
+        # Forward/backward flow, current road mask, spread, RANSAC and residual
+        # checks all still run; a failed estimate forces fresh corner detection.
+        if features is None or len(features) < 2 * p.motion_min_features:
+            features = cv2.goodFeaturesToTrack(
+                previous, p.motion_max_features, 0.015, 7, mask=old_mask, blockSize=5
+            )
         if features is None or len(features) < p.motion_min_features:
             fallback["reason"] = "INSUFFICIENT FEATURES"
             return fallback
@@ -158,6 +166,7 @@ class GroundMotion:
         ):
             fallback["reason"] = "MOTION LIMIT OR RESIDUAL"
             return fallback
+        self.previous_features = uv1[ok][finite][keep].reshape(-1, 1, 2).copy()
         # Camera-frame motion is useful even with unmeasured body lever arm.
         # Do not label translation as measured wheel speed.
         return dict(
