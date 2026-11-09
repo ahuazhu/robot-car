@@ -1,6 +1,6 @@
 # Android 发车灯识别原型
 
-版本 `0.1.0-prototype`。这是本机识别与数据采集应用，**尚未接入 UNO/Maix 的发车协议**。ARM 只启动手机传感器，STOP 只重置本机许可；本应用没有网络、USB、电机输出。现有小车固件未改变。
+版本 `0.1.1-usbcheck`。这是本机识别、数据采集及独立 USB 诊断应用，**灯光识别尚未接入 UNO/Maix 的发车协议**。主页面 ARM 只启动手机传感器，STOP 只重置本机许可；USB 检查与识别状态机独立，不发送 ARM、运动或解除急停命令。现有小车固件未改变。
 
 ## 使用
 
@@ -9,6 +9,34 @@
 按 ARM 后，模型先定位灯面，再确认稳定亮灯至少 4 帧、300ms；锁定实际发光像素。熄灯时同一区域至少 60% 发光像素下降，连续至少 3 帧、400ms 后，本机许可锁存。模型未找到目标本身不算熄灯。曝光锁定在设备支持时启用，背景用于亮度增益与偏移补偿。矩阵灯黑色缝隙不参与熄灯像素比例计算，RGB 最大通道强度用于避免红、蓝灯被低亮度权重排除。
 
 许可确认后，断帧或相机暂停不会清除此 Activity 内的许可；STOP 清除，应用重启回到未 ARM。录像按钮保存 2FPS JPEG 抽帧及约 10Hz JSONL 状态到应用专用目录 `Android/data/cn.robotcar.startsignal/files/recordings/`。当前不是 MP4 编码录像。
+
+## Android OTG / UNO 通信检查
+
+将 USB-C OTG 数据线接手机、USB-B 接 UNO，打开“USB / UNO 通信测试”，首次在 Android 系统弹窗中允许设备访问。USB-B 使用 115200、8N1；Maix 的 A0/A1 通道仍为 9600，两者协议不同，不能把 `@...CRC` 帧写入 USB。
+
+默认检查只接收 UNO 每秒输出的 `DRIVE` 状态。调试构建可通过下列 Intent 启动一次安全收发检查：先确认 Maix 已停车、未 ARM、没有出发许可；手机收到两条相隔至少 500ms 的新鲜零输出状态后，只发送单字节 `i`，等待 UNO 的 I2C 地址探测文本应答，再确认两条新的零输出状态。收到 ACK 或 NO ACK 都证明 USB 往返成功；I2C NO ACK 指向另一条 I2C 总线，不代表 USB 通信失败。
+
+```sh
+adb -s PHONE_IP:ADB_PORT shell am start \
+  -n cn.robotcar.startsignal/.UsbCheckActivity --ez run_test true
+```
+
+诊断最长 14 秒，不提供任意串口发送框；遇到 armed、非零输出、fault、重启或超时就结束，不自动清除故障。USB 打开或 DTR 变化可能使 UNO 复位，因此只在小车停着时检查。诊断不改变 Maix/ESP32 发车链路，手机识别成功也不会直接控制小车。
+
+报告和原始串口日志保存在应用外部专用目录 `Android/data/cn.robotcar.startsignal/files/usb-check/` 的 `latest.json`、`latest-serial.log`。每次重试建立新日志；完成后离开页面不会覆盖最终结果。`success` 是本次诊断整体结果，`bidirectional` 独立表示是否收到本次探测回执；只读成功不能当作双向发送已验证。
+
+驱动使用 [usb-serial-for-android 3.11.0](https://github.com/mik3y/usb-serial-for-android/tree/3.11.0)，USB 授权遵循 [Android USB Host API](https://developer.android.com/develop/connectivity/usb/host)。纯 Java 门禁回归可执行：
+
+```sh
+javac -d /tmp/robot-usb-check \
+  app/src/main/java/cn/robotcar/startsignal/UsbCheckProtocol.java \
+  tests/UsbCheckProtocolCheck.java
+java -cp /tmp/robot-usb-check cn.robotcar.startsignal.UsbCheckProtocolCheck
+```
+
+2026-11-10 实物测试通过：小米14（Android 16）以 OTG 主机模式识别 Arduino UNO `2341:0043`，CDC ACM 串口为 115200、8N1。约 5.6 秒接收 651 字节、发送一次 `i`，收到对应探测回执；探测前后各两条状态均为未 ARM、左右输出零、fault=0。最初 148 字节启动杂字已排除，未作为状态或回执证据。I2C 回执为 `NO ACK error=2 timeout=0`，它不影响 USB 双向测试通过。Maix 随后的 UNO 零输出回执也持续增长、没有通信错误。没有发送运动指令或改写 UNO 固件；手机原有模型与安装前完全一致。纯 Java 协议回归为119项，APK构建、安装通过。
+
+固件一致性另需核对：实物启动文本显示 `maxPWM=255`，仓库 `DriveSafety.h` 当前为200。因此本次仅证明该实物的USB诊断通信和采样期间零输出，不能据此声称UNO固件与当前仓库完全一致。手机识灯仍未接入正式发车链路。
 
 ## 模型与数据边界
 
@@ -23,6 +51,8 @@
 
 ## 结构
 
+- `app/.../UsbCheckActivity.java`：USB 设备授权、独占串口读取、单次安全探测及报告。
+- `app/.../UsbCheckProtocol.java`：独立的零输出证据、时序与回执门禁，不执行 I/O。
 - `app/.../MainActivity.java`：Camera2 采集、同源预览与坐标、青框、录制和状态显示。只分析最新图像，及时关闭 ImageReader 帧。
 - `app/.../LampModel.java`：TFLite 推理、灯面连通域和多候选检查。
 - `app/.../SignalDetector.java`：不依赖 Android 的亮灭时序、曝光补偿和许可锁存。

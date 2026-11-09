@@ -6,11 +6,14 @@ android {
         applicationId 'cn.robotcar.startsignal'
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName '0.1.0-prototype'
+        versionCode 2
+        versionName '0.1.1-usbcheck'
         ndk { abiFilters 'arm64-v8a' }
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
     androidResources { noCompress 'tflite' }
 }
-dependencies { implementation 'org.tensorflow:tensorflow-lite:2.16.1' }
+dependencies {
+    implementation 'org.tensorflow:tensorflow-lite:2.16.1'
+    implementation 'com.github.mik3y:usb-serial-for-android:3.11.0'
+}

@@ -17,7 +17,7 @@ import java.io.*;
 import java.nio.ByteBuffer;
 import java.util.*;
 
-/** Offline sensor prototype. Deliberately has no motor/network/USB output. */
+/** Local lamp sensor prototype; USB diagnostics are isolated in UsbCheckActivity. */
 public final class MainActivity extends Activity {
     private LampModel model;
     private final SignalDetector signal=new SignalDetector();
@@ -48,7 +48,7 @@ public final class MainActivity extends Activity {
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(16),dp(12),dp(16),dp(12));root.setBackgroundColor(Color.rgb(15,23,42));
         root.setOnApplyWindowInsetsListener((v,insets)->{v.setPadding(dp(16),dp(12)+insets.getSystemWindowInsetTop(),dp(16),dp(12)+insets.getSystemWindowInsetBottom());return insets;});
         TextView title=text("发车灯 · LampNet 0.1",23,Color.WHITE);root.addView(title);
-        root.addView(text("离线识别原型 · 本机许可，不连接电机",13,Color.rgb(148,163,184)));
+        root.addView(text("识别原型 · 许可仅本机，USB 仅用于诊断",13,Color.rgb(148,163,184)));
         FrameLayout frame=new FrameLayout(this);preview=new ImageView(this);preview.setScaleType(ImageView.ScaleType.FIT_CENTER);
         frame.addView(preview,new FrameLayout.LayoutParams(-1,-1));overlay=new Overlay();frame.addView(overlay,new FrameLayout.LayoutParams(-1,-1));
         root.addView(frame,new LinearLayout.LayoutParams(-1,0,1));
@@ -61,6 +61,9 @@ public final class MainActivity extends Activity {
         Button arm=new Button(this);arm.setText("ARM 等灯灭");arm.setOnClickListener(v->{signal.arm();status.setText("寻找亮灯");});buttons.addView(arm,new LinearLayout.LayoutParams(0,dp(54),1));
         Button stop=new Button(this);stop.setText("STOP / 重置");stop.setTextColor(Color.rgb(239,68,68));stop.setOnClickListener(v->{signal.stop();status.setText("已重置本机许可");});buttons.addView(stop,new LinearLayout.LayoutParams(0,dp(54),1));
         recordButton=new Button(this);recordButton.setText("录制");recordButton.setOnClickListener(v->toggleRecording());buttons.addView(recordButton,new LinearLayout.LayoutParams(0,dp(54),1));root.addView(buttons);
+        Button usb=new Button(this);usb.setText("USB / UNO 通信测试");
+        usb.setOnClickListener(v->startActivity(new android.content.Intent(this,UsbCheckActivity.class)));
+        root.addView(usb,new LinearLayout.LayoutParams(-1,dp(48)));
         setContentView(root);
         try{model=new LampModel(this);status.setText("模型已加载 · 等待相机");}catch(Exception e){showError("模型加载失败",e);}
         if(getIntent().getBooleanExtra("selftest",false) && model!=null)new Thread(this::selftest,"lamp-selftest").start();
