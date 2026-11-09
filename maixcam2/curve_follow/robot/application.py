@@ -245,7 +245,7 @@ def main(app_dir):
             supervisor_tick = time.monotonic()
             x, y, pressed = touch.read()
             touch_action = device_screen.action_at(x, y) if pressed and not was_pressed else None
-            action = stream.control.take(touch_action=touch_action)
+            action, touch_action = stream.control.take_actions(touch_action)
             was_pressed = pressed
             if touch_action == "exit":
                 break

@@ -223,6 +223,122 @@ class LampConfigurationTests(unittest.TestCase):
         self.client.received = None
         self.assertIsNone(self.client.snapshot()['candidate_hint'])
 
+    def prepare_arm(self, *, laps=7, configuration=None):
+        self.publish()
+        return self.control.submit('start',0,laps=laps,
+                                   lamp_configuration=self.manual() if configuration is None else configuration)
+
+    def test_prepare_saves_then_delivers_one_arm_with_original_laps(self):
+        from tests.test_session import DrivingSessionTests
+        with patch('robot.interface.preview_transport.time.monotonic',lambda:self.now):
+            self.assertTrue(self.prepare_arm(laps=7)[0])
+            self.assertEqual(self.calls,[])
+            self.assertIsNone(self.control.take())
+            self.assertFalse(self.control.submit('start',0,laps=9)[0])
+            self.assertFalse(self.control.submit('start_now',0,laps=9)[0])
+            self.client._step()
+            self.publish()
+            request,touch = self.control.take_actions('start_now')
+            self.assertIsNone(touch)
+            self.assertEqual((request.action,request.laps),('start',7))
+            self.assertEqual(self.control.status()['preparation']['phase'],'ARM_QUEUED')
+            self.assertEqual(self.control.status()['preparation']['generation'],0)
+            self.assertTrue(self.control.status()['preparation']['pending'])
+            self.assertIsNone(self.control.take())
+            case=DrivingSessionTests();case.setUp()
+            try:
+                session=case.session();session.start_light=self.client;session.control=self.control
+                case.warm(session)
+                session.update(case.frame(session),(request,))
+                self.assertTrue(self.client.armed)
+                self.assertFalse(session.active)
+                self.assertEqual(session.laps.total,7)
+                self.assertFalse(any(call[0]==1 for call in session.link.calls))
+            finally:case.tearDown()
+            self.assertEqual([call['op'] for call in self.calls],['configure'])
+            self.publish()
+            self.assertEqual(self.control.status()['preparation']['phase'],'ARMED')
+            self.assertFalse(self.control.status()['preparation']['pending'])
+
+    def test_prepare_captures_current_lap_target_once_when_request_omits_it(self):
+        with patch('robot.interface.preview_transport.time.monotonic',lambda:self.now):
+            self.publish(readiness=dict(start_light=self.client.snapshot(),arm_start_light_ready=True,
+                                        laps=dict(total_laps=5)))
+            self.assertTrue(self.control.submit('start',0,lamp_configuration=self.manual())[0])
+            self.client._step()
+            self.publish(readiness=dict(start_light=self.client.snapshot(),arm_start_light_ready=True,
+                                        laps=dict(total_laps=9)))
+            self.assertEqual(self.control.take().laps,5)
+
+    def test_stop_before_or_after_config_save_cancels_deferred_arm(self):
+        with patch('robot.interface.preview_transport.time.monotonic',lambda:self.now):
+            for save_first in (False,True):
+                with self.subTest(save_first=save_first):
+                    self.control=WebControl(self.client)
+                    self.assertTrue(self.prepare_arm()[0])
+                    if save_first:self.client._step()
+                    self.assertTrue(self.control.submit('stop',0)[0])
+                    if not save_first:self.client._step()
+                    self.assertEqual(self.control.take().action,'stop')
+                    self.publish()
+                    self.assertIsNone(self.control.take())
+                    status=self.control.status()['preparation']
+                    self.assertEqual(status['phase'],'CANCELLED')
+                    self.assertFalse(status['pending'])
+                    self.assertFalse(self.client.armed)
+
+    def test_physical_stop_and_touch_stop_cancel_prepare_and_late_result(self):
+        with patch('robot.interface.preview_transport.time.monotonic',lambda:self.now):
+            self.assertTrue(self.prepare_arm()[0])
+            self.control.stopped();self.client._step();self.publish()
+            self.assertIsNone(self.control.take())
+            self.assertEqual(self.control.status()['preparation']['phase'],'CANCELLED')
+            self.control=WebControl(self.client)
+            self.assertTrue(self.prepare_arm()[0])
+            action,touch=self.control.take_actions('stop')
+            self.assertIsNone(action);self.assertEqual(touch,'stop')
+            self.client._step();self.publish()
+            self.assertIsNone(self.control.take());self.assertFalse(self.client.armed)
+
+    def test_prepare_failure_timeout_or_wrong_saved_result_never_arms(self):
+        with patch('robot.interface.preview_transport.time.monotonic',lambda:self.now):
+            for problem in ('failed','expired','generation','result_id','mismatch','active','remote_armed','stale_source','stale_page'):
+                with self.subTest(problem=problem):
+                    self.client.peer=dict(self.remote);self.client.error='';self.client.received=self.now
+                    self.client.configuration_request=None
+                    self.control=WebControl(self.client)
+                    self.assertTrue(self.prepare_arm()[0])
+                    self.client._step()
+                    if problem=='failed':self.client.configuration_update.update(state='ERROR',error='storage_failed')
+                    if problem=='expired':self.now+=5.01
+                    if problem=='generation':self.control.generation+=1
+                    if problem=='result_id':self.client.configuration_update['request_id']+=1
+                    if problem=='mismatch':self.client.peer['lamp_configuration']=dict(manual=True,roi=[0,0,32,32])
+                    if problem=='remote_armed':self.client.peer['armed']=True
+                    if problem=='stale_source':self.client.received=self.now-1.
+                    if problem=='stale_page':self.now+=1.1
+                    if problem not in ('stale_page',):self.publish(active=problem=='active')
+                    self.assertIsNone(self.control.take())
+                    self.assertFalse(self.control.status()['preparation']['pending'])
+                    self.assertEqual(self.control.status()['preparation']['phase'],'ERROR')
+                    self.assertFalse(self.client.armed)
+                    self.assertFalse(self.client.permission)
+                    self.remote['armed']=False
+
+    def test_prepare_wait_blocks_separate_config_edit_and_queued_touch_start(self):
+        with patch('robot.interface.preview_transport.time.monotonic',lambda:self.now):
+            self.assertTrue(self.prepare_arm()[0])
+            self.assertFalse(self.control.submit_lamp_configuration({'manual':False},0)[0])
+            action,touch=self.control.take_actions('start')
+            self.assertIsNone(action);self.assertIsNone(touch)
+            self.client._step()
+            self.publish()
+            request,touch=self.control.take_actions('start_now')
+            self.assertEqual(request.laps,7);self.assertIsNone(touch)
+            self.control.update(False,False,'ESP32 NOT READY',(0,0),readiness={'start_light':{'armed':False}})
+            self.assertEqual(self.control.status()['preparation']['error'],'arm_not_accepted')
+            self.assertFalse(self.control.status()['preparation']['pending'])
+
     def test_lamp_endpoint_reuses_origin_token_validation_and_never_does_network_io(self):
         class Server:
             def __init__(self,address,handler):self.handler=handler
@@ -233,9 +349,9 @@ class LampConfigurationTests(unittest.TestCase):
             stream = LiveStream(0,lamp_signal=self.client)
         self.addCleanup(stream.stop)
         stream.control.update(False,True,'WAIT START',(0,0),readiness={'start_light':self.client.snapshot()})
-        def post(body, **headers):
+        def post(body, path='/lamp-config', **headers):
             handler = object.__new__(stream.server.handler)
-            handler.path='/lamp-config'
+            handler.path=path
             raw=json.dumps(body).encode()
             handler.headers={'Host':'robot:8000','Origin':'http://robot:8000',
                              'X-Control-Token':stream.token,'Content-Length':str(len(raw)),**headers}
@@ -251,3 +367,10 @@ class LampConfigurationTests(unittest.TestCase):
         self.assertEqual(post(body)[0],202)
         self.assertEqual(post(body)[0],409)
         self.assertEqual(self.calls,[])
+        self.client._step()
+        stream.control.update(False,True,'WAIT START',(0,0),readiness={'start_light':self.client.snapshot()})
+        calls_before=len(self.calls)
+        prepared=post(dict(action='start',generation=0,laps=7,lamp_configuration=self.manual()),path='/control')
+        self.assertEqual(prepared[0],202)
+        self.assertEqual(stream.control.status()['preparation']['phase'],'SAVING')
+        self.assertEqual(len(self.calls),calls_before)

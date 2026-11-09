@@ -13,7 +13,9 @@ CONTROL_FRESH_SECONDS = 1.0
 
 
 class WebControl:
-    """Queue commands for the motor loop; STOP invalidates old START requests."""
+    """Serialize STOP, starts, and an optional save-before-ARM preparation."""
+
+    PREPARATION_TIMEOUT_S = 5.0
 
     def __init__(self, lamp_signal=None):
         import threading
@@ -23,6 +25,8 @@ class WebControl:
         self.start_transition = False
         self.generation = 0
         self.pending = None
+        self.preparing = None
+        self.preparation = dict(pending=False, phase="IDLE", error=None, request_id=None, generation=None)
         self.updated = 0
         self.state = dict(active=False, ready=False, reason="INITIALIZING", left=0, right=0)
 
@@ -30,27 +34,30 @@ class WebControl:
         with self.lock:
             self.updated = time.monotonic()
             self.start_transition = False
-            self.state = dict(
-                active=active,
-                ready=ready,
-                reason=reason,
-                left=pwm[0],
-                right=pwm[1],
-                readiness=readiness or {},
-            )
+            self.state = dict(active=active, ready=ready, reason=reason, left=pwm[0], right=pwm[1],
+                              readiness=readiness or {})
+            if self.preparation["phase"] == "ARM_QUEUED":
+                armed = self.state["readiness"].get("start_light", {}).get("armed")
+                self.preparation = dict(self.preparation, pending=False,
+                                        phase="ARMED" if armed or active else "ERROR",
+                                        error=None if armed or active else "arm_not_accepted")
 
     def status(self):
         with self.lock:
-            return dict(
-                self.state,
-                generation=self.generation,
-                age_ms=int((time.monotonic() - self.updated) * 1000),
-            )
+            return dict(self.state, generation=self.generation,
+                        age_ms=int((time.monotonic()-self.updated)*1000),
+                        preparation=dict(self.preparation))
 
-    def submit(self, action, generation=None, *, laps=None):
+    def _end_preparation(self, phase, error=None):
+        self.preparing = None
+        self.preparation = dict(self.preparation, pending=phase == "ARM_QUEUED", phase=phase, error=error)
+
+    def submit(self, action, generation=None, *, laps=None, lamp_configuration=None):
         with self.lock:
             if action == "stop":
                 self.generation += 1
+                if self.preparing is not None or self.preparation["phase"] == "ARM_QUEUED":
+                    self._end_preparation("CANCELLED", "stopped")
                 self.pending = (ControlRequest("stop"), time.monotonic())
                 return True, "停车请求已接收"
             try:
@@ -59,28 +66,37 @@ class WebControl:
                 return False, str(exc)
             if generation != self.generation:
                 return False, "状态已变化，请重试"
-            if self.pending is not None:
+            if self.pending is not None or self.preparing is not None or self.start_transition:
                 return False, "上一条操作尚未完成"
             if self.lamp_signal is not None and self.lamp_signal.configuration_pending:
                 return False, "灯面配置正在保存，请稍候"
+            if lamp_configuration is not None and request.action != "start":
+                return False, "灯面配置请通过ARM准备操作提交"
             readiness = self.state.get("readiness", {})
-            if (
-                readiness.get("start_light", {}).get("armed")
-                and laps is not None
-                and laps != readiness.get("laps", {}).get("total_laps")
-            ):
+            if (readiness.get("start_light", {}).get("armed") and laps is not None
+                    and laps != readiness.get("laps", {}).get("total_laps")):
                 return False, "已ARM，修改圈数请先STOP"
-            ready = (
-                readiness.get("direct_start_ready", self.state["ready"])
-                if action == "start_now"
-                else readiness.get("arm_start_light_ready", self.state["ready"])
-            )
-            if (
-                time.monotonic() - self.updated >= CONTROL_FRESH_SECONDS
-                or not ready
-                or self.state["active"]
-            ):
+            ready = (readiness.get("direct_start_ready", self.state["ready"])
+                     if action == "start_now" else readiness.get("arm_start_light_ready", self.state["ready"]))
+            if (time.monotonic()-self.updated >= CONTROL_FRESH_SECONDS
+                    or not ready or self.state["active"]):
                 return False, "当前不能启动：请检查道路识别和车辆状态"
+            if lamp_configuration is not None:
+                if self.lamp_signal is None:
+                    return False, "发车灯配置不可用"
+                try:
+                    target = request.laps if request.laps is not None else readiness.get("laps", {}).get("total_laps")
+                    if target is None:
+                        return False, "目标圈数尚未就绪"
+                    request = ControlRequest("start", target)
+                    desired = self.lamp_signal.normalize_configuration(lamp_configuration)
+                    request_id = self.lamp_signal.queue_configuration(desired)
+                except (RuntimeError, ValueError) as exc:
+                    return False, "当前不能准备发车：" + str(exc)
+                self.preparing = dict(request=request, created=time.monotonic(), generation=self.generation,
+                                      request_id=request_id, configuration=desired)
+                self.preparation = dict(pending=True, phase="SAVING", error=None, request_id=request_id, generation=self.generation)
+                return True, "正在保存灯面，完成后进入等灯状态"
             self.pending = (request, time.monotonic())
             return True, "启动请求已接收"
 
@@ -90,8 +106,9 @@ class WebControl:
                 return False, "发车灯配置不可用", None
             if generation != self.generation:
                 return False, "状态已变化，请重试", None
-            if (time.monotonic() - self.updated >= CONTROL_FRESH_SECONDS
+            if (time.monotonic()-self.updated >= CONTROL_FRESH_SECONDS
                     or self.state["active"] or self.start_transition or self.pending is not None
+                    or self.preparing is not None
                     or self.state.get("readiness", {}).get("start_light", {}).get("armed")):
                 return False, "请先停车并取消ARM，再调整灯面", None
             try:
@@ -100,36 +117,90 @@ class WebControl:
                 return False, "当前不能调整灯面：" + str(exc), None
             return True, "配置已排队", request_id
 
-    def take(self, *, touch_action=None):
+    def _take_preparation(self):
+        job = self.preparing
+        now = time.monotonic()
+        if job["generation"] != self.generation:
+            error = "state_changed"
+        elif not 0 <= now-job["created"] < self.PREPARATION_TIMEOUT_S:
+            error = "preparation_expired"
+        elif now-self.updated >= CONTROL_FRESH_SECONDS:
+            error = "status_stale"
+        elif self.start_transition:
+            error = "start_in_progress"
+        elif self.state["active"] or self.state.get("readiness", {}).get("start_light", {}).get("armed"):
+            error = "stop_first"
+        else:
+            error = None
+        if error:
+            self._end_preparation("ERROR", error)
+            return None
+        light = self.lamp_signal.snapshot()
+        result = light.get("configuration_update") or {}
+        if result.get("request_id") != job["request_id"]:
+            self._end_preparation("ERROR", "configuration_result_changed")
+            return None
+        if result.get("pending"):
+            return None
+        if result.get("state") != "SAVED":
+            self._end_preparation("ERROR", result.get("error") or "configuration_failed")
+            return None
+        applied, desired = light.get("lamp_configuration") or {}, job["configuration"]
+        if (applied.get("manual") is not desired["manual"]
+                or desired["manual"] and applied.get("roi") != desired["roi"]):
+            self._end_preparation("ERROR", "configuration_mismatch")
+            return None
+        if (not light.get("connected") or light.get("armed") or light.get("permission")
+                or not self.lamp_signal.available):
+            self._end_preparation("ERROR", "signal_not_ready")
+            return None
+        request = job["request"]
+        self._end_preparation("ARM_QUEUED")
+        self.start_transition = True
+        return request
+
+    def take_actions(self, touch_action=None):
+        """Resolve web preparation and touch actions together under one lock."""
         with self.lock:
-            # Reserve even a touchscreen start before its zero-output UNO ARM
-            # exchange. HTTP must not slip a config edit into that round trip.
-            self.start_transition = touch_action in ("start", "start_now")
             pending, self.pending = self.pending, None
+            if touch_action == "stop":
+                if self.preparing is not None:
+                    self._end_preparation("CANCELLED", "stopped")
+                return None, touch_action
+            if pending is not None and pending[0].action == "stop":
+                return pending[0], touch_action
+            if self.preparing is not None:
+                # Do not let a second touch start change this job's captured
+                # lap target or bypass its configuration completion proof.
+                if touch_action in ("start", "start_now"):
+                    touch_action = None
+                return self._take_preparation(), touch_action
+            if touch_action in ("start", "start_now"):
+                self.start_transition = True
             if pending is None:
-                return None
+                return None, touch_action
             request, created = pending
-            if (
-                request.action in ("start", "start_now")
-                and time.monotonic() - created >= CONTROL_FRESH_SECONDS
-            ):
-                print(
-                    "WEB START EXPIRED",
-                    json.dumps(dict(age_ms=round((time.monotonic() - created) * 1000))),
-                    flush=True,
-                )
-                return None
+            if (request.action in ("start", "start_now")
+                    and time.monotonic()-created >= CONTROL_FRESH_SECONDS):
+                print("WEB START EXPIRED", json.dumps(dict(age_ms=round((time.monotonic()-created)*1000))),
+                      flush=True)
+                return None, touch_action
             if request.action in ("start", "start_now"):
                 if self.lamp_signal is not None and self.lamp_signal.configuration_pending:
-                    return None
+                    return None, touch_action
                 self.start_transition = True
-            return request
+            return request, touch_action
+
+    def take(self, *, touch_action=None):
+        # Retain the original single-request API for existing callers.
+        return self.take_actions(touch_action)[0]
 
     def stopped(self):
         with self.lock:
             self.generation += 1
             self.pending = None
-
+            if self.preparing is not None or self.preparation["phase"] == "ARM_QUEUED":
+                self._end_preparation("CANCELLED", "stopped")
 
 class LiveStream:
     """Latest-frame HTTP preview. Slow viewers never block motor commands."""
@@ -201,7 +272,8 @@ class LiveStream:
                     self.send_json(202 if ok else 409, dict(message=message, request_id=request_id))
                     return
                 ok, message = owner.control.submit(
-                    data.get("action"), data.get("generation"), laps=data.get("laps")
+                    data.get("action"), data.get("generation"), laps=data.get("laps"),
+                    lamp_configuration=data.get("lamp_configuration"),
                 )
                 self.send_json(202 if ok else 409, dict(message=message))
 
