@@ -6,12 +6,12 @@ MaixCAM2 ↔ 电平转换板 ↔ miniAuto UNO 接线测试
   maixcam2/camera_preview/main.py：单独运行，查看摄像头画面。
 
 接线约定：
-  摄像头侧边 UART4 TX(A21) -> LV1 / HV1 -> UNO A4/SDA。
-  摄像头侧边 UART4 RX(A22) <- LV2 / HV2 <- UNO A5/SCL。
+  摄像头侧边 UART4 TX(A21) -> LV1 / HV1 -> UNO A0（RX）。
+  摄像头侧边 UART4 RX(A22) <- LV2 / HV2 <- UNO A1（TX）。
   摄像头正面 3V3 -> LV；UNO 5V -> HV；两端 GND 共地。
   摄像头由独立 5V 电源经 Type-C 供电；侧边六芯线的 5V 不连接。
   拔掉其他 I2C 外设、旧 ESP32 摄像头和蓝牙模块。
-  此版本不使用正面 U2T/U2R，也不使用 UNO D0/D1。
+  此版本不使用正面 U2T/U2R，也不使用 UNO D0/D1；A4/A5 保留给原装摄像头。
 
 测试顺序：
 1. 架空四轮。先关闭/断开小车电池，UNO 用 USB 接电脑。

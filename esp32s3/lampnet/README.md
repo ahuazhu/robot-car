@@ -1,6 +1,6 @@
 # ESP32-S3 LampNet 定位与发车检测
 
-当前源码构建为 `--model-locator --full-frame`（0.4.13-exposure-cache，已本地编译、未部署；设备仍为0.4.12-off-on-off），支持全画面自动定位与持久化手动框灯。此前 `--model-locator` 构建（0.4.9-lamp-face）：模型先粗定位，C++灯面细化后限制原亮度/颜色检测器的搜索范围；稳定亮灯后冻结灯面核心，仅做快速熄灯判断。发车会话、配对及Maix许可锁存沿用原协议。**开启此选项后，模型参与正式ARM的定位，不再只是旁路观察**。省略此选项仍可生成 `SHADOW_ONLY` 旁路诊断版。普通无模型构建仍使用原规则。
+当前源码构建为 `--model-locator --full-frame`（0.4.13-exposure-cache，2026-11-09已部署，独立Flash校验与6组板上数值自检通过），支持全画面自动定位与持久化手动框灯。此前 `--model-locator` 构建（0.4.9-lamp-face）：模型先粗定位，C++灯面细化后限制原亮度/颜色检测器的搜索范围；稳定亮灯后冻结灯面核心，仅做快速熄灯判断。发车会话、配对及Maix许可锁存沿用原协议。**开启此选项后，模型参与正式ARM的定位，不再只是旁路观察**。省略此选项仍可生成 `SHADOW_ONLY` 旁路诊断版。普通无模型构建仍使用原规则。
 
 模型来源为 `android/start_signal/model/lamp_model.int8.tflite`，285,240 字节。输入 INT8 `[1,160,160,3]`，输出 INT8 `[1,40,40,1]`。它包含 MobileNetV2 编码器和训练的分割头，使用的算子为 Conv2D、DepthwiseConv2D、Add、Concatenation、Pad、ResizeBilinear 和 Logistic。
 
