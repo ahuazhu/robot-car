@@ -3,6 +3,7 @@ from tests.support import ROOT
 from tests.support.driving import road, flow
 import json
 import unittest
+from unittest.mock import patch
 import numpy as np
 from robot.core.road_policy import RoadPolicy
 from robot.navigation.steering_control import SteeringControl
@@ -29,6 +30,24 @@ def command(c, result, now, measured=True, age=.1):
 
 
 class StableRoadSpeedTests(unittest.TestCase):
+    def test_feasible_command_evaluates_wheel_law_once_after_quality_selection(self):
+        from robot.control.controller import target_command
+        for result in (road(), profiled(), road(3.)):
+            with self.subTest(curvature=result["path_curvature_m_inv"]):
+                c = controller()
+                for now in (0., .15, .3):
+                    command(c, result, now)
+                with patch("robot.navigation.steering_control.target_command", wraps=target_command) as law:
+                    actual = command(c, result, .45)
+                self.assertIsNotNone(actual)
+                self.assertEqual(law.call_count, 1)
+                expected = target_command(
+                    dict(result, target_m=c.status["command_target_m"],
+                         confidence=c.status["speed_plan"]["control_confidence"],
+                         steering_trim_m_inv=c.trim),
+                    c.lever, c.gain, c.status["speed_plan"]["selected_cruise_pwm"])
+                self.assertEqual(actual, expected)
+
     def test_unused_low_quality_tails_do_not_slow_a_fresh_feasible_prefix(self):
         result = profiled()
         legacy = dict(result)

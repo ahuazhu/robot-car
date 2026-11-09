@@ -78,14 +78,15 @@ class BuildTests(unittest.TestCase):
                     installer.unpack_bundle(minimal_bundle(extra), Path(folder))
                 self.assertEqual(list(Path(folder).iterdir()), [])
 
-    def test_native_compilation_checks_all_eight_required_symbols(self):
+    def test_native_compilation_checks_every_required_symbol(self):
         library = Mock()
         with (
             patch.object(installer.subprocess, "run", return_value=Mock(returncode=0)),
             patch.object(installer.ctypes, "CDLL", return_value=library),
         ):
             installer.compile_native(Path("/offline/staging"))
-        self.assertEqual(len(installer.NATIVE_SYMBOLS), 8)
+        self.assertIn("curve_road_regions", installer.NATIVE_SYMBOLS)
+        self.assertEqual(len(installer.NATIVE_SYMBOLS), 9)
         for name in installer.NATIVE_SYMBOLS:
             self.assertIn(name, library._mock_children)
 

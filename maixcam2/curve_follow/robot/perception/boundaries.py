@@ -15,6 +15,7 @@ from robot.core.geometry import (
 from robot.core.native_geometry import native_boundary_chains
 from robot.core.road_policy import RoadPolicy
 from robot.perception.surface import RoadSurfaceEvidence
+from robot.perception.photometry import road_regions
 
 
 class CurvePixels:
@@ -52,6 +53,10 @@ class CurvePixels:
         self.visible_near_m = float(np.hypot(self.xs[rows], self.ys[cols]).min())
         self.mapx = u.astype(np.float32)
         self.mapy = v.astype(np.float32)
+        self.photometric_window = max(3, int(self.width / self.step / 4) | 1)
+        radius = int(math.ceil(float(self.exterior_distances.max()) / self.step)) + 1
+        self.exterior_kernel = np.ones((2 * radius + 1, 2 * radius + 1), np.uint8)
+        self.minimum_samples = max(5, int(math.ceil(self.policy.minimum_segment_m / self.step)))
 
     def sample(self, mask, points):
         row = np.rint((points[:, 0] - self.xs[0]) / self.step).astype(int)
@@ -67,31 +72,20 @@ class CurvePixels:
             bgr, self.mapx, self.mapy, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT
         )
         h, s, v = cv2.split(cv2.cvtColor(bird, cv2.COLOR_BGR2HSV))
-        green = (h >= 32) & (h <= 95) & (s > 55) & (v > 25) & self.visible
-        # Normalize local luminance in ground metric space. A white stripe in
-        # shadow must not lose to a specular road highlight solely because of
-        # absolute exposure. A quarter-lane window spans paint and its context.
-        vf = v.astype(np.float32)
-        window = max(3, int(self.width / self.step / 4) | 1)
-        mean = cv2.blur(vf, (window, window))
-        deviation = np.sqrt(np.maximum(0.0, cv2.blur(vf * vf, (window, window)) - mean * mean))
-        contrast = np.clip(180 + 60 * (vf - mean) / np.maximum(deviation, 1.0), 0, 255).astype(
-            np.uint8
+        # A quarter-lane window spans paint and its context, so a white stripe
+        # in shadow can compete with a specular road highlight.
+        green, contrast, raw_gray, gray = road_regions(
+            h, s, v, self.visible_u8, self.photometric_window
         )
-        contrast[v < 35] = 0
-        gray = (s < 110) & (contrast >= 35) & (contrast < 210) & self.visible & ~green
         # Necessary condition for the existing normal-probe exterior test.
         # Reject only entire contours with no possible green sample, never
         # clip contours or require green at every point of a valid chain.
-        radius = int(math.ceil(float(self.exterior_distances.max()) / self.step)) + 1
-        vicinity = cv2.dilate(
-            green.astype(np.uint8), np.ones((2 * radius + 1, 2 * radius + 1), np.uint8)
-        )
+        vicinity = cv2.dilate(green.view(np.uint8), self.exterior_kernel)
         return (
             bird,
             s,
             v,
-            (s < 110) & (v >= 35) & (v < 210) & self.visible & ~green,
+            raw_gray,
             green,
             contrast,
             gray,
@@ -176,7 +170,7 @@ class CurvePixels:
             gray.astype(np.uint8) + 2 * green.astype(np.uint8) + 4 * white.astype(np.uint8)
         )
         gray_u8 = gray.astype(np.uint8)
-        minimum_samples = max(5, int(math.ceil(self.policy.minimum_segment_m / self.step)))
+        minimum_samples = self.minimum_samples
         for contour in contours:
             pixels = contour[:, 0, :]
             if len(pixels) < 2 * minimum_samples or not vicinity[pixels[:, 1], pixels[:, 0]].any():

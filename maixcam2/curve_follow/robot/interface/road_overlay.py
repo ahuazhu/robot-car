@@ -5,9 +5,10 @@ import numpy as np
 from robot.core.geometry import contiguous_runs
 
 
-def render_target(bgr, result, details, cal):
+def render_target(bgr, result, details, cal, *, inverse=None, include_bird=True):
     out = bgr.copy()
-    inverse = np.linalg.inv(np.asarray(cal["H_normalized"]))
+    if inverse is None:
+        inverse = np.linalg.inv(np.asarray(cal["H_normalized"]))
 
     def project(path):
         q = np.column_stack((path, np.ones(len(path)))) @ inverse.T
@@ -17,17 +18,20 @@ def render_target(bgr, result, details, cal):
         good &= np.isfinite(uv).all(axis=1) & (abs(uv).max(axis=1) < 10000)
         return np.rint(np.clip(uv, -10000, 10000)).astype(np.int32), good
 
-    def draw(path, color, thickness):
-        pts, valid = project(path)
+    def draw(pts, valid, color, thickness):
         for ids in contiguous_runs(valid):
             if len(ids) > 1:
                 cv2.polylines(out, [pts[ids]], False, color, thickness)
 
     for side, f in details["fits"].items():
         if f is not None:
-            draw(f["path"], (0, 220, 255) if side == "left" else (255, 180, 0), 2)
+            pts, valid = project(f["path"])
+            draw(pts, valid, (0, 220, 255) if side == "left" else (255, 180, 0), 2)
     path = np.asarray(result.get("path", []))
     if len(path) >= 2:
+        # Project each road point once; observed runs and history dashes only
+        # select from those pixels. A long predicted path needs no extra transforms.
+        pts, valid = project(path)
         fresh = np.asarray(result.get("path_observed_mask", np.ones(len(path), bool)), bool)
         if len(fresh) != len(path):
             fresh = np.ones(len(path), bool)
@@ -35,10 +39,10 @@ def render_target(bgr, result, details, cal):
         # polynomial drawn outside the local road model's geometric support.
         for ids in contiguous_runs(fresh):
             if len(ids) >= 2:
-                draw(path[ids], (0, 230, 0), 2)
+                draw(pts[ids], valid[ids], (0, 230, 0), 2)
         for i in range(0, len(path) - 1, 2):
             if not (fresh[i] and fresh[i + 1]):
-                draw(path[i : i + 2], (0, 165, 255), 2)
+                draw(pts[i : i + 2], valid[i : i + 2], (0, 165, 255), 2)
     if result.get("target_m") is not None:
         pts, good = project(np.asarray([result["target_m"]]))
         if good[0]:
@@ -62,5 +66,5 @@ def render_target(bgr, result, details, cal):
                 (0, 0, 255),
                 1,
             )
-    bird = cv2.resize(cv2.flip(details["bird"], 0), (320, 240))
+    bird = cv2.resize(cv2.flip(details["bird"], 0), (320, 240)) if include_bird else None
     return out, bird

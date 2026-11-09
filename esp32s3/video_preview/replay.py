@@ -11,45 +11,57 @@ class State(ctypes.Structure):
 
 
 class Diagnostic(ctypes.Structure):
-    _fields_ = [(name,ctypes.c_float) for name in ("background_change","background_residual","darkened_fraction","required_drop","noise","exposure_gain")]+[("mask_pixels",ctypes.c_uint32),("reason",ctypes.c_char_p)]
+    _fields_ = [(name,ctypes.c_float) for name in ("background_change","background_residual","darkened_fraction","required_drop","noise","exposure_gain","gray_drop","value_drop","saturation_change")]+[("mask_pixels",ctypes.c_uint32),("reason",ctypes.c_char_p)]
 
 
 class NativeDetector:
-    def __init__(self):
+    def __init__(self,full_frame=False,header=None):
         self.folder = tempfile.TemporaryDirectory(prefix="esp-start-replay-")
         root = Path(self.folder.name)
-        header = Path(__file__).with_name("start_signal.h")
+        header = Path(header).resolve() if header is not None else Path(__file__).with_name("start_signal.h")
         source = root / "replay.cpp"
         source.write_text('#include "'+str(header)+'"\n' + '''
 extern "C" {
 struct State {unsigned armed,confirmed,baseline,sequence,hits,elapsed,count,locked,phase,target_x,target_y,target_w,target_h,contrast,baseline_contrast,event_age;};
-struct Diagnostic {float background_change,background_residual,darkened_fraction,required_drop,noise,exposure_gain;unsigned mask_pixels;const char *reason;};
-Diagnostic diagnostic(void *p){auto &d=*(start_signal::Detector*)p;return {d.backgroundChangeL,d.backgroundResidualL,d.darkenedFraction,d.requiredDrop,d.noise,d.exposureGain,d.baseline?d.maskPixels:0,d.rejectionReason};}
+struct Diagnostic {float background_change,background_residual,darkened_fraction,required_drop,noise,exposure_gain,gray_drop,value_drop,saturation_change;unsigned mask_pixels;const char *reason;};
+Diagnostic diagnostic(void *p){auto &d=*(start_signal::Detector*)p;return {d.backgroundChangeL,d.backgroundResidualL,d.darkenedFraction,d.requiredDrop,d.noise,d.exposureGain,d.grayDrop,d.valueDrop,d.saturationChange,d.baseline?d.maskPixels:0,d.rejectionReason};}
 void *create(){return new start_signal::Detector();}
 void destroy(void *p){delete (start_signal::Detector*)p;}
 void mask(void *p,unsigned char *out){((start_signal::Detector*)p)->copyMask(out);}
 void arm(void *p){((start_signal::Detector*)p)->arm();}
+void modelHint(void *p,int x,int y,int w,int h,int valid,int required){auto &d=*(start_signal::Detector*)p;d.requireModelLocator(required);d.setModelHint(x,y,w,h,valid);}
+int manual(void *p,int x,int y,int w,int h,int enabled){return ((start_signal::Detector*)p)->setManualROI(x,y,w,h,enabled);}
+void cycle(void *p,int enabled){((start_signal::Detector*)p)->requireOffOnOff(enabled);}
 void cancel(void *p){((start_signal::Detector*)p)->cancel();}
-unsigned geometry(unsigned i){const unsigned a[]={start_signal::Detector::X,start_signal::Detector::Y,start_signal::Detector::RW,start_signal::Detector::RH};return i<4?a[i]:0;}
+unsigned geometry(unsigned i){const unsigned a[]={start_signal::Detector::X,start_signal::Detector::Y,start_signal::Detector::RW,start_signal::Detector::RH,start_signal::Detector::STEP};return i<5?a[i]:0;}
 unsigned replayNow=0;
 void process(void *p,const unsigned char *pixels,unsigned now,int y){replayNow=now;((start_signal::Detector*)p)->process(pixels,now,y<0?start_signal::Detector::Y:y);}
-State state(void *p){auto &d=*(start_signal::Detector*)p;return {d.armed,d.confirmed,d.baseline,d.sequence,d.hits,d.elapsed,(unsigned)d.region.count,d.baseline,(unsigned)d.phase,(unsigned)(start_signal::Detector::X+d.target.x*2),(unsigned)(start_signal::Detector::Y+d.target.y*2),(unsigned)(d.target.w*2),(unsigned)(d.target.h*2),(unsigned)(d.contrast>0?d.contrast:0),(unsigned)(d.baselineContrast>0?d.baselineContrast:0),d.eventAge(replayNow)};}
+State state(void *p){auto &d=*(start_signal::Detector*)p;return {d.armed,d.confirmed,d.baseline,d.sequence,d.hits,d.elapsed,(unsigned)d.region.count,d.baseline,(unsigned)d.phase,(unsigned)(start_signal::Detector::X+d.target.x*start_signal::Detector::STEP),(unsigned)(start_signal::Detector::Y+d.target.y*start_signal::Detector::STEP),(unsigned)(d.target.w*start_signal::Detector::STEP),(unsigned)(d.target.h*start_signal::Detector::STEP),(unsigned)(d.contrast>0?d.contrast:0),(unsigned)(d.baselineContrast>0?d.baselineContrast:0),d.eventAge(replayNow)};}
 }
 ''')
         library = root / "detector.so"
-        subprocess.run(["c++", "-std=c++11", "-O2", "-shared", "-fPIC", str(source), "-o", str(library)],check=True,capture_output=True)
+        subprocess.run(["c++", "-std=c++11", "-O2", "-shared", "-fPIC", *(["-DROBOT_LAMPNET_FULL_FRAME=1"] if full_frame else []), str(source), "-o", str(library)],check=True,capture_output=True)
         self.lib = ctypes.CDLL(str(library))
         self.lib.create.restype=ctypes.c_void_p
         self.lib.geometry.argtypes=[ctypes.c_uint];self.lib.geometry.restype=ctypes.c_uint
-        self.roi=[int(self.lib.geometry(i)) for i in range(4)]
+        self.roi=[int(self.lib.geometry(i)) for i in range(4)];self.step=int(self.lib.geometry(4))
         for method in ("destroy","arm","cancel"):
             getattr(self.lib,method).argtypes=[ctypes.c_void_p]
         self.lib.diagnostic.argtypes=[ctypes.c_void_p];self.lib.diagnostic.restype=Diagnostic
         self.lib.mask.argtypes=[ctypes.c_void_p,ctypes.c_void_p]
         self.lib.process.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_uint32,ctypes.c_int]
         self.lib.state.argtypes=[ctypes.c_void_p];self.lib.state.restype=State
+        self.lib.modelHint.argtypes=[ctypes.c_void_p]+[ctypes.c_int]*6
+        self.lib.manual.argtypes=[ctypes.c_void_p]+[ctypes.c_int]*5;self.lib.manual.restype=ctypes.c_int
+        self.lib.cycle.argtypes=[ctypes.c_void_p,ctypes.c_int]
         self.handle=self.lib.create()
 
+    def hint(self,box,required=True):
+        x,y,w,h=box if box is not None else [0,0,0,0]
+        self.lib.modelHint(self.handle,x,y,w,h,int(box is not None),int(required))
+    def manual(self,box):
+        return bool(self.lib.manual(self.handle,*(box if box else [0,0,0,0]),int(box is not None)))
+    def cycle(self,enabled=True):self.lib.cycle(self.handle,int(enabled))
     def arm(self): self.lib.arm(self.handle)
     def cancel(self): self.lib.cancel(self.handle)
     def process(self, bgr, now_ms, roi_y=-1):
@@ -66,8 +78,8 @@ State state(void *p){auto &d=*(start_signal::Detector*)p;return {d.armed,d.confi
         d=self.lib.diagnostic(self.handle)
         return {name:(d.reason.decode() if name=="reason" else int(getattr(d,name)) if name=="mask_pixels" else float(getattr(d,name))) for name,_ in Diagnostic._fields_}
     def mask(self):
-        # One pixel represents a 2x2 native camera block; no contour/bbox fill.
-        out=np.empty((self.roi[3]//2,self.roi[2]//2),dtype=np.uint8)
+        # One pixel represents STEP x STEP native camera pixels; no bbox fill.
+        out=np.empty((self.roi[3]//self.step,self.roi[2]//self.step),dtype=np.uint8)
         self.lib.mask(self.handle,out.ctypes.data)
         return out
     def close(self):

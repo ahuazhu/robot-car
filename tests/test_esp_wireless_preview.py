@@ -12,6 +12,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 from esp32s3.video_preview import wireless_preview as wireless
+from esp32s3.video_preview import pair_signal
+from esp32s3.video_preview.device_protocol import KNOWN_FIRMWARE, supported_firmware
 
 JPEG = b"\xff\xd8" + b"wireless-frame" * 12 + b"\xff\xd9"
 
@@ -25,6 +27,27 @@ class QuickEvent:
 
 
 class WirelessPreviewTests(unittest.TestCase):
+    def test_known_current_firmware_can_be_configured_without_bypassing_identity(self):
+        for version in KNOWN_FIRMWARE:
+            with self.subTest(version=version):
+                link=Mock();link.readline.return_value=b'WIFI '+json.dumps({'firmware':version}).encode()+b'\n'
+                state=wireless.query_network(link,threading.Event())
+                self.assertEqual(state['firmware'],version);link.write.assert_called_once_with(b'Q')
+        for version in (None,{},['0.4.13-exposure-cache'],'manufacturer-camera','0.9.0-unknown'):
+            self.assertFalse(supported_firmware(version))
+    def test_current_firmware_pairing_saves_private_config_without_printing_key(self):
+        with tempfile.TemporaryDirectory() as folder:
+            destination=Path(folder)/'start_signal.local.json';link=Mock()
+            link.__enter__=Mock(return_value=link);link.__exit__=Mock(return_value=None)
+            link.readline.side_effect=[b'WIFI {"firmware":"0.4.13-exposure-cache"}\n',b'PAIR OK\n']
+            with patch.object(pair_signal.serial,'Serial',return_value=link),patch.object(pair_signal.time,'sleep'),patch('builtins.print') as output:
+                pair_signal.pair('test-port','http://10.0.0.9/',destination)
+            config=json.loads(destination.read_text())
+            self.assertEqual(config['peer_url'],'http://10.0.0.9');self.assertEqual(len(config['key']),64)
+            self.assertEqual(destination.stat().st_mode&0o777,0o600)
+            self.assertNotIn(config['key'],str(output.call_args_list))
+            self.assertEqual(link.write.call_args_list[0].args,(b'Q',))
+            self.assertTrue(link.write.call_args_list[1].args[0].startswith(b'P'))
     def test_credentials_validate_utf8_bytes_and_do_not_echo_password(self):
         self.assertEqual(wireless.validate_credentials("test24", "test-pass")["ssid"], "test24")
         self.assertEqual(wireless.validate_credentials("open-network", "")["password"], "")

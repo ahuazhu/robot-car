@@ -69,6 +69,54 @@ class CommandRampTimingTests(unittest.TestCase):
                 reduced = tuple(value // 4 for value in desired)
                 self.assertEqual(ramp.apply(reduced, 1.05), reduced)
 
+    def assert_effort_budget(self, previous, actual, desired, dt):
+        self.assertLessEqual(sum(abs(v) for v in actual),
+                             sum(abs(v) for v in previous) + 2 * 180 * dt + 1)
+        self.assertLessEqual(max(abs(v) for v in actual),
+                             max(abs(v) for v in previous) + 180 * dt + .5)
+        self.assertLessEqual(abs(actual[0] * desired[1] - actual[1] * desired[0]),
+                             sum(abs(v) for v in desired) / 2)
+
+    def test_leaving_a_turn_recovers_forward_effort_without_braking_both_wheels(self):
+        for turn in ((80, 163), (163, 80)):
+            with self.subTest(turn=turn):
+                ramp = self.settled(turn)
+                outputs = []
+                for i in range(1, 4):
+                    previous = ramp.previous
+                    actual = ramp.apply((163, 163), 1 + i / 10)
+                    self.assert_effort_budget(previous, actual, (163, 163), .1)
+                    outputs.append(actual)
+                # The former per-wheel constraint returned (98, 98), braking
+                # its outside wheel by 65 PWM when only the inside needed rise.
+                for actual, expected in zip(outputs, (139.5, 157.5, 163.)):
+                    self.assertEqual(actual[0], actual[1])
+                    self.assertAlmostEqual(actual[0], expected, delta=.50001)
+                self.assertEqual(outputs[-1], (163, 163))
+
+    def test_steering_changes_preserve_effort_and_requested_curvature(self):
+        ramp = self.settled((120, 163))
+        for i, desired in enumerate([(163, 120), (120, 163)] * 8, 1):
+            previous = ramp.previous
+            actual = ramp.apply(desired, 1 + i / 10)
+            self.assert_effort_budget(previous, actual, desired, .1)
+            self.assertEqual(actual, desired)
+            self.assertLessEqual(max(compensate_pwm(actual)), 200)
+
+    def test_turn_entry_limits_outside_peak_and_reduces_total_effort_immediately(self):
+        for desired in ((80, 163), (163, 80), (0, 163), (163, 0)):
+            with self.subTest(desired=desired):
+                ramp = self.settled((120, 120))
+                previous = ramp.previous
+                actual = ramp.apply(desired, 1.1)
+                self.assert_effort_budget(previous, actual, desired, .1)
+                self.assertLessEqual(max(actual), 138)
+                self.assertLess(sum(actual), sum(previous))
+                self.assertEqual(ramp.apply((0, 0), 1.11), (0, 0))
+                restarted = ramp.apply(desired, 1.12)
+                self.assertLessEqual(max(restarted), 9)
+                self.assert_effort_budget((0, 0), restarted, desired, .05)
+
     def test_short_rolling_pause_decays_but_stale_pause_cannot_hide_expiry(self):
         ramp = self.settled()
         self.assertEqual(ramp.pause(1.2, rolling=True), (0, 0))

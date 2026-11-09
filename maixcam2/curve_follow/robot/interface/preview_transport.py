@@ -239,13 +239,14 @@ class LiveStream:
         )
         self.worker.start()
 
-    def write(self, bgr):
-        """Queue one owned latest frame; encoding never waits in the control loop."""
+    def write(self, bgr, *, owned=False):
+        """Queue the latest frame; owned transfers a fresh buffer to the encoder."""
         if self.server is None or self.closed:
             return False
-        # The caller may reuse its image immediately after publication.
+        # Default callers may reuse their image immediately. A newly composed
+        # preview can transfer ownership and avoid copying all three panels again.
         try:
-            frame = bgr.copy()
+            frame = bgr if owned else bgr.copy()
         except (AttributeError, TypeError, ValueError, OSError) as exc:
             self.preview_error = str(exc)
             return False

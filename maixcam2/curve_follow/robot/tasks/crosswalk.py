@@ -811,13 +811,15 @@ class CrosswalkTask:
             mode=p.mode,
             phase=self.phase,
             observation_association=self.observation_association,
-            pending_observation=self.pending_track,
+            pending_observation=dict(self.pending_track) if self.pending_track is not None else None,
             pending_hits=self.pending_hits,
             retired_event=self.retired_event,
             event_id=self.identity if t else None,
             hits=self.hits,
             confirmed=self.hits >= p.confirmation_frames,
-            observation=t,
+            # Motion compensation updates these records in place next frame.
+            # Published status must retain the captured geometry.
+            observation=dict(t) if t is not None else None,
             distance_to_body_m=distance,
             position_error_m=t["sigma_m"] if t else None,
             observation_age_s=now - t["observed_at"] if t else None,

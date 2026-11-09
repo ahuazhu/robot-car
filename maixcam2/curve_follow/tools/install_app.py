@@ -41,6 +41,7 @@ NATIVE_SYMBOLS = (
     "curve_select_pursuit",
     "curve_agree_paths",
     "curve_nearest_samples",
+    "curve_road_regions",
 )
 REQUIRED = {
     "main.py",

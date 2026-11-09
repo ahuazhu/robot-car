@@ -138,8 +138,6 @@ class SteeringControl:
             if not a[2] or a[3]:
                 return  # Do not learn during coast, dwell or saturation.
             requested += a[1] * (b[0] - a[0]) / dt
-        speed = forward / dt
-        yaw = -math.atan2(rotation[1, 0], rotation[0, 0]) / dt
         error = requested - yaw / speed
         quality = max(0.0, 1.0 - 2 * sigma / forward)
         # Integrate over travelled distance / preview length, not a per-frame
@@ -151,8 +149,6 @@ class SteeringControl:
             feedback_valid=True,
             desired_curvature_m_inv=requested,
             measured_curvature_m_inv=yaw / speed,
-            body_speed_m_s=speed,
-            body_yaw_rad_s=yaw,
             quality=quality,
         )
 
@@ -202,7 +198,7 @@ class SteeringControl:
             self.speed_observed_at = now
         return max(0.0, now-self.speed_ready_since)
 
-    def _forward_quality(self, result, path, selected):
+    def _forward_quality(self, result, path, selected, positions):
         """Keep low quality inside the driven prefix; ignore unrelated tails.
 
         The selected pursuit point and the body rollout horizon both contribute
@@ -221,7 +217,6 @@ class SteeringControl:
         anchor = nearest_forward_point(path, self.policy.forward_min_m)
         if anchor is None:
             return original, "GLOBAL"
-        positions = arc(path)
         front = self.body[0]
         end = max(selected["position_m"]+front, anchor[1]+self.width+front)
         first = max(0, int(np.searchsorted(positions, anchor[1]))-1)
@@ -336,9 +331,6 @@ class SteeringControl:
             corrected_curvature_m_inv=self.requested + self.trim,
         )
         raw["steering_trim_m_inv"] = self.trim
-        command = target_command(raw, self.lever, self.gain, self.cruise)
-        if command is None:
-            return None
         observed = np.asarray(result.get("path", []), float)
         if observed.size:
             observed = observed - self.origin
@@ -426,10 +418,7 @@ class SteeringControl:
         # step, changes sharp-turn effort, or grants speed to unseen road.
         if (road_eligible and "body_speed_m_s" in self.status
                 and self.straight_cruise / (1.0+load) > self.cruise):
-            control_quality, quality_source = self._forward_quality(result, path, selected)
-            if control_quality != raw.get("confidence", 0.0):
-                raw = dict(raw, confidence=control_quality)
-                command = target_command(raw, self.lever, self.gain, self.cruise)
+            control_quality, quality_source = self._forward_quality(result, path, selected, positions)
         straight_candidate = (
             max(self.cruise, self.straight_cruise / (1.0 + load)) if boost_ready else self.cruise
         )
@@ -443,12 +432,19 @@ class SteeringControl:
             quality = (
                 observation_quality
                 if straight_candidate > self.cruise
-                else raw.get("confidence", 0.0)
+                else control_quality
             )
-            command = target_command(dict(raw, confidence=quality), self.lever, self.gain, cruise)
             applied_quality = float(quality)
             if straight_candidate > self.cruise:
                 applied_quality_source = "CURRENT_OBSERVATION"
+        # Select the quality and effort once, then evaluate the coupled wheel
+        # law once. Provisional baseline/quality/boost commands are not outputs
+        # and used to repeat the same pursuit and curvature arithmetic.
+        command = target_command(
+            dict(raw, confidence=applied_quality), self.lever, self.gain, cruise
+        )
+        if command is None:
+            return None
         self.status["speed_plan"] = dict(
             baseline_cruise_pwm=self.cruise,
             confirmed_cruise_pwm=self.confirmed_cruise,

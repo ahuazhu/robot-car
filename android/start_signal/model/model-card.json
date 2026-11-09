@@ -1,0 +1,715 @@
+{
+  "name": "LampNet160 MobileNetV2 alpha0.35 frozen encoder + learned segmentation decoder",
+  "version": "0.1.0-prototype",
+  "seed": 20261109,
+  "input": [
+    1,
+    160,
+    160,
+    3
+  ],
+  "output": [
+    1,
+    40,
+    40,
+    1
+  ],
+  "bytes": 367672,
+  "sha256": "45ffb2994da9f15acd1a2fc97b9e281b6224897affdd2e9352c89c5123ca339d",
+  "parameters": 176353,
+  "augmented_training_images": 960,
+  "epochs": 36,
+  "final_loss": 0.11332095414400101,
+  "training_groups": [
+    "esp32-room-20261107",
+    "maix-small-20261031",
+    "real-gantry-off-user-reference"
+  ],
+  "heldout_groups": [
+    "maix-jitter-20261031",
+    "maix-large-20261031"
+  ],
+  "limitation": "Prototype: two positive training sessions plus at most one user-provided real gantry OFF screenshot; no Xiaomi camera training data or real gantry ON samples. Historical source-heldout groups were inspected during model tuning and are validation, not an untouched test set. Frame-level IoU is not start-event accuracy. Independent complete ON/OFF and negative-sequence tests remain required.",
+  "results": [
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000000.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9576271186440678,
+      "predicted_pixels": 470,
+      "label_pixels": 454
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000008.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9494736842105264,
+      "predicted_pixels": 472,
+      "label_pixels": 454
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000016.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9431578947368421,
+      "predicted_pixels": 469,
+      "label_pixels": 454
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000024.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9377593360995851,
+      "predicted_pixels": 480,
+      "label_pixels": 454
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000032.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9436325678496869,
+      "predicted_pixels": 477,
+      "label_pixels": 454
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000040.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.949685534591195,
+      "predicted_pixels": 476,
+      "label_pixels": 454
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000048.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.949685534591195,
+      "predicted_pixels": 473,
+      "label_pixels": 457
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000056.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9660297239915074,
+      "predicted_pixels": 469,
+      "label_pixels": 457
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000064.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9515789473684211,
+      "predicted_pixels": 470,
+      "label_pixels": 457
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000072.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9498956158663883,
+      "predicted_pixels": 477,
+      "label_pixels": 457
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000080.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9556962025316456,
+      "predicted_pixels": 470,
+      "label_pixels": 457
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000088.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9063745019920318,
+      "predicted_pixels": 500,
+      "label_pixels": 457
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000096.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9448979591836735,
+      "predicted_pixels": 478,
+      "label_pixels": 475
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000104.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9545454545454546,
+      "predicted_pixels": 471,
+      "label_pixels": 475
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000112.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9627329192546584,
+      "predicted_pixels": 473,
+      "label_pixels": 475
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000120.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.95,
+      "predicted_pixels": 461,
+      "label_pixels": 475
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000128.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.937625754527163,
+      "predicted_pixels": 488,
+      "label_pixels": 475
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000136.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9442148760330579,
+      "predicted_pixels": 466,
+      "label_pixels": 475
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000144.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9550102249488752,
+      "predicted_pixels": 478,
+      "label_pixels": 478
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000152.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9627329192546584,
+      "predicted_pixels": 470,
+      "label_pixels": 478
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000160.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9670781893004116,
+      "predicted_pixels": 478,
+      "label_pixels": 478
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000168.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9563409563409564,
+      "predicted_pixels": 463,
+      "label_pixels": 478
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000176.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.954639175257732,
+      "predicted_pixels": 470,
+      "label_pixels": 478
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000184.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9606625258799172,
+      "predicted_pixels": 469,
+      "label_pixels": 478
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000192.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9708333333333333,
+      "predicted_pixels": 468,
+      "label_pixels": 478
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000200.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9058823529411765,
+      "predicted_pixels": 488,
+      "label_pixels": 484
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000208.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9350912778904665,
+      "predicted_pixels": 468,
+      "label_pixels": 486
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000216.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.8660550458715597,
+      "predicted_pixels": 539,
+      "label_pixels": 478
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000224.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.8836772983114447,
+      "predicted_pixels": 526,
+      "label_pixels": 478
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000232.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9029126213592233,
+      "predicted_pixels": 497,
+      "label_pixels": 483
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000240.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9021526418786693,
+      "predicted_pixels": 489,
+      "label_pixels": 483
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000248.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9398797595190381,
+      "predicted_pixels": 481,
+      "label_pixels": 487
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000256.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.923828125,
+      "predicted_pixels": 498,
+      "label_pixels": 487
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000264.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.8491295938104448,
+      "predicted_pixels": 466,
+      "label_pixels": 490
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000272.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.882466281310212,
+      "predicted_pixels": 483,
+      "label_pixels": 494
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000280.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.896887159533074,
+      "predicted_pixels": 481,
+      "label_pixels": 494
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000288.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9089108910891089,
+      "predicted_pixels": 472,
+      "label_pixels": 492
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000296.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.8825831702544031,
+      "predicted_pixels": 476,
+      "label_pixels": 486
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000304.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.898406374501992,
+      "predicted_pixels": 471,
+      "label_pixels": 482
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000312.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.8904382470119522,
+      "predicted_pixels": 475,
+      "label_pixels": 474
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000320.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.8618042226487524,
+      "predicted_pixels": 499,
+      "label_pixels": 471
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000328.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.8684719535783365,
+      "predicted_pixels": 495,
+      "label_pixels": 471
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000336.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.8895348837209303,
+      "predicted_pixels": 499,
+      "label_pixels": 476
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000344.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.905811623246493,
+      "predicted_pixels": 477,
+      "label_pixels": 474
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000352.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9188118811881189,
+      "predicted_pixels": 495,
+      "label_pixels": 474
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000360.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9174852652259332,
+      "predicted_pixels": 502,
+      "label_pixels": 474
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000368.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9191321499013807,
+      "predicted_pixels": 488,
+      "label_pixels": 485
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000376.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9291338582677166,
+      "predicted_pixels": 495,
+      "label_pixels": 485
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000384.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9247524752475248,
+      "predicted_pixels": 487,
+      "label_pixels": 485
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000392.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.9135559921414538,
+      "predicted_pixels": 496,
+      "label_pixels": 478
+    },
+    {
+      "path": ".maixpy/lamp-recordings/lamp-trial-20261107-a/frames/000400.jpg",
+      "group": "esp32-room-20261107",
+      "split": "train",
+      "iou": 0.8943396226415095,
+      "predicted_pixels": 517,
+      "label_pixels": 487
+    },
+    {
+      "path": "tests/fixtures/esp_start_signal_history/small-off-0.png",
+      "group": "maix-small-20261031",
+      "split": "train",
+      "iou": 0.6122448979591837,
+      "predicted_pixels": 30,
+      "label_pixels": 49
+    },
+    {
+      "path": "tests/fixtures/esp_start_signal_history/small-off-1.png",
+      "group": "maix-small-20261031",
+      "split": "train",
+      "iou": 0.6428571428571429,
+      "predicted_pixels": 43,
+      "label_pixels": 49
+    },
+    {
+      "path": "tests/fixtures/esp_start_signal_history/small-off-2.png",
+      "group": "maix-small-20261031",
+      "split": "train",
+      "iou": 0.5283018867924528,
+      "predicted_pixels": 32,
+      "label_pixels": 49
+    },
+    {
+      "path": "tests/fixtures/esp_start_signal_history/small-off-3.png",
+      "group": "maix-small-20261031",
+      "split": "train",
+      "iou": 0.7636363636363637,
+      "predicted_pixels": 48,
+      "label_pixels": 49
+    },
+    {
+      "path": "tests/fixtures/esp_start_signal_history/small-on-0.png",
+      "group": "maix-small-20261031",
+      "split": "train",
+      "iou": 0.8571428571428571,
+      "predicted_pixels": 42,
+      "label_pixels": 49
+    },
+    {
+      "path": "tests/fixtures/esp_start_signal_history/small-on-1.png",
+      "group": "maix-small-20261031",
+      "split": "train",
+      "iou": 0.9387755102040817,
+      "predicted_pixels": 46,
+      "label_pixels": 49
+    },
+    {
+      "path": "tests/fixtures/esp_start_signal_history/small-on-2.png",
+      "group": "maix-small-20261031",
+      "split": "train",
+      "iou": 0.8163265306122449,
+      "predicted_pixels": 40,
+      "label_pixels": 49
+    },
+    {
+      "path": "tests/fixtures/esp_start_signal_history/small-on-3.png",
+      "group": "maix-small-20261031",
+      "split": "train",
+      "iou": 0.9038461538461539,
+      "predicted_pixels": 50,
+      "label_pixels": 49
+    },
+    {
+      "path": "tests/fixtures/esp_start_signal_history/large-off-0.png",
+      "group": "maix-large-20261031",
+      "split": "validation",
+      "iou": 0.0,
+      "predicted_pixels": 27,
+      "label_pixels": 96
+    },
+    {
+      "path": "tests/fixtures/esp_start_signal_history/large-off-1.png",
+      "group": "maix-large-20261031",
+      "split": "validation",
+      "iou": 0.0,
+      "predicted_pixels": 8,
+      "label_pixels": 96
+    },
+    {
+      "path": "tests/fixtures/esp_start_signal_history/large-off-2.png",
+      "group": "maix-large-20261031",
+      "split": "validation",
+      "iou": 0.0,
+      "predicted_pixels": 6,
+      "label_pixels": 96
+    },
+    {
+      "path": "tests/fixtures/esp_start_signal_history/large-off-3.png",
+      "group": "maix-large-20261031",
+      "split": "validation",
+      "iou": 0.0,
+      "predicted_pixels": 9,
+      "label_pixels": 96
+    },
+    {
+      "path": "tests/fixtures/esp_start_signal_history/large-on-0.png",
+      "group": "maix-large-20261031",
+      "split": "validation",
+      "iou": 0.4690265486725664,
+      "predicted_pixels": 70,
+      "label_pixels": 96
+    },
+    {
+      "path": "tests/fixtures/esp_start_signal_history/large-on-1.png",
+      "group": "maix-large-20261031",
+      "split": "validation",
+      "iou": 0.42105263157894735,
+      "predicted_pixels": 66,
+      "label_pixels": 96
+    },
+    {
+      "path": "tests/fixtures/esp_start_signal_history/large-on-2.png",
+      "group": "maix-large-20261031",
+      "split": "validation",
+      "iou": 0.45614035087719296,
+      "predicted_pixels": 70,
+      "label_pixels": 96
+    },
+    {
+      "path": "tests/fixtures/esp_start_signal_history/large-on-3.png",
+      "group": "maix-large-20261031",
+      "split": "validation",
+      "iou": 0.39622641509433965,
+      "predicted_pixels": 52,
+      "label_pixels": 96
+    },
+    {
+      "path": "tests/fixtures/start_signal_jitter_20261031/010.png",
+      "group": "maix-jitter-20261031",
+      "split": "validation",
+      "iou": 0.0,
+      "predicted_pixels": 3,
+      "label_pixels": 0
+    },
+    {
+      "path": "tests/fixtures/start_signal_jitter_20261031/011.png",
+      "group": "maix-jitter-20261031",
+      "split": "validation",
+      "iou": null,
+      "predicted_pixels": 0,
+      "label_pixels": 0
+    },
+    {
+      "path": "tests/fixtures/start_signal_jitter_20261031/012.png",
+      "group": "maix-jitter-20261031",
+      "split": "validation",
+      "iou": 0.0,
+      "predicted_pixels": 1,
+      "label_pixels": 0
+    },
+    {
+      "path": "tests/fixtures/start_signal_jitter_20261031/013.png",
+      "group": "maix-jitter-20261031",
+      "split": "validation",
+      "iou": 0.0,
+      "predicted_pixels": 9,
+      "label_pixels": 0
+    },
+    {
+      "path": "tests/fixtures/start_signal_jitter_20261031/014.png",
+      "group": "maix-jitter-20261031",
+      "split": "validation",
+      "iou": 0.0,
+      "predicted_pixels": 3,
+      "label_pixels": 0
+    },
+    {
+      "path": "tests/fixtures/start_signal_jitter_20261031/015.png",
+      "group": "maix-jitter-20261031",
+      "split": "validation",
+      "iou": 0.0,
+      "predicted_pixels": 23,
+      "label_pixels": 0
+    },
+    {
+      "path": "tests/fixtures/start_signal_jitter_20261031/016.png",
+      "group": "maix-jitter-20261031",
+      "split": "validation",
+      "iou": 0.0,
+      "predicted_pixels": 8,
+      "label_pixels": 0
+    },
+    {
+      "path": "tests/fixtures/start_signal_jitter_20261031/017.png",
+      "group": "maix-jitter-20261031",
+      "split": "validation",
+      "iou": 0.0,
+      "predicted_pixels": 3,
+      "label_pixels": 0
+    },
+    {
+      "path": "tests/fixtures/start_signal_jitter_20261031/018.png",
+      "group": "maix-jitter-20261031",
+      "split": "validation",
+      "iou": 0.0,
+      "predicted_pixels": 4,
+      "label_pixels": 0
+    },
+    {
+      "path": "tests/fixtures/start_signal_jitter_20261031/019.png",
+      "group": "maix-jitter-20261031",
+      "split": "validation",
+      "iou": 0.0,
+      "predicted_pixels": 5,
+      "label_pixels": 0
+    },
+    {
+      "path": "tests/fixtures/start_signal_jitter_20261031/020.png",
+      "group": "maix-jitter-20261031",
+      "split": "validation",
+      "iou": 0.0,
+      "predicted_pixels": 5,
+      "label_pixels": 0
+    },
+    {
+      "path": "tests/fixtures/start_signal_jitter_20261031/021.png",
+      "group": "maix-jitter-20261031",
+      "split": "validation",
+      "iou": 0.0,
+      "predicted_pixels": 5,
+      "label_pixels": 0
+    },
+    {
+      "path": "tests/fixtures/start_signal_jitter_20261031/022.png",
+      "group": "maix-jitter-20261031",
+      "split": "validation",
+      "iou": 0.0,
+      "predicted_pixels": 11,
+      "label_pixels": 0
+    },
+    {
+      "path": "tests/fixtures/start_signal_jitter_20261031/023.png",
+      "group": "maix-jitter-20261031",
+      "split": "validation",
+      "iou": null,
+      "predicted_pixels": 0,
+      "label_pixels": 0
+    },
+    {
+      "path": "tests/fixtures/start_signal_jitter_20261031/024.png",
+      "group": "maix-jitter-20261031",
+      "split": "validation",
+      "iou": 0.0,
+      "predicted_pixels": 4,
+      "label_pixels": 0
+    },
+    {
+      "path": "tests/fixtures/start_signal_jitter_20261031/025.png",
+      "group": "maix-jitter-20261031",
+      "split": "validation",
+      "iou": 0.0,
+      "predicted_pixels": 4,
+      "label_pixels": 0
+    },
+    {
+      "path": "tests/fixtures/start_signal_jitter_20261031/026.png",
+      "group": "maix-jitter-20261031",
+      "split": "validation",
+      "iou": 0.0,
+      "predicted_pixels": 4,
+      "label_pixels": 0
+    },
+    {
+      "path": ".maixpy/android-start-20261109/reference/real-lamp-off.png",
+      "group": "real-gantry-off-user-reference",
+      "split": "train",
+      "iou": 0.9916317991631799,
+      "predicted_pixels": 715,
+      "label_pixels": 713
+    }
+  ]
+}

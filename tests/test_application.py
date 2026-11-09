@@ -107,10 +107,22 @@ class ApplicationBoundaryTests(unittest.TestCase):
         class Stream:
             def __init__(self):
                 self.control = Control()
+                self.publications = []
                 self.metrics = {}
                 self.preview_error = None
 
-            def write(self, picture):
+            @property
+            def metrics(self):
+                return self._metrics
+
+            @metrics.setter
+            def metrics(self, value):
+                self._metrics = value
+                if value:
+                    # Equivalent to an HTTP read exactly when a new frame appears.
+                    self.publications.append(json.loads(json.dumps(value)))
+
+            def write(self, picture, *, owned=False):
                 self.picture = picture.copy()
                 written.append((clock.frame, clock.now, self.picture))
 
@@ -152,9 +164,9 @@ class ApplicationBoundaryTests(unittest.TestCase):
                 composed.append((frame, reason, pwm, kwargs["armed"]))
                 return super().compose(picture, reason, pwm, frame, **kwargs)
 
-        def render(bgr, result, details, calibration):
+        def render(bgr, result, details, calibration, **kwargs):
             rendered.append(clock.frame)
-            out, bird = real_render(bgr, result, details, calibration)
+            out, bird = real_render(bgr, result, details, calibration, **kwargs)
             if debug:
                 # Distinguish the renderer's current control image from raw data.
                 out[-1, -1] = 200 + clock.frame
@@ -223,6 +235,17 @@ class ApplicationBoundaryTests(unittest.TestCase):
         self.assertTrue(run.stream.metrics["preview_only"])
         self.assertTrue(all(e[1] in (0, 3) for e in run.events if isinstance(e, tuple)))
         self.assertEqual(run.events[-4:], ["stopped", "stream_closed", "camera_closed", "link_closed"])
+
+    def test_published_vision_frame_is_complete_before_http_can_read_it(self):
+        run = self.run_application(4)
+        self.assertEqual([p["frame"] for p in run.stream.publications], [1, 2, 3, 4])
+        for published in run.stream.publications:
+            self.assertIn("frame_processing", published["profile_ms"])
+            self.assertIn("logging", published["profile_ms"])
+            readiness = published["readiness"]
+            for key in ("start_light", "crosswalk", "laps", "steering"):
+                self.assertEqual(published[key], readiness[key])
+        self.assertEqual(run.stream.publications[-1], json.loads(json.dumps(run.stream.metrics)))
 
     def test_control_and_touch_update_every_frame_while_both_previews_are_throttled(self):
         run = self.run_application(20)

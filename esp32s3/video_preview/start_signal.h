@@ -10,10 +10,17 @@ struct Region { int x=0,y=0,w=0,h=0,count=0,direction=0; float strength=0; int t
 
 class Detector {
  public:
-  static constexpr int X=80,Y=0,RW=160,RH=128,W=RW/2,H=RH/2,N=W*H;
+#ifdef ROBOT_LAMPNET_FULL_FRAME
+  // Keep the bounded temporal workspace while covering the entire sensor.
+  static constexpr int X=0,Y=0,RW=320,RH=240,STEP=4;
+  static constexpr int ALIGNMENT_WIDTH=320,ALIGNMENT_HEIGHT=240;
+#else
+  static constexpr int X=80,Y=0,RW=160,RH=128,STEP=2;
   static constexpr int ALIGNMENT_WIDTH=128,ALIGNMENT_HEIGHT=112;
+#endif
+  static constexpr int W=RW/STEP,H=RH/STEP,N=W*H;
   static constexpr unsigned LOCK_FRAMES=4,LOCK_MS=300,CONFIRM_FRAMES=3,CONFIRM_MS=400;
-  enum Phase { IDLE,SEARCH,ACQUIRE,ON,CONFIRM_OFF,UNCERTAIN,FIRED };
+  enum Phase { IDLE,SEARCH,ACQUIRE,ON,CONFIRM_OFF,UNCERTAIN,FIRED,WAIT_ON };
   bool armed=false,confirmed=false,baseline=false;
   uint32_t sequence=0,hits=0,elapsed=0,targetHits=0;
   Region target,region;
@@ -27,20 +34,43 @@ class Detector {
     for(int i=0;i<256;++i){float s=i/255.f;linear[i]=s<=.04045f?s/12.92f:powf((s+.055f)/1.055f,2.4f);}
     for(int i=0;i<1024;++i){float y=i/1023.f;float f=y>.00885645f?cbrtf(y):7.787037f*y+16.f/116.f;int l=int((116.f*f-16.f)*2.55f+.5f);lightness[i]=l<0?0:l>255?255:l;}
   }
-  void cancel(){armed=confirmed=baseline=false;target=region=Region();targetHits=0;hits=elapsed=0;haveLast=false;contrast=baselineContrast=noise=0;backgroundChangeL=backgroundResidualL=darkenedFraction=requiredDrop=0;exposureGain=1;maskPixels=0;rejectionReason="DISARMED";phase=IDLE;}
-  void arm(){cancel();armed=true;phase=SEARCH;rejectionReason="WAIT_LAMP_FACE";}
+  void cancel(){offBaselineReady=false;onRise=brightenedFraction=0;grayDrop=valueDrop=saturationChange=0;armed=confirmed=baseline=false;target=region=Region();targetHits=0;hits=elapsed=0;haveLast=false;contextValid=false;contrast=baselineContrast=noise=0;backgroundChangeL=backgroundResidualL=darkenedFraction=requiredDrop=0;exposureGain=1;maskPixels=0;rejectionReason="DISARMED";phase=IDLE;}
+  void arm(){cancel();armed=true;phase=cycleRequired?WAIT_ON:SEARCH;rejectionReason=cycleRequired?"WAIT_ON":"WAIT_LAMP_FACE";}
+  void requireOffOnOff(bool required){cycleRequired=required;}
+  bool offBaselineReady=false;float onRise=0,brightenedFraction=0;
+  void requireModelLocator(bool required){modelRequired=required;}
+  void setModelHint(int x,int y,int w,int h,bool valid){
+    hintValid=valid&&w>0&&h>0&&x>=X&&y>=Y&&x+w<=X+RW&&y+h<=Y+RH;
+    hintX=(x-X)/STEP;hintY=(y-Y)/STEP;hintRight=(x+w-X+STEP-1)/STEP;hintBottom=(y+h-Y+STEP-1)/STEP;
+  }
+  bool setManualROI(int x,int y,int w,int h,bool enabled){
+    if(!enabled){manualValid=false;return true;}
+    if(x<X||y<Y||x>X+RW||y>Y+RH||w<STEP*4||h<STEP*4||w>RW||h>RH||x+w>X+RW||y+h>Y+RH)return false;
+    manualBox.x=maximum(1,(x-X+STEP-1)/STEP);manualBox.y=maximum(1,(y-Y+STEP-1)/STEP);
+    int right=minimum(W-1,(x+w-X)/STEP),bottom=minimum(H-1,(y+h-Y)/STEP);
+    manualBox.w=right-manualBox.x;manualBox.h=bottom-manualBox.y;
+    manualValid=manualBox.w>=3&&manualBox.h>=3;return manualValid;
+  }
+  float grayDrop=0,valueDrop=0,saturationChange=0;
   void copyMask(uint8_t *out) const {if(baseline)memcpy(out,lamp,N);else memset(out,0,N);}
   uint32_t eventAge(uint32_t now) const {return hits||confirmed?uint32_t(now-offSince):0;}
   const char *phaseName() const {
-    switch(phase){case SEARCH:return "WAIT_TARGET";case ACQUIRE:return "LOCK_TARGET";case ON:return "WAIT_OFF";case CONFIRM_OFF:return "CONFIRM_OFF";case UNCERTAIN:return "TARGET_UNCERTAIN";case FIRED:return "SIGNAL_READY";default:return "DISARMED";}
+    switch(phase){case WAIT_ON:return "WAIT_ON";case SEARCH:return "WAIT_TARGET";case ACQUIRE:return "LOCK_TARGET";case ON:return "WAIT_OFF";case CONFIRM_OFF:return "CONFIRM_OFF";case UNCERTAIN:return "TARGET_UNCERTAIN";case FIRED:return "SIGNAL_READY";default:return "DISARMED";}
   }
   void process(const uint8_t *rgb565,uint32_t now,int roiY=Y){
     ++sequence;
     if(!armed||confirmed)return;
-    prepare(rgb565,roiY);
-    if(haveLast&&uint32_t(now-last)>750){baseline=false;targetHits=0;hits=elapsed=0;phase=SEARCH;}
+    if(haveLast&&uint32_t(now-last)>750){baseline=false;offBaselineReady=false;targetHits=0;hits=elapsed=0;phase=cycleRequired?WAIT_ON:SEARCH;}
+    // Only automatic acquisition reads chromatic partitions. Reset a stale
+    // baseline first so the first frame after a gap can still reacquire.
+    prepare(rgb565,roiY,!baseline&&!manualValid);
     haveLast=true;last=now;
-    if(!baseline){acquire(now);return;}
+    if(!baseline){
+      if(cycleRequired&&!observeOn())return;
+      if(manualValid){acquireManual(now);return;}
+      if(modelRequired&&!hintValid){targetHits=hits=elapsed=0;phase=SEARCH;rejectionReason="WAIT_MODEL_CANDIDATE";return;}
+      acquire(now);return;
+    }
     compare(now);
   }
 
@@ -48,9 +78,18 @@ class Detector {
   // Workspace belongs to the detector, never the FreeRTOS camera task stack.
   uint8_t current[N],reference[N],rgb[N*3],colourMask[N],seen[N],lamp[N],ring[N],background[N],component[N];
   uint16_t queue[N];float linear[256];uint8_t lightness[1024];
+  bool cycleRequired=false;
+  bool manualValid=false;Region manualBox;float referenceGray=0,referenceValue=0,referenceSaturation=0;
+  bool modelRequired=false,hintValid=false;int hintX=0,hintY=0,hintRight=0,hintBottom=0;
   uint32_t last=0,lockSince=0,offSince=0;bool haveLast=false;
   float minContrast=0,maxContrast=0,meanContrast=0;
   uint16_t exposureHistogram[16][256];
+  bool contextValid=false;Region contextBox;
+  struct Exposure {
+    unsigned samples=0;
+    float delta=0,gain=1,fittedGain=1,fittedOffset=0;
+    bool fitted=false;
+  };
 
   static float overlap(const Region&a,const Region&b){
     int x0=a.x>b.x?a.x:b.x,y0=a.y>b.y?a.y:b.y;
@@ -75,10 +114,11 @@ class Detector {
     return membership;
   }
   bool eligible(int i,int threshold,int color) const {
+    if(modelRequired&&!baseline&&hintValid){int x=i%W,y=i/W;if(x<hintX||x>=hintRight||y<hintY||y>=hintBottom)return false;}
     return current[i]>=threshold&&(color<0||(colourMask[i]&(1<<color)));
   }
   void masks(const Region&r){
-    memset(lamp,0,N);memset(ring,0,N);memset(background,0,N);
+    memset(lamp,0,N);
     // Reconstruct the connected component, then remove its bloom boundary.
     memset(component,0,N);int head=0,tail=0;queue[tail++]=r.seed;component[r.seed]=1;
     while(head<tail){int k=queue[head++],x=k%W,y=k/W;
@@ -95,6 +135,14 @@ class Detector {
     // Tiny but complete faces still need a usable core.
     if(count<9){memcpy(lamp,component,N);count=tail;}
     maskPixels=count;
+    context(r);
+  }
+  void context(const Region &r){
+    // Both masks depend only on box geometry, not image contents. Manual
+    // acquisition observes this same context before and after each ON check.
+    if(contextValid&&r.x==contextBox.x&&r.y==contextBox.y&&r.w==contextBox.w&&r.h==contextBox.h)return;
+    contextBox=r;contextValid=true;
+    memset(ring,0,N);memset(background,0,N);
     for(int y=0;y<H;++y)for(int x=0;x<W;++x){
       bool near=x>=r.x-5&&x<r.x+r.w+5&&y>=r.y-5&&y<r.y+r.h+5;
       if(near&&(x<r.x-1||x>r.x+r.w||y<r.y-1||y>r.y+r.h))ring[y*W+x]=1;
@@ -129,9 +177,9 @@ class Detector {
       // sparse and very elongated bright regions, including window edges.
       if(w<4||h<4||w>h*2.5f||h>w*2.5f||count>N/2||count*10<w*h*6||minx<1||miny<1||maxx>=W-1||maxy>=H-1)continue;
       int ax=X+(RW-ALIGNMENT_WIDTH)/2,ay=Y+(RH-ALIGNMENT_HEIGHT)/2;
-      bool preferred=X+minx*2>=ax+2&&Y+miny*2>=ay+2
-          &&X+(maxx+1)*2<=ax+ALIGNMENT_WIDTH-2
-          &&Y+(maxy+1)*2<=ay+ALIGNMENT_HEIGHT-2;
+      bool preferred=X+minx*STEP>=ax+2&&Y+miny*STEP>=ay+2
+          &&X+(maxx+1)*STEP<=ax+ALIGNMENT_WIDTH-2
+          &&Y+(maxy+1)*STEP<=ay+ALIGNMENT_HEIGHT-2;
       if((preferredFound||outerOverflow)&&!preferred)continue;
       Region r;r.x=minx;r.y=miny;r.w=w;r.h=h;r.count=count;r.direction=-1;r.threshold=threshold;r.color=color;r.seed=i;
       masks(r);float c=mean(current,lamp)-mean(current,ring);if(c<14)continue;
@@ -161,6 +209,48 @@ class Detector {
     // Ambiguous targets must be reframed rather than silently choosing a person.
     return secondScore>bestScore*.85f?Region():best;
   }
+  bool observeOn(){
+    // ARM happens while OFF. Preserve that whole-view reference even before
+    // the model finds a face; otherwise a grey panel can become the ON baseline.
+    if(!offBaselineReady){memcpy(reference,current,N);offBaselineReady=true;targetHits=0;phase=WAIT_ON;rejectionReason="WAIT_ON";return false;}
+    Region r;
+    if(manualValid)r=manualBox;
+    else if(hintValid){r.x=hintX;r.y=hintY;r.w=hintRight-hintX;r.h=hintBottom-hintY;}
+    else if(!modelRequired)r=locate();
+    if(r.w<3||r.h<3){targetHits=0;phase=WAIT_ON;rejectionReason="WAIT_ON_TARGET";return false;}
+    context(r);
+    Exposure exposure=estimateExposure();
+    if(exposure.samples<32){targetHits=0;phase=WAIT_ON;rejectionReason="WAIT_ON_BACKGROUND";return false;}
+    float delta=exposure.delta,gain=exposure.gain;
+    float fittedGain=exposure.fittedGain,fittedOffset=exposure.fittedOffset;bool fitted=exposure.fitted;
+    float sum=0;unsigned bright=0,count=0;
+    for(int y=r.y+1;y<r.y+r.h-1;++y)for(int x=r.x+1;x<r.x+r.w-1;++x){int i=y*W+x;
+      float expected=fmaxf(reference[i],fmaxf(reference[i]+delta,reference[i]*gain));if(fitted)expected=fmaxf(expected,reference[i]*fittedGain+fittedOffset);expected=fminf(255.f,fmaxf(0.f,expected));
+      float rise=current[i]-expected;sum+=rise;++count;if(rise>=8)++bright;
+    }
+    onRise=count?sum/count:0;brightenedFraction=count?float(bright)/count:0;
+    if(!count||onRise<8||bright*10<count*6){targetHits=0;hits=elapsed=0;phase=WAIT_ON;rejectionReason="WAIT_ON";return false;}
+    // Existing 4-frame/300ms acquisition now measures only actual ON frames.
+    return true;
+  }
+  void colourEvidence(float &gray,float &value,float &saturation)const{
+    gray=value=saturation=0;unsigned count=0;
+    for(int i=0;i<N;++i)if(lamp[i]){float r=rgb[i*3],g=rgb[i*3+1],b=rgb[i*3+2],hi=fmaxf(r,fmaxf(g,b)),lo=fminf(r,fminf(g,b));gray+=.299f*r+.587f*g+.114f*b;value+=hi;saturation+=hi?(hi-lo)/hi:0;++count;}
+    if(count){gray/=count;value/=count;saturation/=count;}
+  }
+  void colourBaseline(){colourEvidence(referenceGray,referenceValue,referenceSaturation);grayDrop=valueDrop=saturationChange=0;}
+  void acquireManual(uint32_t now){
+    target=manualBox;memset(lamp,0,N);maskPixels=0;
+    for(int y=target.y+1;y<target.y+target.h-1;++y)for(int x=target.x+1;x<target.x+target.w-1;++x){lamp[y*W+x]=1;++maskPixels;}
+    context(target);float level=mean(current,lamp);
+    if(!maskPixels||level<24){targetHits=0;phase=SEARCH;rejectionReason="MANUAL_WAIT_BRIGHT_BASELINE";return;}
+    if(!targetHits){targetHits=1;lockSince=now;minContrast=maxContrast=meanContrast=level;phase=ACQUIRE;rejectionReason="ACQUIRING_MANUAL_BASELINE";return;}
+    ++targetHits;minContrast=fminf(minContrast,level);maxContrast=fmaxf(maxContrast,level);meanContrast+=(level-meanContrast)/targetHits;
+    if(targetHits<LOCK_FRAMES||uint32_t(now-lockSince)<LOCK_MS){phase=ACQUIRE;rejectionReason="ACQUIRING_MANUAL_BASELINE";return;}
+    noise=maxContrast-minContrast;
+    if(noise>maximum(8,int(meanContrast*.25f))){targetHits=0;phase=UNCERTAIN;rejectionReason="UNSTABLE_BRIGHT_BASELINE";return;}
+    memcpy(reference,current,N);baselineContrast=mean(current,lamp)-mean(current,ring);contrast=baselineContrast;colourBaseline();baseline=true;hits=elapsed=0;phase=ON;rejectionReason="WAIT_OFF";
+  }
   void acquire(uint32_t now){
     backgroundChangeL=backgroundResidualL=darkenedFraction=requiredDrop=0;
     Region found=locate();
@@ -172,19 +262,34 @@ class Detector {
     noise=maxContrast-minContrast;
     if(noise>maximum(8,int(meanContrast*.25f))){targetHits=0;phase=UNCERTAIN;rejectionReason="UNSTABLE_BRIGHT_BASELINE";return;}
     target=found;masks(target);memcpy(reference,current,N);baselineContrast=mean(current,lamp)-mean(current,ring);
-    contrast=baselineContrast;baseline=true;hits=elapsed=0;phase=ON;rejectionReason="WAIT_OFF";
+    contrast=baselineContrast;colourBaseline();baseline=true;hits=elapsed=0;phase=ON;rejectionReason="WAIT_OFF";
   }
   static int quantile(const uint16_t *hist,int size,unsigned count){
     unsigned sum=0;for(int i=0;i<size;++i){sum+=hist[i];if(sum>=(count+1)/2)return i;}return size-1;
   }
+  Exposure estimateExposure(){
+    // ON and OFF use the same background evidence, with opposite conservative
+    // bounds later. Build all histograms in one pass over the image workspace.
+    Exposure result;
+    uint16_t deltas[511]={},ratios[513]={};unsigned ratioSamples=0,counts[16]={};float sums[16]={};
+    memset(exposureHistogram,0,sizeof(exposureHistogram));
+    for(int i=0;i<N;++i)if(background[i]&&reference[i]<=245){
+      ++deltas[int(current[i])-reference[i]+255];++result.samples;
+      if(reference[i]>=32){
+        ++ratios[minimum(512,int(current[i])*128/reference[i])];++ratioSamples;
+        int bin=reference[i]/16;++counts[bin];sums[bin]+=reference[i];++exposureHistogram[bin][current[i]];
+      }
+    }
+    if(result.samples<32)return result;
+    result.delta=quantile(deltas,511,result.samples)-255;
+    result.gain=ratioSamples>=32?quantile(ratios,513,ratioSamples)/128.f:1.f;
+    result.fitted=fitExposure(counts,sums,result.fittedGain,result.fittedOffset);
+    return result;
+  }
   // Fit only when the background has enough independent brightness levels.
   // Flat backgrounds cannot identify gain AND offset from one observation.
-  bool fitExposure(float &gain,float &offset){
-    memset(exposureHistogram,0,sizeof(exposureHistogram));
-    unsigned counts[16]={};float sums[16]={},x[16]={},y[16]={};bool usable[16]={};
-    for(int i=0;i<N;++i)if(background[i]&&reference[i]>=32&&reference[i]<=245){
-      int bin=reference[i]/16;++counts[bin];sums[bin]+=reference[i];++exposureHistogram[bin][current[i]];
-    }
+  bool fitExposure(const unsigned *counts,const float *sums,float &gain,float &offset){
+    float x[16]={},y[16]={};bool usable[16]={};
     int bins=0;float low=255,high=0;
     for(int j=0;j<16;++j)if(counts[j]>=24){usable[j]=true;++bins;x[j]=sums[j]/counts[j];y[j]=quantile(exposureHistogram[j],256,counts[j]);low=fminf(low,x[j]);high=fmaxf(high,x[j]);}
     if(bins<3||high-low<32)return false;
@@ -202,16 +307,13 @@ class Detector {
     return gain>=.4f&&gain<=1.6f&&fabsf(offset)<=48;
   }
   void compare(uint32_t now){
-    uint16_t deltaHistogram[511]={},ratioHistogram[513]={},residualHistogram[256]={};unsigned samples=0,ratioSamples=0;
-    for(int i=0;i<N;++i)if(background[i]&&reference[i]<=245){
-      ++deltaHistogram[int(current[i])-reference[i]+255];
-      if(reference[i]>=32){++ratioHistogram[minimum(512,int(current[i])*128/reference[i])];++ratioSamples;}++samples;
-    }
+    float g,v,s;colourEvidence(g,v,s);grayDrop=referenceGray-g;valueDrop=referenceValue-v;saturationChange=s-referenceSaturation;
+    Exposure exposure=estimateExposure();unsigned samples=exposure.samples;
     if(samples<32){hits=elapsed=0;phase=UNCERTAIN;rejectionReason="NO_BACKGROUND_REFERENCE";return;}
-    float delta=quantile(deltaHistogram,511,samples)-255;
-    float gain=ratioSamples>=32?quantile(ratioHistogram,513,ratioSamples)/128.f:1.f;
+    float delta=exposure.delta,gain=exposure.gain;
     backgroundChangeL=delta;exposureGain=gain;
-    float fittedGain=1,fittedOffset=0;bool fitted=fitExposure(fittedGain,fittedOffset);
+    float fittedGain=exposure.fittedGain,fittedOffset=exposure.fittedOffset;bool fitted=exposure.fitted;
+    uint16_t residualHistogram[256]={};
     unsigned stable=0,changed=0,lampCount=0,ringCount=0,newBright=0;float dropSum=0;
     // A single flat background cannot distinguish additive light change from
     // gain. Require actual darkening AND darkening under both exposure
@@ -243,12 +345,12 @@ class Detector {
     ++hits;elapsed=uint32_t(now-offSince);phase=CONFIRM_OFF;rejectionReason="CONFIRMING_OFF";region=target;region.count=changed;region.strength=drop;
     if(hits>=CONFIRM_FRAMES&&elapsed>=CONFIRM_MS){confirmed=true;phase=FIRED;rejectionReason="SIGNAL_CONFIRMED";}
   }
-  void prepare(const uint8_t *pixels,int roiY){
+  void prepare(const uint8_t *pixels,int roiY,bool needColourMask){
     for(int y=0;y<H;++y)for(int x=0;x<W;++x){int sums[3]={};
-      for(int dy=0;dy<2;++dy)for(int dx=0;dx<2;++dx){int at=((roiY+y*2+dy)*320+X+x*2+dx)*2;unsigned v=(unsigned(pixels[at])<<8)|pixels[at+1];
+      for(int dy=0;dy<STEP;++dy)for(int dx=0;dx<STEP;++dx){int at=((roiY+y*STEP+dy)*320+X+x*STEP+dx)*2;unsigned v=(unsigned(pixels[at])<<8)|pixels[at+1];
         sums[0]+=((v>>11)&31)*255/31;sums[1]+=((v>>5)&63)*255/63;sums[2]+=(v&31)*255/31;}
-      for(int c=0;c<3;++c)rgb[(y*W+x)*3+c]=(sums[c]+2)/4;
-      colourMask[y*W+x]=classifyColour(y*W+x);
+      for(int c=0;c<3;++c)rgb[(y*W+x)*3+c]=(sums[c]+STEP*STEP/2)/(STEP*STEP);
+      if(needColourMask)colourMask[y*W+x]=classifyColour(y*W+x);
     }
     for(int y=0;y<H;++y)for(int x=0;x<W;++x){int sums[3]={};
       for(int dy=-1;dy<=1;++dy)for(int dx=-1;dx<=1;++dx){int a=x+dx,b=y+dy;if(a<0)a=1;if(a>=W)a=W-2;if(b<0)b=1;if(b>=H)b=H-2;int weight=(dx==0?2:1)*(dy==0?2:1);

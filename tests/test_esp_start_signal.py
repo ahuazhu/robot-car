@@ -315,6 +315,14 @@ class SignalPeerTests(unittest.TestCase):
         self.client._step()
         self.assertEqual(self.client.snapshot()["search_roi"], [80,0,160,128])
 
+    def test_full_frame_peer_can_wait_on_and_then_grant_a_bounded_face(self):
+        self.remote.update(roi=[0,0,320,240]);self.arm()
+        self.remote.update(phase='WAIT_ON',sequence=20);self.client._step()
+        self.assertTrue(self.client.armed);self.assertFalse(self.client.permission);self.assertEqual(self.client.phase,'WAIT_ON')
+        self.remote.update(phase='SIGNAL_READY',confirmed=True,sequence=21,target_locked=True,target_roi=[20,140,60,60],confirmation_frames=4,confirmed_ms=630,event_age_ms=630)
+        self.client._step();self.assertTrue(self.client.permission)
+        for box in ([-1,10,40,40],[300,220,40,40]):self.assertFalse(self.client._valid(dict(self.remote,target_roi=box)))
+
     def test_brightening_confirmation_does_not_grant_permission(self):
         self.arm();self.remote.update(trigger_direction='BOTH',confirmed=True,confirmation_frames=4,confirmed_ms=630,event_age_ms=630)
         self.client._step();self.assertFalse(self.client.permission)

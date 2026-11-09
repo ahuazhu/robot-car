@@ -1,4 +1,4 @@
-"""Optional compiled quadratic fitting and bidirectional curve association.
+"""Optional compiled curve geometry and single-frame photometric arithmetic.
 
 Resampling, support policy and validation remain in geometry.py; only the
 validated numerical association and local fit run in C. The installer
@@ -20,6 +20,7 @@ _boundary_function = None
 _pursuit_function = None
 _paths_agreement_function = None
 _nearest_samples_function = None
+_road_regions_function = None
 _path = Path(
     os.environ.get(
         "CURVE_NATIVE_LIBRARY", str(Path(__file__).resolve().parents[2] / "curve_fit_kernel.so")
@@ -107,6 +108,12 @@ try:
         _nearest_samples_function.restype = ctypes.c_int
     except AttributeError:
         pass
+    try:
+        _road_regions_function = _library.curve_road_regions
+        _road_regions_function.argtypes = [_array] * 6 + [ctypes.c_int, _array]
+        _road_regions_function.restype = ctypes.c_int
+    except AttributeError:
+        pass
 except (OSError, AttributeError) as exc:
     _load_error = str(exc)
     _library = None
@@ -119,6 +126,7 @@ def native_fit_status():
         chain_enabled=_chain_function is not None,
         projection_enabled=_projection_function is not None,
         boundary_enabled=_boundary_function is not None,
+        road_regions_enabled=_road_regions_function is not None,
         pursuit_enabled=_pursuit_function is not None,
         paths_agreement_enabled=_paths_agreement_function is not None,
         nearest_samples_enabled=_nearest_samples_function is not None,
@@ -321,3 +329,29 @@ def native_nearest_samples(query, reference):
     ):
         return None
     return indices, distances
+
+
+def native_road_regions(hue, saturation, value, visible, mean, second):
+    """Classify finite uint8 HSV data and its float32 OpenCV box moments.
+
+    Caller supplies finite box moments computed from uint8 HSV, as in
+    perception.photometry; arbitrary/nonfinite moment fields are unsupported.
+    Four output planes share one allocation; boolean views contain only 0/1.
+    Shape checks bound C access. Older libraries simply use the NumPy fallback.
+    """
+    if _road_regions_function is None:
+        return None
+    h, s, v, seen = (
+        np.ascontiguousarray(a, dtype=np.uint8) for a in (hue, saturation, value, visible)
+    )
+    mean, second = (np.ascontiguousarray(a, dtype=np.float32) for a in (mean, second))
+    if v.ndim != 2 or not v.size or any(a.shape != v.shape for a in (h, s, seen, mean, second)):
+        return None
+    if v.size > 2_147_483_647:
+        return None
+    output = np.empty((4, *v.shape), np.uint8)
+    if not _road_regions_function(
+        *(a.ctypes.data for a in (h, s, v, seen, mean, second)), v.size, output.ctypes.data
+    ):
+        return None
+    return output[0].view(np.bool_), output[1], output[2].view(np.bool_), output[3].view(np.bool_)

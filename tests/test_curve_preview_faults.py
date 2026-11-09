@@ -111,6 +111,21 @@ class PreviewFaultTests(unittest.TestCase):
             release.set()
             stream.stop()
 
+    def test_fresh_composite_can_transfer_ownership_to_encoder(self):
+        stream = LiveStream(0)
+        composite = np.full((240, 960, 3), 71, np.uint8)
+        try:
+            # Keep the worker asleep until ownership has been observed. The caller
+            # releases this buffer after write; default write still copies (above).
+            with stream.condition:
+                self.assertTrue(stream.write(composite, owned=True))
+                self.assertIs(stream.pending_frame, composite)
+            with stream.condition:
+                self.assertTrue(stream.condition.wait_for(lambda: stream.sequence == 1, timeout=2))
+            self.assertIsNotNone(stream.jpeg)
+        finally:
+            stream.stop()
+
     def test_stop_wakes_idle_encoder_and_rejects_late_frames(self):
         stream = LiveStream(0)
         stream.stop()

@@ -2,6 +2,48 @@
 #include "start_signal.h"
 static SemaphoreHandle_t signalLock, jpegLock;
 static start_signal::Detector signalDetector;
+#ifdef ROBOT_LAMPNET_FACE
+static start_signal::Detector *modelTestDetector=nullptr;
+static bool modelTestEnabled=false,manualLampEnabled=false;
+static int manualLampROI[4]={100,40,100,80};
+static bool validManualROI(const int *r){return r[0]>=start_signal::Detector::X&&r[1]>=start_signal::Detector::Y&&r[0]<=start_signal::Detector::X+start_signal::Detector::RW&&r[1]<=start_signal::Detector::Y+start_signal::Detector::RH&&r[2]>=16&&r[3]>=16&&r[2]<=start_signal::Detector::RW&&r[3]<=start_signal::Detector::RH&&r[0]+r[2]<=start_signal::Detector::X+start_signal::Detector::RW&&r[1]+r[3]<=start_signal::Detector::Y+start_signal::Detector::RH;}
+static String lampConfiguration(){return String("{\"manual\":")+(manualLampEnabled?"true":"false")+",\"roi\":["+String(manualLampROI[0])+","+String(manualLampROI[1])+","+String(manualLampROI[2])+","+String(manualLampROI[3])+"]}";}
+static void configureLampROI(const char *data){
+  cJSON *root=cJSON_Parse(data);const cJSON *mode=root?cJSON_GetObjectItemCaseSensitive(root,"manual"):nullptr,*box=root?cJSON_GetObjectItemCaseSensitive(root,"roi"):nullptr;
+  bool enabled=cJSON_IsTrue(mode),valid=cJSON_IsBool(mode);int r[4]={};
+  if(enabled){valid=valid&&cJSON_IsArray(box)&&cJSON_GetArraySize(box)==4;for(int i=0;i<4&&valid;++i){const cJSON *v=cJSON_GetArrayItem(box,i);valid=cJSON_IsNumber(v)&&v->valuedouble==v->valueint;r[i]=valid?v->valueint:0;}valid=valid&&validManualROI(r);}
+  if(root)cJSON_Delete(root);if(!valid){Serial.println("ROI ERROR invalid_rectangle");return;}
+  xSemaphoreTake(signalLock,portMAX_DELAY);
+  if(signalDetector.armed){xSemaphoreGive(signalLock);Serial.println("ROI ERROR native_armed_stop_first");return;}
+  Preferences saved;bool stored=saved.begin("lamp_roi",false);
+  if(stored){int value[5]={int(enabled),manualLampROI[0],manualLampROI[1],manualLampROI[2],manualLampROI[3]},check[5]={};if(enabled)memcpy(value+1,r,sizeof(r));stored=saved.putBytes("config",value,sizeof(value))==sizeof(value)&&saved.getBytes("config",check,sizeof(check))==sizeof(check)&&memcmp(value,check,sizeof(value))==0;saved.end();}
+  if(stored){manualLampEnabled=enabled;if(enabled)memcpy(manualLampROI,r,sizeof(r));if(modelTestDetector)modelTestDetector->cancel();modelTestEnabled=false;}
+  String state=lampConfiguration();xSemaphoreGive(signalLock);Serial.println(stored?"ROI OK "+state:"ROI ERROR storage_failed");
+}
+static void applyModelHint(start_signal::Detector &detector,uint32_t now){
+  detector.requireOffOnOff(true);
+  detector.setManualROI(manualLampROI[0],manualLampROI[1],manualLampROI[2],manualLampROI[3],manualLampEnabled);
+  if(manualLampEnabled){detector.requireModelLocator(false);return;}
+  auto s=lampnet::snapshot();detector.requireModelLocator(true);
+  detector.setModelHint(s.x,s.y,s.w,s.h,s.valid&&s.sourceAt&&uint32_t(now-s.sourceAt)<=2500);
+}
+static String modelTestJSON(){
+  xSemaphoreTake(signalLock,portMAX_DELAY);String out="{\"configuration\":"+lampConfiguration()+",\"enabled\":"+String(modelTestEnabled?"true":"false")+",\"controls_start\":false";
+  out+=",\"native_armed\":"+String(signalDetector.armed?"true":"false")+",\"native_confirmed\":"+String(signalDetector.confirmed?"true":"false");
+  if(modelTestDetector){auto &d=*modelTestDetector;out+=",\"phase\":\""+String(d.phaseName())+"\",\"locked\":"+String(d.baseline?"true":"false")+",\"confirmed\":"+String(d.confirmed?"true":"false")+",\"hits\":"+String(d.hits)+",\"elapsed_ms\":"+String(d.elapsed)+",\"sequence\":"+String(d.sequence)+",\"reason\":\""+String(d.rejectionReason)+"\",\"roi\":["+String(start_signal::Detector::X+d.target.x*start_signal::Detector::STEP)+","+String(start_signal::Detector::Y+d.target.y*start_signal::Detector::STEP)+","+String(d.target.w*start_signal::Detector::STEP)+","+String(d.target.h*start_signal::Detector::STEP)+"],\"drop_threshold\":"+String(d.requiredDrop)+",\"dark_fraction\":"+String(d.darkenedFraction);}
+  if(modelTestDetector){out+=",\"cycle\":\"OFF_ON_OFF\",\"off_baseline_ready\":"+String(modelTestDetector->offBaselineReady?"true":"false")+",\"on_rise\":"+String(modelTestDetector->onRise,1)+",\"brightened_fraction\":"+String(modelTestDetector->brightenedFraction,3);out+=",\"gray_drop\":"+String(modelTestDetector->grayDrop,1)+",\"value_drop\":"+String(modelTestDetector->valueDrop,1)+",\"saturation_change\":"+String(modelTestDetector->saturationChange,3);}
+  out+="}";xSemaphoreGive(signalLock);return out;
+}
+static void modelTestCommand(bool enable){
+  xSemaphoreTake(signalLock,portMAX_DELAY);
+  if(!signalDetector.armed){
+    if(enable&&!modelTestDetector){void *p=heap_caps_malloc(sizeof(start_signal::Detector),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);if(p)modelTestDetector=new(p) start_signal::Detector();}
+    modelTestEnabled=enable&&modelTestDetector;
+    if(modelTestDetector){if(modelTestEnabled){modelTestDetector->requireModelLocator(true);modelTestDetector->requireOffOnOff(true);modelTestDetector->arm();}else modelTestDetector->cancel();}
+  }
+  xSemaphoreGive(signalLock);Serial.println("LAMP_TEST "+modelTestJSON());
+}
+#endif
 static String signalKey,signalSession,lastSignalSession;
 static char signalBoot[17];
 static uint32_t signalLease=0,signalFrameAt=0;
@@ -27,10 +69,16 @@ static String signalJSON(){
   String data="{\"boot\":\""+String(signalBoot)+"\",\"paired\":"+(signalKey.length()==64?"true":"false")+",\"session\":\""+signalSession+"\",\"armed\":"+(signalDetector.armed?"true":"false")+",\"confirmed\":"+(signalDetector.confirmed?"true":"false");
   data+=",\"sequence\":"+String(signalDetector.sequence)+",\"frame_age_ms\":"+String(age)+",\"confirmation_frames\":"+String(signalDetector.hits)+",\"confirmed_ms\":"+String(signalDetector.elapsed);
   data+=",\"phase\":\""+String(signalDetector.phaseName())+"\",\"direction\":\"DARKER\",\"trigger_direction\":\"DARKER\",\"protocol\":2,\"control_port\":81,\"roi\":["+String(start_signal::Detector::X)+","+String(start_signal::Detector::Y)+","+String(start_signal::Detector::RW)+","+String(start_signal::Detector::RH)+"],\"required_frames\":3,\"required_ms\":400";
-  data+=",\"target_locked\":"+String(signalDetector.baseline?"true":"false")+",\"target_roi\":["+String(start_signal::Detector::X+signalDetector.target.x*2)+","+String(start_signal::Detector::Y+signalDetector.target.y*2)+","+String(signalDetector.target.w*2)+","+String(signalDetector.target.h*2)+"]";
+  data+=",\"target_locked\":"+String(signalDetector.baseline?"true":"false")+",\"target_roi\":["+String(start_signal::Detector::X+signalDetector.target.x*start_signal::Detector::STEP)+","+String(start_signal::Detector::Y+signalDetector.target.y*start_signal::Detector::STEP)+","+String(signalDetector.target.w*start_signal::Detector::STEP)+","+String(signalDetector.target.h*start_signal::Detector::STEP)+"]";
   data+=",\"contrast\":"+String(signalDetector.contrast,1)+",\"baseline_contrast\":"+String(signalDetector.baselineContrast,1)+",\"noise\":"+String(signalDetector.noise,1);
   data+=",\"rejection_reason\":\""+String(signalDetector.rejectionReason)+"\",\"background_change\":"+String(signalDetector.backgroundChangeL,1)+",\"background_residual\":"+String(signalDetector.backgroundResidualL,1)+",\"darkened_fraction\":"+String(signalDetector.darkenedFraction,3)+",\"required_drop\":"+String(signalDetector.requiredDrop,1);
-  data+=",\"segmentation\":\"LUMA_CHROMA_COMPONENT\",\"mask_pixels\":"+String(signalDetector.baseline?signalDetector.maskPixels:0)+",\"exposure_gain\":"+String(signalDetector.exposureGain,3);
+  data+=",\"segmentation\":\""+String(
+#ifdef ROBOT_LAMPNET_FACE
+    "MODEL_FACE_LUMA_CHROMA"
+#else
+    "LUMA_CHROMA_COMPONENT"
+#endif
+  )+"\",\"mask_pixels\":"+String(signalDetector.baseline?signalDetector.maskPixels:0)+",\"exposure_gain\":"+String(signalDetector.exposureGain,3);
   data+=",\"processing_us\":"+String(signalProcessUs)+",\"max_processing_us\":"+String(signalMaxProcessUs);
   data+=",\"event_age_ms\":"+String(signalDetector.eventAge(millis()))+",\"maximum_event_age_ms\":0,\"holds_confirmed_until_cancel\":true,\"preview_url\":\""+(WiFi.status()==WL_CONNECTED?String("http://")+WiFi.localIP().toString()+"/":String(""))+"\"}";
   xSemaphoreGive(signalLock);return data;
@@ -41,8 +89,15 @@ static bool applySignalCommand(const char *op,const char *session,const char *bo
   if(valid){
     xSemaphoreTake(signalLock,portMAX_DELAY);
     if(strcmp(op,"arm")==0){
+#ifdef ROBOT_LAMPNET_FACE
+      if(modelTestEnabled){modelTestEnabled=false;if(modelTestDetector)modelTestDetector->cancel();}
+#endif
       if(signalSession==session && signalDetector.armed)accepted=true;
-      else if(!signalDetector.armed && lastSignalSession!=session){signalSession=session;signalDetector.arm();accepted=true;}
+      else if(!signalDetector.armed && lastSignalSession!=session){signalSession=session;
+#ifdef ROBOT_LAMPNET_FACE
+      signalDetector.requireOffOnOff(true);
+#endif
+      signalDetector.arm();accepted=true;}
     }else if(strcmp(op,"poll")==0)accepted=signalSession==session&&signalDetector.armed;
     else if(strcmp(op,"cancel")==0){
       if(signalSession==session){cancelSignal();accepted=true;}
@@ -81,8 +136,23 @@ static void cameraProducer(void*){
       if(signalDetector.armed&&!signalDetector.confirmed&&uint32_t(millis()-signalLease)>2000)cancelSignal();
       int64_t stamp=int64_t(fb->timestamp.tv_sec)*1000000+fb->timestamp.tv_usec;
       int64_t age=esp_timer_get_time()-stamp;
-      if(fb->format==PIXFORMAT_RGB565 && fb->width==320 && fb->height==240 && fb->len>=320*240*2 && stamp>lastCameraTimestamp && age>=0 && age<=400000){int64_t began=esp_timer_get_time();signalDetector.process(fb->buf,millis());signalProcessUs=uint32_t(esp_timer_get_time()-began);if(signalProcessUs>signalMaxProcessUs)signalMaxProcessUs=signalProcessUs;signalFrameAt=millis()-uint32_t(age/1000);lastCameraTimestamp=stamp;}
+      if(fb->format==PIXFORMAT_RGB565 && fb->width==320 && fb->height==240 && fb->len>=320*240*2 && stamp>lastCameraTimestamp && age>=0 && age<=400000){
+#ifdef ROBOT_LAMPNET_FACE
+        applyModelHint(signalDetector,millis());
+        if(modelTestEnabled&&modelTestDetector){applyModelHint(*modelTestDetector,millis());modelTestDetector->process(fb->buf,millis());}
+#endif
+        int64_t began=esp_timer_get_time();signalDetector.process(fb->buf,millis());signalProcessUs=uint32_t(esp_timer_get_time()-began);if(signalProcessUs>signalMaxProcessUs)signalMaxProcessUs=signalProcessUs;signalFrameAt=millis()-uint32_t(age/1000);lastCameraTimestamp=stamp;}
+      bool needModel=!signalDetector.armed||!signalDetector.baseline;
+#ifdef ROBOT_LAMPNET_FACE
+      if(modelTestEnabled&&modelTestDetector&&!signalDetector.armed)needModel=!modelTestDetector->baseline;
+#endif
+#ifdef ROBOT_LAMPNET_FACE
+      if(manualLampEnabled)needModel=false;
+#endif
       xSemaphoreGive(signalLock);
+#ifdef ROBOT_LAMPNET_SHADOW
+      if(needModel&&fb->format==PIXFORMAT_RGB565 && fb->width==320 && fb->height==240 && fb->len>=320*240*2 && age>=0 && age<=400000)lampnet::offer(fb->buf,millis()-uint32_t(age/1000));
+#endif
       uint8_t *jpg=nullptr;size_t size=0;bool ok=frame2jpg(fb,70,&jpg,&size);esp_camera_fb_return(fb);
       if(ok){xSemaphoreTake(jpegLock,portMAX_DELAY);free(latestJPEG);latestJPEG=jpg;latestJPEGSize=size;latestJPEGAt=millis();++frames;xSemaphoreGive(jpegLock);}
     }
@@ -93,6 +163,9 @@ static void cameraProducer(void*){
 }
 static void initSignal(){
   signalLock=xSemaphoreCreateMutex();jpegLock=xSemaphoreCreateMutex();
+#ifdef ROBOT_LAMPNET_FACE
+  Preferences lampSaved;if(lampSaved.begin("lamp_roi",true)){int value[5]={};bool ok=lampSaved.getBytesLength("config")==sizeof(value)&&lampSaved.getBytes("config",value,sizeof(value))==sizeof(value);lampSaved.end();if(ok&&validManualROI(value+1)){manualLampEnabled=value[0]==1;memcpy(manualLampROI,value+1,sizeof(manualLampROI));}}
+#endif
   snprintf(signalBoot,sizeof(signalBoot),"%08lx%08lx",(unsigned long)esp_random(),(unsigned long)esp_random());
   Preferences saved;if(saved.begin("start_signal",true)){signalKey=saved.getString("key","");saved.end();}
 }

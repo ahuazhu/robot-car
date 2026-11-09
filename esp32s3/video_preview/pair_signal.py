@@ -8,6 +8,11 @@ import time
 from urllib.parse import urlsplit
 import serial
 
+if __package__:
+    from .device_protocol import supported_firmware
+else:
+    from device_protocol import supported_firmware
+
 
 def pair(port, peer_url, destination):
     url=urlsplit(peer_url)
@@ -21,7 +26,7 @@ def pair(port, peer_url, destination):
         while time.monotonic()<deadline:
             line=link.readline(1024)
             if line.startswith(b'WIFI '):
-                state=json.loads(line[5:]);verified=state.get('firmware')=='0.4.3-larger-roi';break
+                state=json.loads(line[5:]);verified=isinstance(state,dict) and supported_firmware(state.get('firmware'));break
         if not verified:raise RuntimeError('ESP32 start-signal firmware not detected')
         link.write(b'P'+json.dumps({'key':config['key']}).encode()+b'\n')
         deadline=time.monotonic()+5;paired=False

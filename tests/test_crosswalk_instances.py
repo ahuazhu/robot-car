@@ -2,6 +2,7 @@
 
 from tests.support import ROOT
 import unittest
+import json
 
 from robot.tasks.crosswalk import CrosswalkTask
 from tests.support.crosswalk import configured, motion, observation
@@ -43,6 +44,17 @@ class CrosswalkInstanceTests(unittest.TestCase):
         cmd = t.limit_command((100, 120), s, motion(0.25))
         self.assertLess(cmd[1], 120)
         self.assertLess(abs(cmd[0] * 120 - cmd[1] * 100), 220)
+
+    def test_published_observations_keep_their_captured_geometry(self):
+        t = self.stale()
+        captured = t.update(observation(10.1, .48), motion(), 10.1, True)
+        before = json.loads(json.dumps(captured))
+        self.assertIsNotNone(captured["observation"])
+        self.assertIsNotNone(captured["pending_observation"])
+        t.update(None, motion(.1, .01), 10.2, True)
+        self.assertEqual(captured, before)
+        self.assertNotEqual(t.track["near_m"], captured["observation"]["near_m"])
+        self.assertNotEqual(t.pending_track["near_m"], captured["pending_observation"]["near_m"])
 
     def test_one_flash_cannot_replace_a_served_event(self):
         t = self.stale()

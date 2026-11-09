@@ -384,3 +384,42 @@ int curve_nearest_samples(const double *query,int nq,const double *reference,int
     }
     return 1;
 }
+
+/* Same float32 operation order as NumPy: preserve contrast rounding at mask
+ * thresholds. Keep contraction disabled instead of allowing fused multiply-add.
+ * Bitwise predicates avoid short-circuit branches and permit SIMD over pixels.
+ * Input moments come from finite uint8 HSV planes blurred by OpenCV. */
+#pragma STDC FP_CONTRACT OFF
+#if defined(__GNUC__) && !defined(__clang__)
+__attribute__((optimize("fp-contract=off")))
+#endif
+int curve_road_regions(const uint8_t *h, const uint8_t *s, const uint8_t *v,
+        const uint8_t *visible, const float *mean, const float *second,
+        int n, uint8_t *out) {
+    if (n < 1) return 0;
+    size_t count = (size_t)n;
+    for (int i = 0; i < n; i++) {
+        float square = mean[i] * mean[i];
+        float variance = second[i] - square;
+        float deviation = sqrtf(variance > 0.f ? variance : 0.f);
+        float delta = (float)v[i] - mean[i];
+        float scaled = 60.f * delta;
+        float ratio = scaled / (deviation > 1.f ? deviation : 1.f);
+        float contrast = 180.f + ratio;
+        uint8_t cv = v[i] < 35 ? 0 : (uint8_t)(
+            contrast < 0.f ? 0.f : (contrast > 255.f ? 255.f : contrast)
+        );
+        int seen = visible[i] != 0;
+        int green = (h[i] >= 32) & (h[i] <= 95) & (s[i] > 55)
+                  & (v[i] > 25) & seen;
+        out[i] = (uint8_t)green;
+        out[count + i] = cv;
+        out[2*count + i] = (uint8_t)(
+            (s[i] < 110) & (v[i] >= 35) & (v[i] < 210) & seen & !green
+        );
+        out[3*count + i] = (uint8_t)(
+            (s[i] < 110) & (cv >= 35) & (cv < 210) & seen & !green
+        );
+    }
+    return 1;
+}

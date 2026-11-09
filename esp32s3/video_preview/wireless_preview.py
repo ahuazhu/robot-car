@@ -16,11 +16,13 @@ import serial
 
 if __package__:
     from .usb_preview import PreviewRelay, load_page, make_handler, validate_maix_url
+    from .device_protocol import CURRENT_FIRMWARE, supported_firmware
 else:
     from usb_preview import PreviewRelay, load_page, make_handler, validate_maix_url
+    from device_protocol import CURRENT_FIRMWARE, supported_firmware
 
 
-FIRMWARE_VERSION = "0.4.6-larger-roi"
+FIRMWARE_VERSION = CURRENT_FIRMWARE
 
 
 class SetupError(Exception):
@@ -50,7 +52,7 @@ def query_network(link, stopping, timeout=3.0):
                 state = json.loads(line[5:])
             except (ValueError, UnicodeDecodeError):
                 continue
-            if isinstance(state, dict) and state.get("firmware") == FIRMWARE_VERSION:
+            if isinstance(state, dict) and supported_firmware(state.get("firmware")):
                 return state
     raise SetupError("摄像头未响应无线设置，请检查 USB 或固件。")
 

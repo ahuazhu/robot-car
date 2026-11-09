@@ -5,11 +5,13 @@ MAX_MOTOR_PWM = 200
 
 
 class CommandRamp:
-    """Limit wheel acceleration with a common scale, preserving path curvature.
+    """Limit drive effort with a common scale, preserving requested curvature.
 
-    Independent turn/base ramps used to straighten a requested sharp turn
-    during acceleration. Deceleration and an exact zero always take priority.
-    This is command shaping, not measured acceleration feedback.
+    Bound both peak and mean absolute effort at the existing rise rate. A
+    steering change redistributes effort between wheels; limiting each wheel
+    independently would also brake the already fast wheel when leaving a turn.
+    Deceleration and an exact zero always take priority. This shapes commanded
+    effort, not measured wheel acceleration.
     """
 
     # MotorChannel sends zero once a published command reaches 300 ms old.
@@ -55,13 +57,15 @@ class CommandRamp:
             dt = 0.05
         self.last = now
         increase = self.rise_pwm_s * dt
+        previous = tuple(abs(value) for value in self.previous)
+        desired = tuple(abs(value) for value in command)
+        # Mean effort owns forward acceleration; peak effort also bounds the
+        # outside wheel when a turn is requested from straight running. Both
+        # budgets share elapsed time and cannot be banked across a stale gap.
         scale = min(
-            [1.0]
-            + [
-                (old + increase) / desired
-                for old, desired in zip(self.previous, command)
-                if desired > 0 and desired > old + increase
-            ]
+            1.0,
+            (sum(previous) + 2 * increase) / sum(desired),
+            (max(previous) + increase) / max(desired),
         )
         self.previous = tuple(float(value) * scale for value in command)
         return tuple(round(value) for value in self.previous)

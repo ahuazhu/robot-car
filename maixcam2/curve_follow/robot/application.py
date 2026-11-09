@@ -21,6 +21,9 @@ from robot.core.native_geometry import native_fit_status
 from robot.tasks.crosswalk import CrosswalkDetector, CrosswalkTask, draw_crosswalk_overlay
 
 
+APP_VERSION = "0.6.78"
+
+
 def main(app_dir):
     from maix import app, camera, display, image, touchscreen
 
@@ -28,6 +31,7 @@ def main(app_dir):
     cal, runtime = settings.calibration, settings.runtime
     policy, crosswalk_policy = settings.road_policy, settings.crosswalk_policy
     road_cal = settings.road_calibration
+    overlay_inverse = np.linalg.inv(np.asarray(cal["H_normalized"]))
     control_frame = runtime.get("control_frame", {})
     crosswalk_task = CrosswalkTask(crosswalk_policy)
     start_light = StartSignal(runtime.get("start_signal"), app_dir=app_dir)
@@ -107,8 +111,8 @@ def main(app_dir):
         device_screen = DeviceScreen(screen.width(), screen.height())
         print("DEVICE_SCREEN", json.dumps(device_screen.snapshot()), flush=True)
         print(
-            "CURVE FOLLOW v0.6.76 | ESP32 start signal | preview_only=%s | calibrated=%s | no session time limit"
-            % (preview_only, calibrated),
+            "CURVE FOLLOW v%s | ESP32 start signal | preview_only=%s | calibrated=%s | no session time limit"
+            % (APP_VERSION, preview_only, calibrated),
             flush=True,
         )
         began = time.monotonic()  # Exclude camera startup from test/debug elapsed time.
@@ -288,46 +292,55 @@ def main(app_dir):
             steering.status["published_curvature_proxy_m_inv"] = (
                 (applied_pwm[1] - applied_pwm[0]) / (turn_lever * total_pwm) if total_pwm else 0.0
             )
-            readiness["recovery"] = dict(
-                recovery.snapshot(), search=search.snapshot(), preview_error=stream.preview_error
+            # Freeze task views once after session actions. HTTP, readiness, logs
+            # and overlays must describe the same frame, including an ARM/STOP.
+            recovery_state = dict(recovery.snapshot(), search=dict(search.snapshot()))
+            lap_state = laps.snapshot()
+            laps_view = dict(lap_state, detector=dict(lap_detector.status))
+            light_state = start_light.snapshot()
+            crossing_state = crosswalk_task.snapshot(captured)
+            crossing_view = dict(crossing_state, detection=dict(crosswalk_detector.status))
+            steering_state = dict(steering.status)
+            target_state = {k: v for k, v in result.items() if k != "path"}
+            readiness.update(
+                recovery=dict(recovery_state, preview_error=stream.preview_error),
+                laps=laps_view,
+                minimum_road_quality=policy.measurement_quality,
+                start_light=light_state,
+                steering=steering_state,
+                crosswalk=crossing_view,
             )
-            readiness["laps"] = dict(laps.snapshot(), detector=lap_detector.status)
-            readiness["minimum_road_quality"] = policy.measurement_quality
-            readiness["start_light"] = start_light.snapshot()
-            readiness["steering"] = steering.status
-            readiness["crosswalk"] = dict(
-                crosswalk_task.snapshot(captured), detection=crosswalk_detector.status
-            )
-            stream.control.update(active, ready, reason, applied_pwm, readiness=readiness)
-            stream.metrics = dict(
+            metrics = dict(
                 device_screen=device_screen.snapshot(),
                 frame=frames,
-                app_version="0.6.76",
+                app_version=APP_VERSION,
                 geometry_backend=backend,
                 frame_received_at=captured,
                 read_ms=round((captured - read_began) * 1000, 1),
                 calibrated=calibrated,
                 preview_only=preview_only,
-                laps=dict(laps.snapshot(), detector=lap_detector.status),
-                start_light=start_light.snapshot(),
+                laps=laps_view,
+                start_light=light_state,
                 motor=None if preview_only else link.snapshot(),
                 detection_ms=round(detection_ms, 1),
-                recovery=dict(recovery.snapshot(), search=search.snapshot()),
+                recovery=recovery_state,
                 preview_error=stream.preview_error,
                 readiness=readiness,
-                crosswalk=dict(
-                    crosswalk_task.snapshot(captured), detection=crosswalk_detector.status
-                ),
+                crosswalk=crossing_view,
                 crosswalk_ms=round(crosswalk_ms, 2),
                 target=dict(
-                    {k: v for k, v in result.items() if k != "path"},
+                    target_state,
                     road_path_m=[[round(x, 4), round(y, 4)] for x, y in result.get("path", [])],
                 ),
-                steering=steering.status,
+                steering=steering_state,
             )
             profile_ms["supervision_motor_telemetry"] = round(
                 (time.monotonic() - supervisor_tick) * 1000, 2
             )
+            # The HTTP threads see complete snapshots, never a dictionary still
+            # gaining timing fields while json.dumps iterates over it.
+            readiness["profile_ms"] = dict(profile_ms)
+            stream.control.update(active, ready, reason, applied_pwm, readiness=readiness)
             preview_now = time.monotonic()
             display_state = (active, start_light.armed, bool(any(applied_pwm)))
             display_due = preview_now >= next_display or display_state != last_display_state
@@ -347,18 +360,18 @@ def main(app_dir):
                 # The red marker must show the actual pursuit goal in the received
                 # image's coordinate frame, not the nearest geometric anchor.
                 display_result = dict(result, target_m=None)
-                if command is not None and steering.status.get("receive_target_m") is not None:
-                    display_result["target_m"] = (
-                        np.asarray(steering.status["receive_target_m"]) + steering.origin
-                    ).tolist()
-                out, bird = render_target(bgr, display_result, details, cal)
-                draw_crosswalk_overlay(out, crosswalk_task.snapshot(captured), cal)
+                if command is not None and follow_command is not None:
+                    display_result["target_m"] = result.get("target_m")
+                out, bird = render_target(
+                    bgr, display_result, details, cal,
+                    inverse=overlay_inverse, include_bird=stream_due,
+                )
+                draw_crosswalk_overlay(out, crossing_state, cal)
                 lap_detector.draw(out)
                 if laps.enabled:
                     cv2.putText(
                         out, "LAPS %d/%d" % (laps.count, laps.total), (4, 69), 0, 0.45, (0, 255, 255), 1
                     )
-                raw_preview = bgr.copy()
                 if not calibrated:
                     cv2.putText(out, "REFERENCE GEOMETRY ONLY", (4, 200), 0, 0.40, (0, 0, 255), 1)
                 profile_ms["overlay"] = round((time.monotonic() - overlay_tick) * 1000, 2)
@@ -386,7 +399,7 @@ def main(app_dir):
                     last_display_state = display_state
                 if stream_due:
                     stream_tick = time.monotonic()
-                    stream.write(np.hstack((raw_preview, out, bird)))
+                    stream.write(np.hstack((bgr, out, bird)), owned=True)
                     next_stream = time.monotonic() + 0.10
                     profile_ms["stream_publish"] = round((time.monotonic() - stream_tick) * 1000, 2)
             now = time.monotonic()
@@ -402,8 +415,8 @@ def main(app_dir):
                         {
                             "active": active,
                             "reason": reason,
-                            "recovery": dict(recovery.snapshot(), search=search.snapshot()),
-                            "target": {k: v for k, v in result.items() if k != "path"},
+                            "recovery": recovery_state,
+                            "target": target_state,
                             "detection_ms": round(detection_ms, 1),
                             "loop_processing_ms": round((time.monotonic() - captured) * 1000, 1),
                             "pwm": applied_pwm,
@@ -414,13 +427,10 @@ def main(app_dir):
                             "uno_connected": None if preview_only else link_ok,
                             "calibrated": calibrated,
                             "preview_only": preview_only,
-                            "crosswalk": dict(
-                                crosswalk_task.snapshot(captured),
-                                detection=crosswalk_detector.status,
-                            ),
-                            "start_light": start_light.snapshot(),
-                            "laps": laps.snapshot(),
-                            "steering": steering.status,
+                            "crosswalk": crossing_view,
+                            "start_light": light_state,
+                            "laps": lap_state,
+                            "steering": steering_state,
                             "profile_ms": profile_ms,
                         }
                     ),
@@ -429,8 +439,8 @@ def main(app_dir):
                 next_log = now + 0.5
             profile_ms["logging"] = round((time.monotonic() - log_tick) * 1000, 2)
             profile_ms["frame_processing"] = round((time.monotonic() - captured) * 1000, 2)
-            stream.metrics["profile_ms"] = profile_ms
-            readiness["profile_ms"] = profile_ms
+            metrics["profile_ms"] = profile_ms
+            stream.metrics = metrics
             last_tracking_state = result["state"]
             for second in debug_seconds:
                 folder = os.path.join(os.environ["MAIXPY_SKILL_RUN_DIR"], "artifacts")

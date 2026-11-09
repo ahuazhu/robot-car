@@ -1,6 +1,6 @@
 <!doctype html><html lang="zh-CN"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>曲线中线巡线 v0.6.76</title><style>
+<title>曲线中线巡线 v0.6.77</title><style>
 body{margin:0;background:#111827;color:#e5e7eb;font:16px system-ui;padding:20px}
 main{max-width:1440px;margin:auto}h1{font-size:24px}p{line-height:1.6}
 img{display:block;width:100%;height:auto;border:1px solid #374151;border-radius:10px}
@@ -33,7 +33,7 @@ body{padding-bottom:100px}.bottom-controls{position:fixed;bottom:0;left:0;right:
 .esp-placeholder{position:absolute;inset:0;display:grid;place-items:center;color:#9ca3af;font-size:14px;padding:12px;text-align:center}
 [hidden]{display:none!important}
 @media(max-width:600px){body{padding:12px;padding-bottom:100px}.camera-grid,.camera-grid:not([data-view="all"]){grid-template-columns:1fr 1fr}.camera-grid[data-view="all"]{grid-template-columns:1fr}.labels span{font-size:12px}}
-</style><main><h1>曲线中线巡线 v0.6.76</h1>
+</style><main><h1>曲线中线巡线 v0.6.77</h1>
 <div class="view-controls" aria-label="选择画面">
 <button data-view="all" onclick="setView('all')">三图对照</button>
 <button data-view="raw" onclick="setView('raw')">完整原图</button>
@@ -113,7 +113,7 @@ async function updateStatus(){
    if(fresh&&maixNeedsReconnect)connectMaixPreview();
    if(fresh)syncESP(lamp);else markESPUnknown('Maix 状态已过期');
    startButton.textContent=lamp.enabled?'ARM 等待熄灯':'START 开始';
-   const lampPhases={ARMING:'等待 ESP32 定位灯面',FAULT:'本轮等灯已取消，请重新 ARM',WAIT_CONNECTION:'等待 ESP32 恢复，尚无出发许可',PERMITTED:'出发许可已锁存',WAIT_TARGET:'将完整亮灯放入青框',LOCK_TARGET:'正在确认灯面稳定',WAIT_OFF:'灯面已锁定，等待熄灯',CONFIRM_OFF:'正在确认熄灯',TARGET_UNCERTAIN:'光照或画面不稳定，请检查灯面',SIGNAL_READY:'出发许可已锁存，等待道路和电机就绪',RUNNING:'本次已启动',DISARMED:'将亮灯放入青框后按 ARM'};
+   const lampPhases={ARMING:'正在准备等灯',FAULT:'本轮等灯已取消，请重新 ARM',WAIT_CONNECTION:'等待 ESP32 恢复，尚无出发许可',PERMITTED:'出发许可已锁存',WAIT_ON:'已准备，等待裁判亮灯',WAIT_TARGET:'等待灯面定位',LOCK_TARGET:'正在确认灯面稳定',WAIT_OFF:'灯面已锁定，等待熄灯',CONFIRM_OFF:'正在确认熄灯',TARGET_UNCERTAIN:'光照或画面不稳定，请检查灯面',SIGNAL_READY:'出发许可已锁存，等待道路和电机就绪',RUNNING:'本次已启动',DISARMED:'灯灭时框好灯面并按 ARM'};
    const signalErrors={ESP32_WAITING_FOR_RECOVERY:'等待 ESP32 恢复，尚无出发许可',ESP32_OFFLINE:'ESP32 暂不可达',ESP32_OFFLINE_REARM_REQUIRED:'本轮等灯因通信异常取消，请重新 ARM',ESP32_STALE_REARM_REQUIRED:'发车状态过期，请重新 ARM',PAIRING_REQUIRED:'ESP32 尚未配对',CONNECTING:'正在连接 ESP32'};
    const faultReasons={STATUS_STALE:'状态超时',RESPONSE_TOO_SLOW:'响应超时',CAMERA_FRAME_STALE:'相机帧过期',INVALID_SIGNAL_RESPONSE:'发车数据校验失败',DEVICE_REBOOTED:'ESP32 已重启',SESSION_CHANGED:'发车会话已变化',FRAME_SEQUENCE_REGRESSED:'相机帧序号回退',TimeoutError:'请求超时',URLError:'网络请求失败',OSError:'网络请求失败',HTTPError:'发车请求被拒绝'};
    let lampText=signalErrors[lamp.error]||lamp.error||lampPhases[lamp.phase]||lamp.phase;
@@ -121,7 +121,7 @@ async function updateStatus(){
    if(lamp.permission)lampText=s.active?'出发许可已锁存，ESP32后续状态不影响本轮行驶':lamp.armed?'出发许可已锁存，等待道路和电机就绪':'出发许可已锁存';
    const lampRequired=Math.max(3,Number(lamp.required_frames)||3);
    document.getElementById('start-light-status').textContent=lamp.enabled?`ESP32 发车信号：${lampText} · 熄灯确认 ${Math.min(lamp.confirmation_frames||0,lampRequired)}/${lampRequired}帧`:'';
-   if(fresh&&s.reason==='WAIT START LIGHT')statusBox.textContent=lamp.permission?'出发许可已锁存，等待道路和电机就绪 · L=0 R=0':'等待 ESP32 锁定灯面并确认熄灯 · L=0 R=0';
+   if(fresh&&s.reason==='WAIT START LIGHT')statusBox.textContent=lamp.permission?'出发许可已锁存，等待道路和电机就绪 · L=0 R=0':'等待亮灯后再次熄灯 · L=0 R=0';
    const crossing=d.crosswalk;
    if(crossing){
     const phases={SEARCH:'搜索横道',APPROACH:'接近横道',STOPPING:'确认停稳',HOLD:'停车礼让',RECOVERY_HOLD:'停车礼让（位置未核实）',PASSING:'通过横道',FAULT:'任务故障'};

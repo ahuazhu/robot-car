@@ -19,9 +19,22 @@ static bool networkConfigured=false;
 static uint32_t lastReconnectAt=0,networkReconnects=0;
 static httpd_handle_t web=nullptr, controlServer=nullptr;
 
+#ifdef ROBOT_LAMPNET_SHADOW
+#include "lampnet_shadow.h"
+#endif
 #include "signal_service.h"
 
+#if defined(ROBOT_LAMPNET_FULL_FRAME)
+static const char *FIRMWARE_VERSION="0.4.13-exposure-cache";
+#elif defined(ROBOT_LAMPNET_FACE)
+static const char *FIRMWARE_VERSION="0.4.9-lamp-face";
+#elif defined(ROBOT_LAMPNET_SHADOW) && defined(ROBOT_LAMPNET_ESP_NN)
+static const char *FIRMWARE_VERSION="0.4.8-lampnet-espnn";
+#elif defined(ROBOT_LAMPNET_SHADOW)
+static const char *FIRMWARE_VERSION="0.4.7-lampnet-probe";
+#else
 static const char *FIRMWARE_VERSION="0.4.6-larger-roi";
+#endif
 static String pendingSSID, pendingPassword;
 static bool networkPending=false;
 static std::atomic<bool> networkGotIP(false);
@@ -102,11 +115,11 @@ static void startNetwork(){
   }
   if(MDNS.begin("robot-esp32cam"))MDNS.addService("http","tcp",80);
 }
-static const char PAGE[] PROGMEM=R"HTML(<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ESP32-S3 近场摄像头</title><style>body{background:#111827;color:#e5e7eb;font:17px system-ui;margin:20px auto;max-width:900px;padding:0 15px}button,a{font:inherit;padding:10px;margin:4px}#view{position:relative;width:100%;aspect-ratio:4/3;background:#000}img{width:100%;height:100%;object-fit:contain}#grid{position:absolute;inset:0;pointer-events:none;background:linear-gradient(90deg,transparent 49.7%,#38bdf8 50%,transparent 50.3%),linear-gradient(transparent 49.7%,#38bdf8 50%,transparent 50.3%);border:1px solid #38bdf8}small{color:#94a3b8}</style><h2>ESP32-S3 近场摄像头</h2><p>用于调整安装位置和仰角。框住龙门架信号灯。按 Maix ARM 后定位灯面，确认亮灯后等待熄灭；ESP32 不直接控制电机。</p><div id="view"><img id="cam"><div style="position:absolute;left:25%;top:0%;width:50%;height:53.333333%;border:2px solid cyan;box-sizing:border-box;pointer-events:none"></div><div id="target" hidden style="position:absolute;border:2px solid #facc15;box-sizing:border-box;pointer-events:none"></div><div id="grid" hidden></div></div><p><button onclick="start()">开始预览</button><button onclick="stop()">停止预览</button><button onclick="let g=document.getElementById('grid');g.hidden=!g.hidden">中心参考线</button></p><small>320 × 240 · 青色框用于定位；只检测锁定的灯面。黄色小框锁定灯面后，连续至少3帧、0.4秒确认熄灭。</small><script>let running=false,timer=null,deadline=null,request=0;const image=document.getElementById('cam');
+static const char PAGE[] PROGMEM=R"HTML(<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ESP32-S3 近场摄像头</title><style>body{background:#111827;color:#e5e7eb;font:17px system-ui;margin:20px auto;max-width:900px;padding:0 15px}button,a{font:inherit;padding:10px;margin:4px}#view{position:relative;width:100%;aspect-ratio:4/3;background:#000}img{width:100%;height:100%;object-fit:contain}#grid{position:absolute;inset:0;pointer-events:none;background:linear-gradient(90deg,transparent 49.7%,#38bdf8 50%,transparent 50.3%),linear-gradient(transparent 49.7%,#38bdf8 50%,transparent 50.3%);border:1px solid #38bdf8}small{color:#94a3b8}</style><h2>ESP32-S3 近场摄像头</h2><p>用于调整安装位置和仰角。让龙门架信号灯完整可见。灯灭时框好灯面并按 Maix ARM，等待亮灯后再次熄灭；ESP32 不直接控制电机。</p><div id="view"><img id="cam"><div id="searchROI" hidden style="position:absolute;left:25%;top:0%;width:50%;height:53.333333%;border:2px solid cyan;box-sizing:border-box;pointer-events:none"></div><div id="target" hidden style="position:absolute;border:2px solid #facc15;box-sizing:border-box;pointer-events:none"></div><div id="grid" hidden></div></div><p><button onclick="start()">开始预览</button><button onclick="stop()">停止预览</button><button onclick="let g=document.getElementById('grid');g.hidden=!g.hidden">中心参考线</button></p><small>320 × 240 · 模型搜索整个画面；只检测锁定的灯面。黄色小框锁定灯面后，连续至少3帧、0.4秒确认熄灭。</small><script>let running=false,timer=null,deadline=null,request=0;const image=document.getElementById('cam');
 function stop(){running=false;request++;clearTimeout(timer);clearTimeout(deadline);image.onload=image.onerror=null;image.removeAttribute('src');}
 function frame(){if(!running||document.hidden)return;const id=++request;function retry(){if(id!==request)return;clearTimeout(deadline);image.onload=image.onerror=null;image.removeAttribute('src');timer=setTimeout(frame,500);}image.onload=()=>{if(id!==request)return;clearTimeout(deadline);timer=setTimeout(frame,150);};image.onerror=retry;deadline=setTimeout(retry,1500);image.src='/capture?t='+Date.now();}
 function start(){stop();running=true;frame();}document.addEventListener('visibilitychange',()=>{if(document.hidden){const resume=running;stop();running=resume;}else if(running)frame();});
-async function status(){if(document.hidden){setTimeout(status,500);return;}try{const r=await fetch('/status',{cache:'no-store',signal:AbortSignal.timeout(1500)});if(!r.ok)throw Error();const s=(await r.json()).signal,t=document.getElementById('target'),a=s.target_roi; t.hidden=!s.target_locked;if(!t.hidden)Object.assign(t.style,{left:a[0]/320*100+'%',top:a[1]/240*100+'%',width:a[2]/320*100+'%',height:a[3]/240*100+'%'});}catch(e){document.getElementById('target').hidden=true;}setTimeout(status,500);}status();start()</script></html>)HTML";
+async function status(){if(document.hidden){setTimeout(status,500);return;}try{const r=await fetch('/status',{cache:'no-store',signal:AbortSignal.timeout(1500)});if(!r.ok)throw Error();const s=(await r.json()).signal,t=document.getElementById('target'),a=s.target_roi;document.getElementById('searchROI').hidden=s.roi[2]===320; t.hidden=!s.target_locked;if(!t.hidden)Object.assign(t.style,{left:a[0]/320*100+'%',top:a[1]/240*100+'%',width:a[2]/320*100+'%',height:a[3]/240*100+'%'});}catch(e){document.getElementById('target').hidden=true;}setTimeout(status,500);}status();start()</script></html>)HTML";
 
 static bool getJPEG(uint8_t **jpg,size_t *size){
   if(!cameraOK)return false;
@@ -129,6 +142,9 @@ static esp_err_t statusHandler(httpd_req_t *r){
   String data="{\"firmware\":\""+String(FIRMWARE_VERSION)+"\",\"camera\":"+(cameraOK?"true":"false")+",\"frames\":"+String(frames)+",\"station_connected\":"+(WiFi.status()==WL_CONNECTED?"true":"false")+",\"ip\":\""+(WiFi.status()==WL_CONNECTED?WiFi.localIP().toString():String(""))+"\",\"signal\":"+signalJSON()+"}";
   data.remove(data.length()-1);
   data+=",\"diagnostics\":{\"uptime_ms\":"+String(millis())+",\"reset_reason\":"+String(int(esp_reset_reason()))+",\"free_heap\":"+String(ESP.getFreeHeap())+",\"wifi_rssi\":"+String(WiFi.RSSI())+",\"network_reconnects\":"+String(networkReconnects)+",\"loop_watchdog\":"+String(loopWatchdogReady.load()?"true":"false")+",\"camera_watchdog\":"+String(cameraWatchdogReady.load()?"true":"false")+",\"watchdog_timeout_s\":8}}";
+#ifdef ROBOT_LAMPNET_SHADOW
+  data.remove(data.length()-1);data+=",\"lampnet\":"+lampnet::statusJSON()+"}";
+#endif
   httpd_resp_set_type(r,"application/json");httpd_resp_set_hdr(r,"Cache-Control","no-store");
   return httpd_resp_send(r,data.c_str(),data.length());
 }
@@ -166,6 +182,9 @@ void setup(){
   sensor_t *s=esp_camera_sensor_get();Serial.printf("CAMERA OK PID=0x%x PSRAM=%u\n",s->id.PID,unsigned(ESP.getPsramSize()));
   if(xTaskCreatePinnedToCore(cameraProducer,"camera_signal",16384,nullptr,2,nullptr,1)!=pdPASS){Serial.println("ERROR camera task");return;}
   startNetwork();
+#ifdef ROBOT_LAMPNET_SHADOW
+  lampnet::init();
+#endif
   if(!startServers()){Serial.println("ERROR HTTP server");return;}
   Serial.println("PREVIEW READY | WiFi=HW_ESP32S3CAM | http://192.168.5.1/ | preview=80 control=81");
   Serial.println("USB commands: J=snapshot JPEG, S=status, Q=network status, C+JSON=Wi-Fi setup");
@@ -180,7 +199,7 @@ void loop(){
     Serial.println("RECOVERY camera_frames_stalled");Serial.flush();ESP.restart();
   }
   xSemaphoreTake(signalLock,portMAX_DELAY);
-  if(signalDetector.armed&&uint32_t(millis()-signalLease)>2000)cancelSignal();
+  if(signalDetector.armed&&!signalDetector.confirmed&&uint32_t(millis()-signalLease)>2000)cancelSignal();
   xSemaphoreGive(signalLock);
   if(readingConfig && uint32_t(millis()-configBegan)>2000){
     readingConfig=false;configUsed=0;Serial.println("CONFIG ERROR incomplete_request");
@@ -190,14 +209,35 @@ void loop(){
     if(readingConfig){
       if(cmd=='\n'){
         configLine[configUsed]='\0';readingConfig=false;
-        if(configOverflow)Serial.println("CONFIG ERROR request_too_large");else if(configCommand=='P')pairSignal(configLine);else configureNetwork(configLine);
+        if(configOverflow)Serial.println("CONFIG ERROR request_too_large");
+#ifdef ROBOT_LAMPNET_FACE
+        else if(configCommand=='R')configureLampROI(configLine);
+#endif
+        else if(configCommand=='P')pairSignal(configLine);else configureNetwork(configLine);
         memset(configLine,0,sizeof(configLine));configUsed=0;
       }else if(cmd!='\r'){
         if(configUsed<sizeof(configLine)-1)configLine[configUsed++]=cmd;else configOverflow=true;
       }
       continue;
     }
-    if(cmd=='C'||cmd=='P'){configCommand=cmd;readingConfig=true;configOverflow=false;configUsed=0;configBegan=millis();}
+    if(cmd=='C'||cmd=='P'
+#ifdef ROBOT_LAMPNET_FACE
+       ||cmd=='R'
+#endif
+    ){configCommand=cmd;readingConfig=true;configOverflow=false;configUsed=0;configBegan=millis();}
+#ifdef ROBOT_LAMPNET_SHADOW
+    if(cmd=='M'){
+      String model=lampnet::statusJSON();
+#ifdef ROBOT_LAMPNET_FACE
+      model.remove(model.length()-1);model+=",\"diagnostic\":"+modelTestJSON()+"}";
+#endif
+      Serial.println("LAMP_MODEL "+model);
+    }
+#ifdef ROBOT_LAMPNET_FACE
+    if(cmd=='T')modelTestCommand(true);
+    if(cmd=='U')modelTestCommand(false);
+#endif
+#endif
     if(cmd=='Q')printNetworkStatus();
     if(cmd=='S')Serial.printf("STATUS camera=%u clients=%u frames=%u sta=%u\n",cameraOK,WiFi.softAPgetStationNum(),unsigned(frames),WiFi.status()==WL_CONNECTED);
     if(cmd=='J'){

@@ -19,7 +19,7 @@ class StartSignal:
     MAX_AGE_S = 0.75
     MIN_CONFIRM_FRAMES = 3
     MIN_CONFIRM_MS = 400
-    SEARCH_ROIS = ((96, 8, 128, 112), (80, 0, 160, 128))
+    SEARCH_ROIS = ((96, 8, 128, 112), (80, 0, 160, 128), (0, 0, 320, 240))
 
     def __init__(self, config=None, *, app_dir=None, clock=time.monotonic, transport=None):
         c = config or {}
