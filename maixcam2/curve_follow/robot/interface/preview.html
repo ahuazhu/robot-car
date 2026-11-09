@@ -1,6 +1,6 @@
 <!doctype html><html lang="zh-CN"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>曲线中线巡线 v0.6.77</title><style>
+<title>曲线中线巡线 v__APP_VERSION__</title><style>
 body{margin:0;background:#111827;color:#e5e7eb;font:16px system-ui;padding:20px}
 main{max-width:1440px;margin:auto}h1{font-size:24px}p{line-height:1.6}
 img{display:block;width:100%;height:auto;border:1px solid #374151;border-radius:10px}
@@ -33,7 +33,7 @@ body{padding-bottom:100px}.bottom-controls{position:fixed;bottom:0;left:0;right:
 .esp-placeholder{position:absolute;inset:0;display:grid;place-items:center;color:#9ca3af;font-size:14px;padding:12px;text-align:center}
 [hidden]{display:none!important}
 @media(max-width:600px){body{padding:12px;padding-bottom:100px}.camera-grid,.camera-grid:not([data-view="all"]){grid-template-columns:1fr 1fr}.camera-grid[data-view="all"]{grid-template-columns:1fr}.labels span{font-size:12px}}
-</style><main><h1>曲线中线巡线 v0.6.77</h1>
+</style><main><h1>曲线中线巡线 v__APP_VERSION__</h1>
 <div class="view-controls" aria-label="选择画面">
 <button data-view="all" onclick="setView('all')">三图对照</button>
 <button data-view="raw" onclick="setView('raw')">完整原图</button>
@@ -50,7 +50,7 @@ body{padding-bottom:100px}.bottom-controls{position:fixed;bottom:0;left:0;right:
 <button id="stop" onclick="control('stop')">STOP 停车</button><span id="status">正在连接…</span></div>
 <p id="notice" role="status" aria-live="polite"></p><p id="lap-status" role="status"></p><p id="start-light-status" role="status"></p><p id="crosswalk-status" role="status"></p><p id="diagnostics"></p>
 <p>左：原图｜中：巡线｜右：地面投影（未标定时仅供参考）。黄线：左边界；蓝线：右边界；绿线：中线；橙色虚线：预测中线；红十字：追踪点。</p>
-<p>ESP32 上仰识别发车灯，Maix 下视巡线。将灯放入 ESP32 青色框，再按 ARM；青框用于定位，黄框锁定灯面；先确认亮灯，再连续至少3帧、0.4秒确认熄灯。出发许可随后锁存，等待道路和电机就绪后发车；ESP32后续离线不影响本轮行驶。STOP或完成圈数停车后清除许可。手动测试启动可跳过等灯；STOP 随时停车。首次白线在发车30秒内识别则不计圈，超过30秒则计一圈；之后正常计圈。完成目标圈数并越过计圈白线后，正常巡线40cm再停车。横道以距车身10–15cm为制动目标，停稳亮红灯3.2秒后通行。</p>
+<p>正式发车：灯灭时摆好车，确认灯面范围后按 ARM；等待裁判亮灯，再确认熄灯。已保存的手工范围优先使用；切回自动定位时由模型寻找灯面，锁定后仅检测灯面变化。出发许可确认后保留至 STOP、完赛停车或应用退出，ESP32后续离线不影响本轮巡线。手动测试启动跳过等灯。横道采用一次刹停，停稳亮红灯满3.2秒后通行；停位未核实会明确标记异常。计满圈数后继续巡线累计40cm再停车，途中仍受道路与通信保护约束。</p>
 <button onclick="connectMaixPreview()">重新连接画面</button>
 <p><small>电脑或手机需与摄像头连接同一 Wi-Fi。退出巡线应用后，视频会断开。</small></p></main><footer class="bottom-controls" aria-label="底部停车菜单"><button id="stop-bottom" onclick="control('stop')">STOP 停车</button></footer><script>
 const token="__CONTROL_TOKEN__";
@@ -112,7 +112,7 @@ async function updateStatus(){
    const lamp=d.start_light||{};
    if(fresh&&maixNeedsReconnect)connectMaixPreview();
    if(fresh)syncESP(lamp);else markESPUnknown('Maix 状态已过期');
-   startButton.textContent=lamp.enabled?'ARM 等待熄灯':'START 开始';
+   startButton.textContent=lamp.enabled?'ARM 准备等灯':'START 开始';
    const lampPhases={ARMING:'正在准备等灯',FAULT:'本轮等灯已取消，请重新 ARM',WAIT_CONNECTION:'等待 ESP32 恢复，尚无出发许可',PERMITTED:'出发许可已锁存',WAIT_ON:'已准备，等待裁判亮灯',WAIT_TARGET:'等待灯面定位',LOCK_TARGET:'正在确认灯面稳定',WAIT_OFF:'灯面已锁定，等待熄灯',CONFIRM_OFF:'正在确认熄灯',TARGET_UNCERTAIN:'光照或画面不稳定，请检查灯面',SIGNAL_READY:'出发许可已锁存，等待道路和电机就绪',RUNNING:'本次已启动',DISARMED:'灯灭时框好灯面并按 ARM'};
    const signalErrors={ESP32_WAITING_FOR_RECOVERY:'等待 ESP32 恢复，尚无出发许可',ESP32_OFFLINE:'ESP32 暂不可达',ESP32_OFFLINE_REARM_REQUIRED:'本轮等灯因通信异常取消，请重新 ARM',ESP32_STALE_REARM_REQUIRED:'发车状态过期，请重新 ARM',PAIRING_REQUIRED:'ESP32 尚未配对',CONNECTING:'正在连接 ESP32'};
    const faultReasons={STATUS_STALE:'状态超时',RESPONSE_TOO_SLOW:'响应超时',CAMERA_FRAME_STALE:'相机帧过期',INVALID_SIGNAL_RESPONSE:'发车数据校验失败',DEVICE_REBOOTED:'ESP32 已重启',SESSION_CHANGED:'发车会话已变化',FRAME_SEQUENCE_REGRESSED:'相机帧序号回退',TimeoutError:'请求超时',URLError:'网络请求失败',OSError:'网络请求失败',HTTPError:'发车请求被拒绝'};
@@ -129,14 +129,20 @@ async function updateStatus(){
     const observed=crossing.observation;
     const range=distance!==null&&distance!==undefined?`距车身 ${Math.round(distance*100)}cm`:observed?`距镜头参考点 ${Math.round(observed.near_m*100)}cm`:'';
     const mode=crossing.mode==='yield'?'自动礼让':'仅识别，自动礼让尚未启用';
-    document.getElementById('crosswalk-status').textContent=[`横道：${mode}`,phases[crossing.phase]||crossing.phase,range,['HOLD','RECOVERY_HOLD'].includes(crossing.phase)?`已停 ${crossing.hold_elapsed_s.toFixed(1)}/${(crossing.required_hold_s??3.2).toFixed(1)}秒`:'',crossing.failure||crossing.recovery_reason||'',crossing.yield_completed?(crossing.yield_verified?'礼让已验证':'礼让已完成，位置未验证'):''].filter(Boolean).join(' · ');
+    const stopPosition={TOO_FAR:'停车过远',AT_OR_PAST_LINE:'停车压线或已越线',UNKNOWN:'停位未知',UNCERTAIN:'停位不确定',NOT_VERIFIED:'停位未验证'};
+    const unverifiedStop=stopPosition[crossing.position_outcome]||'停位未验证';
+    const yieldResult=crossing.yield_completed?(observed?'':'上次横道：')+(crossing.yield_verified?'合法停位与停留已验证':'异常通行：'+unverifiedStop):'';
+    document.getElementById('crosswalk-status').textContent=[`横道：${mode}`,phases[crossing.phase]||crossing.phase,range,['HOLD','RECOVERY_HOLD'].includes(crossing.phase)?`已停 ${crossing.hold_elapsed_s.toFixed(1)}/${(crossing.required_hold_s??3.2).toFixed(1)}秒`:'',crossing.failure||crossing.recovery_reason||'',yieldResult].filter(Boolean).join(' · ');
    }
 
-   const labels={LAP_START_NOT_READY:'请在计圈白线前摆正，等待龙门架与白线确认',PREVIEW_ONLY:'当前仅预览',UNO_DISCONNECTED:'UNO未连接',VISION_TOO_SLOW:'视觉处理超时',PATH_CONFIRMING:'正在确认中线',ROAD_NO_TARGET:'暂无有效追踪点',ROAD_UNOBSERVED:'等待有效道路观测',ROAD_WEAK:'道路置信度不足',ROAD_STABILIZING:'等待道路稳定',CROSSWALK_STOP_UNVERIFIED:'横道停车位置尚未确认'};
+   const labels={LAP_START_NOT_READY:'请在计圈白线前摆正，等待龙门架与白线确认',PREVIEW_ONLY:'当前仅预览',UNO_DISCONNECTED:'UNO未连接',VISION_TOO_SLOW:'视觉处理超时',PATH_CONFIRMING:'正在确认中线',ROAD_NO_TARGET:'暂无有效追踪点',ROAD_UNOBSERVED:'等待有效道路观测',ROAD_WEAK:'道路置信度不足',ROAD_STABILIZING:'等待道路稳定',CROSSWALK_STOP_UNVERIFIED:'横道停车位置尚未确认',UNO_STATUS_UNAVAILABLE:'等待UNO状态',UNO_WORKER_STOPPED:'电机通信进程已停止',UNO_STATUS_STALE:'UNO状态已过期',UNO_STATUS_INVALID:'UNO状态数据无效',UNO_EMERGENCY_STOP:'UNO急停尚未解除',UNO_LINK_ERROR:'UNO串口通信异常',UNO_NOT_STOPPED:'UNO未确认零输出与解除布防'};
+   const blockerLabel=k=>failures[k]||labels[k]||(k.startsWith('UNO_FAULT_')?'UNO故障，代码'+k.slice(10):k);
+   const motorBlocker=(d.blocked_by||[]).find(k=>k.startsWith('UNO_'));
+   if(fresh&&!s.active&&motorBlocker)statusBox.textContent=blockerLabel(motorBlocker)+` · L=${s.left} R=${s.right}`;
    const search=(d.recovery||{}).search||{};
    const searchLabels={"GROUND MOTION UNVERIFIED":"等待有效运动估计","BODY POSE CLEARANCE UNVERIFIED":"车身与道路余量尚未确认","NO OBSERVABLE SAFE YAW STEP":"暂无可确认的小幅转向空间","ROTATION SWEEP NOT INSIDE KNOWN ROAD":"转向范围超过可信道路余量","SEARCH BUDGET OR DRIFT LIMIT":"试探达到角度、漂移或时长界限","SWEEP COMPLETED WITHOUT A CONFIRMED PATH":"左右试探后仍无可信追踪路径"};
    const searchNotice=searchLabels[search.reason]||'';
-   const waiting=(!s.active&&!s.ready)?(d.blocked_by||[]).map(k=>failures[k]||labels[k]||k).join('；'):'';
+   const waiting=(!s.active&&!s.ready)?(d.blocked_by||[]).map(blockerLabel).join('；'):'';
    document.getElementById('diagnostics').textContent=[waiting,searchNotice,d.observed_streak!==undefined?`道路确认 ${Math.min(d.observed_streak,d.required_observations)}/${d.required_observations}`:'',d.processing_ms!==undefined?`视觉 ${d.processing_ms}ms`:'',d.confidence!==undefined?`置信度 ${Math.round(d.confidence*100)}%`:'',d.frame!==undefined?`帧 ${d.frame}`:''].filter(Boolean).join(' · ');
 
  }catch(e){if(revision===controlRevision){statusExpiresAt=0;canStart=canDirect=false;syncControls();statusBox.textContent=receivedStatus?'控制台显示异常，请刷新页面':'Maix 连接中断，请检查电脑与小车网络';maixNeedsReconnect=true;markESPUnknown('Maix 状态暂不可达');console.warn('Control status update failed',e);}}
@@ -184,7 +190,7 @@ function connectMaixPreview(){
 const espTarget=document.getElementById('esp-target');
 const espVideo=document.getElementById('esp-video'),espROI=document.getElementById('esp-roi'),espPlaceholder=document.getElementById('esp-placeholder'),espState=document.getElementById('esp-state');
 let espCaptureURL='',espTimer=null,espDeadline=null,espRequest=0,espRetryMs=250;
-let espSignalFresh=false,espLamp={},espFrameAt=0;
+let espSignalFresh=false,espLamp={},espFrameAt=0,espHasSearchROI=false;
 function setESPRect(element,a){
  if(!Array.isArray(a)||a.length!==4||!a.every(Number.isFinite)||a[0]<0||a[1]<0||a[2]<=0||a[3]<=0||a[0]+a[2]>320||a[1]+a[3]>240)throw Error('Invalid camera rectangle');
  Object.assign(element.style,{left:a[0]/320*100+'%',top:a[1]/240*100+'%',width:a[2]/320*100+'%',height:a[3]/240*100+'%'});
@@ -201,7 +207,7 @@ function espLabel(){
  espState.textContent=espSignalFresh?(espLamp.target_locked?'灯面已锁定':espLamp.armed?'定位灯面':'已连接'):'画面在线 · 信号状态未知';
 }
 function markESPUnknown(message){
- espSignalFresh=false;espTarget.hidden=true;
+ espSignalFresh=false;espTarget.hidden=true;espROI.hidden=true;
  if(!espCaptureURL){espMessage(message+'，等待取得 ESP32 地址','状态未知');return;}
  if(!espVideo.hidden&&Date.now()-espFrameAt<2000)espLabel();else espState.textContent='状态未知';
 }
@@ -217,7 +223,7 @@ function nextESPFrame(){
  espVideo.onload=()=>{
   if(request!==espRequest)return;
   clearTimeout(espDeadline);espRetryMs=250;espFrameAt=Date.now();
-  espVideo.hidden=false;espROI.hidden=false;espPlaceholder.hidden=true;espLabel();
+  espVideo.hidden=false;espROI.hidden=!(espSignalFresh&&espHasSearchROI);espPlaceholder.hidden=true;espLabel();
   espTarget.hidden=!(espSignalFresh&&espLamp.target_locked);
   espTimer=setTimeout(nextESPFrame,100);
  };
@@ -230,6 +236,8 @@ function syncESP(lamp){
  espLamp=lamp;espSignalFresh=!!lamp.connected;
  try{
   setESPRect(espROI,lamp.search_roi);
+  espHasSearchROI=lamp.search_roi.some((value,i)=>value!==[0,0,320,240][i]);
+  espROI.hidden=!(espSignalFresh&&espHasSearchROI&&!espVideo.hidden);
   if(espSignalFresh&&lamp.target_locked)setESPRect(espTarget,lamp.target_roi);
   espTarget.hidden=!(espSignalFresh&&lamp.target_locked&&!espVideo.hidden);
   if(lamp.peer_url&&(lamp.connected||!espCaptureURL)){

@@ -77,6 +77,42 @@ class SingleCrosswalkDwellTests(unittest.TestCase):
         self.assertTrue(state['yield_verified'])
         self.assertGreaterEqual(state['hold_elapsed_s'], task.policy.hold_s)
 
+    def test_definite_line_overlap_is_an_exception_after_the_same_physical_dwell(self):
+        task = self.task()
+        for step in range(38):
+            now = step * .1
+            state = self.update(task, now, -.02, sigma=.005)
+            if task.phase == 'PASSING':
+                break
+            self.assertEqual(task.limit_command((120, 140), state, motion()), (0, 0))
+        self.assertEqual(task.phase, 'PASSING')
+        self.assertTrue(state['yield_completed'])
+        self.assertFalse(state['yield_verified'])
+        self.assertEqual(state['position_outcome'], 'AT_OR_PAST_LINE')
+        self.assertGreaterEqual(state['hold_elapsed_s'], task.policy.hold_s)
+        self.assertIn('CROSSWALK STOP WINDOW MISSED', state['issues'])
+
+    def test_exception_outcome_is_about_the_stop_not_the_later_passing_position(self):
+        task = self.task()
+        for now in (0., .1, .2):
+            state = self.update(task, now, .30, speed=.24)
+        self.assertEqual(task.phase, 'STOPPING')
+        for step in range(36):
+            now = .3 + step * .1
+            state = self.update(task, now, .29)
+            if task.phase == 'PASSING':
+                break
+        self.assertEqual(task.phase, 'PASSING')
+        self.assertEqual(state['position_outcome'], 'TOO_FAR')
+        self.assertFalse(state['yield_verified'])
+        state = task.update(None, motion(.1, .7), now+.1, True)
+        self.assertEqual(state['position_outcome'], 'TOO_FAR')
+        self.assertFalse(state['yield_verified'])
+
+        state = task.update(observation(now+.2, .7), motion(), now+.2, True)
+        self.assertFalse(state['yield_completed'])
+        self.assertEqual(state['position_outcome'], 'NOT_VERIFIED')
+
     def test_steady_slow_motion_cannot_be_labelled_flow_jitter(self):
         evidence = StationaryEvidence(.006, .025, .25, .45)
         for step in range(30):

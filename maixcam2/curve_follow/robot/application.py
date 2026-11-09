@@ -4,6 +4,7 @@ import os, time, json
 from contextlib import ExitStack
 import cv2
 import numpy as np
+from robot import APP_VERSION
 from robot.navigation.tracker import TargetTracker
 from robot.interface.road_overlay import render_target
 from robot.control.drive_link import DriveLink, PreviewLink
@@ -19,9 +20,6 @@ from robot.tasks.lap_counter import LapMarkerDetector, LapCounter
 from robot.interface.screen_view import DeviceScreen
 from robot.core.native_geometry import native_fit_status
 from robot.tasks.crosswalk import CrosswalkDetector, CrosswalkTask, draw_crosswalk_overlay
-
-
-APP_VERSION = "0.6.78"
 
 
 def main(app_dir):

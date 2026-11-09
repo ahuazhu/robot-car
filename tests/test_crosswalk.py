@@ -192,7 +192,9 @@ class CrosswalkRuleTests(unittest.TestCase):
             task.update(observation(now, 0.5), motion(0.24), now, True)
         self.assertEqual(task.phase, "STOPPING")
         state = task.update(observation(0.4, 0.5), motion(), 0.4, True, True, True, True)
-        self.assertEqual(state["phase"], "APPROACH")
+        self.assertEqual(state["phase"], "STOPPING")
+        self.assertEqual(state["position_outcome"], "TOO_FAR")
+        self.assertEqual(task.limit_command((60, 60), state, motion()), (0, 0))
         self.assertEqual(state["hold_elapsed_s"], 0)
 
     def test_prestart_observation_expires_but_latched_fault_does_not(self):
@@ -284,6 +286,7 @@ class CrosswalkRuleTests(unittest.TestCase):
                 ack = (53, 53)
                 hold = []
                 physical_rest_start = resume_at = None
+                stop_requested = False
                 dt = 0.15
                 for i in range(280):
                     now = i * dt
@@ -294,6 +297,11 @@ class CrosswalkRuleTests(unittest.TestCase):
                     state = task.update(obs, scene, now, True, ack == (0, 0), ack == (0, 0), True)
                     command = task.limit_command((53, 53), state, scene) or (0, 0)
                     self.assertIsNone(task.failure, (friction, deadzone, state))
+                    if task.phase in ("STOPPING", "HOLD", "RECOVERY_HOLD"):
+                        stop_requested = True
+                        self.assertEqual(command, (0, 0))
+                    if stop_requested:
+                        self.assertNotEqual(task.phase, "APPROACH")
                     if (ack == (0, 0) and abs(speed) <= task.policy.stationary_speed_m_s
                             and task.phase in ("STOPPING", "HOLD", "RECOVERY_HOLD")):
                         if physical_rest_start is None:

@@ -516,6 +516,12 @@ class CrosswalkTask:
             self.stop_blockers.append(
                 "STOP_POSITION_OUTSIDE_WINDOW" if outside else "STOP_POSITION_UNCERTAIN"
             )
+            if not known or not all(math.isfinite(value) for value in measured):
+                self.stop_blockers.append("STOP_POSITION_UNKNOWN")
+            elif measured[0] >= CROSSWALK_STOP_LIMIT_M:
+                self.stop_blockers.append("STOP_POSITION_TOO_FAR")
+            elif measured[1] <= 0:
+                self.stop_blockers.append("STOP_POSITION_AT_OR_PAST_LINE")
             self.stop_evidence = None
             self.stationary_since = self.hold_since = None
             self.phase = "STOPPING"
@@ -733,27 +739,9 @@ class CrosswalkTask:
             elif not verified_rest:
                 self.physical_rest_since = None
             clearance = self.track["near_m"] - crosswalk_body_support(self.track["normal"], p)
-            # Re-approach only if the entire position interval is outside
-            # the legal <20cm zone. An overlapping interval is uncertainty,
-            # not proof of an early stop; keep zero while verifying position.
-            # A stationary pose may preserve an already verified stop, but
-            # only a CURRENT associated observation precise enough for motion
-            # may authorize leaving zero. Reusing stationary_hold here loops
-            # STOPPING -> APPROACH -> uncertain STOPPING on the same stale pose.
-            if (
-                self.stop_evidence is None
-                and stationary
-                and zero_ack
-                and lamp_on
-                and matched
-                and known
-                and age <= p.observation_max_age_s
-                and clearance - sigma >= CROSSWALK_STOP_LIMIT_M
-            ):
-                self.phase = "APPROACH"
-                self.stationary_since = self.hold_since = self.stopping_since = None
-                self.stop_deadline = self.physical_rest_since = None
-                return self.snapshot(now)
+            # One stop request owns this event through the complete dwell.
+            # A fresh estimate saying the car stopped too far is an exception,
+            # not permission to alternate zero output and another approach.
             self._verify_stop(
                 now, stationary, zero_ack, lamp_on, position_available,
                 clearance, sigma, fresh_position=matched,
@@ -796,6 +784,27 @@ class CrosswalkTask:
                 self.stationary_since = self.hold_since = self.stopping_since = None
         return self.snapshot(now)
 
+    def _position_outcome(self, now):
+        """Describe the stop proof using existing evidence and retained blockers.
+
+        After an exceptional dwell, blockers preserve the stopped position's
+        outcome while the car advances through the crossing.
+        """
+        if self.yield_verified or (
+            self.phase in ("STOPPING", "HOLD", "RECOVERY_HOLD")
+            and legal_stop_interval(self._stop_interval(now))
+        ):
+            return "LEGAL"
+        for blocker, outcome in (
+            ("STOP_POSITION_TOO_FAR", "TOO_FAR"),
+            ("STOP_POSITION_AT_OR_PAST_LINE", "AT_OR_PAST_LINE"),
+            ("STOP_POSITION_UNKNOWN", "UNKNOWN"),
+            ("STOP_POSITION_UNCERTAIN", "UNCERTAIN"),
+        ):
+            if blocker in self.stop_blockers:
+                return outcome
+        return "NOT_VERIFIED"
+
     def snapshot(self, now):
         p = self.policy
         t = self.track
@@ -833,6 +842,7 @@ class CrosswalkTask:
             stop_verified=self.stop_evidence is not None and self.phase in ("STOPPING", "HOLD"),
             yield_completed=self.yield_completed,
             yield_verified=self.yield_verified,
+            position_outcome=self._position_outcome(now),
             recovery_reason=self.recovery_reason,
             issues=list(self.issues),
             stop_clearance_interval_m=self._stop_interval(now)

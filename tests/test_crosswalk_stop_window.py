@@ -107,7 +107,7 @@ class CrosswalkStopWindowTests(unittest.TestCase):
             self.assertFalse(legal_stop_interval(interval))
         self.assertTrue(legal_stop_interval((0.05, 0.15)))
 
-    def test_conclusively_outside_window_restarts_approach_but_legal_stop_does_not(self):
+    def test_initial_approach_enters_window_and_serves_one_stop(self):
         t = self.task()
         for now in (0.0, 0.1, 0.2, 0.3):
             s, cmd = self.update(t, now, 0.30)

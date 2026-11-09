@@ -248,6 +248,47 @@ def assess_vision_command(
     return command, consecutive
 
 
+# Idle STATUS polls run once a second. Allow one 300 ms UART exchange and
+# ordinary frame scheduling, but never let an old successful ACK imply READY.
+MOTOR_STATUS_MAX_AGE_MS = 1500.0
+
+
+def motor_startup_blockers(motor):
+    """Require a live worker and fresh, stopped, fault-free UNO evidence.
+
+    STOP/STATUS can legitimately acknowledge a latched emergency stop. That
+    proves communication, not permission to ARM; keep those concepts separate.
+    The ARM exchange still independently validates the actual returned state.
+    """
+    if not isinstance(motor, dict):
+        return ["UNO_STATUS_UNAVAILABLE"]
+    blocked = []
+    if motor.get("worker_alive") is not True:
+        blocked.append("UNO_WORKER_STOPPED")
+    if motor.get("error"):
+        blocked.append("UNO_LINK_ERROR")
+    age = motor.get("ack_age_ms")
+    if (isinstance(age, bool) or not isinstance(age, (int, float))
+            or not math.isfinite(age)):
+        blocked.append("UNO_STATUS_INVALID")
+    elif not 0 <= age < MOTOR_STATUS_MAX_AGE_MS:
+        blocked.append("UNO_STATUS_STALE")
+    ack = motor.get("ack")
+    if (not isinstance(ack, (list, tuple)) or len(ack) < 5
+            or any(type(value) is not int for value in ack[:5])
+            or not 0 <= ack[0] <= 65535 or ack[1] not in (0, 1)
+            or any(abs(value) > MAX_MOTOR_PWM for value in ack[2:4])
+            or not 0 <= ack[4] <= 255):
+        if "UNO_STATUS_INVALID" not in blocked:
+            blocked.append("UNO_STATUS_INVALID")
+        return blocked
+    if motor.get("armed") is True or any(ack[1:4]):
+        blocked.append("UNO_NOT_STOPPED")
+    if ack[4]:
+        blocked.append("UNO_EMERGENCY_STOP" if ack[4] == 4 else "UNO_FAULT_%d" % ack[4])
+    return blocked
+
+
 def startup_blockers(
     result,
     command,

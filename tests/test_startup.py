@@ -2,7 +2,7 @@
 
 from tests.support import ROOT
 import unittest
-from robot.control.controller import startup_blockers
+from robot.control.controller import startup_blockers, motor_startup_blockers
 from robot.control.controller import assess_vision_command
 
 
@@ -40,6 +40,42 @@ class StartDiagnosticsTests(unittest.TestCase):
         )
         self.assertIn("PATH_CONFIRMING", reasons)
         self.assertIn("ROAD_UNOBSERVED", reasons)
+
+
+class MotorStartupReadinessTests(unittest.TestCase):
+    def motor(self, **changes):
+        state = dict(ack=[8, 0, 0, 0, 0], ack_age_ms=999, armed=False,
+                     worker_alive=True, error=None)
+        state.update(changes)
+        return state
+
+    def test_recent_idle_ack_allows_start(self):
+        self.assertEqual(motor_startup_blockers(self.motor()), [])
+        self.assertEqual(motor_startup_blockers(self.motor(ack_age_ms=1499)), [])
+
+    def test_motor_faults_and_stale_or_dead_peer_have_specific_reasons(self):
+        cases = [
+            ({"ack": [8, 0, 0, 0, 4]}, "UNO_EMERGENCY_STOP"),
+            ({"ack": [8, 0, 0, 0, 1]}, "UNO_FAULT_1"),
+            ({"ack": [8, 0, 0, 0, 2]}, "UNO_FAULT_2"),
+            ({"ack": [8, 0, 0, 0, 3]}, "UNO_FAULT_3"),
+            ({"ack_age_ms": 1500}, "UNO_STATUS_STALE"),
+            ({"ack_age_ms": -1}, "UNO_STATUS_STALE"),
+            ({"worker_alive": False}, "UNO_WORKER_STOPPED"),
+            ({"error": "UART unavailable"}, "UNO_LINK_ERROR"),
+            ({"armed": True}, "UNO_NOT_STOPPED"),
+            ({"ack": [8, 1, 20, 20, 0]}, "UNO_NOT_STOPPED"),
+        ]
+        for changed, reason in cases:
+            with self.subTest(changed=changed):
+                self.assertEqual(motor_startup_blockers(self.motor(**changed)), [reason])
+
+    def test_missing_or_malformed_motor_evidence_cannot_imply_ready(self):
+        self.assertEqual(motor_startup_blockers(None), ["UNO_STATUS_UNAVAILABLE"])
+        for changed in ({"ack": []}, {"ack": [1, 0, 0, 0, True]},
+                        {"ack": [1, 0, 201, 0, 0]}, {"ack_age_ms": float("nan")}):
+            with self.subTest(changed=changed):
+                self.assertIn("UNO_STATUS_INVALID", motor_startup_blockers(self.motor(**changed)))
 
 
 class StartupReadinessTests(unittest.TestCase):

@@ -2,9 +2,12 @@ from pathlib import Path
 import cv2
 import time, json
 
+from robot import APP_VERSION
 from robot.control.requests import ControlRequest
 
-LIVE_HTML = Path(__file__).with_name("preview.html").read_text(encoding="utf-8")
+LIVE_HTML = Path(__file__).with_name("preview.html").read_text(encoding="utf-8").replace(
+    "__APP_VERSION__", APP_VERSION
+)
 
 CONTROL_FRESH_SECONDS = 1.0
 

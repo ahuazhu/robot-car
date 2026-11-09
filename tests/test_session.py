@@ -137,7 +137,9 @@ class DrivingSessionTests(unittest.TestCase):
             processing_ms=100.0,
             lap_observation={"confirmed": False, "marker": None},
             lap_finished=False,
-            motor_snapshot={"brake_lamp_supported": True, "ack": [0, int(session.active), 0, 0, 0]},
+            motor_snapshot={"brake_lamp_supported": True, "ack": [0, int(session.active), 0, 0, 0],
+                            "armed": session.active, "worker_alive": True,
+                            "error": None, "ack_age_ms": 0},
             zero_ack=True,
             light_start=False,
             crosswalk_state=session.crosswalk.snapshot(self.clock.now),
@@ -342,6 +344,44 @@ class DrivingSessionTests(unittest.TestCase):
                         self.assertTrue(s.laps.running)
                         self.assertTrue(s.start_light.fired)
 
+    def test_motor_health_blocks_real_start_despite_last_successful_communication(self):
+        cases = [
+            ({"ack": [9, 0, 0, 0, 4]}, "UNO_EMERGENCY_STOP"),
+            ({"ack": [9, 0, 0, 0, 2]}, "UNO_FAULT_2"),
+            ({"ack_age_ms": 1500}, "UNO_STATUS_STALE"),
+            ({"worker_alive": False}, "UNO_WORKER_STOPPED"),
+            ({"error": "UNO acknowledgement timeout"}, "UNO_LINK_ERROR"),
+            ({"ack": [9, 1, 40, 40, 0], "armed": True}, "UNO_NOT_STOPPED"),
+            ({"ack": []}, "UNO_STATUS_INVALID"),
+        ]
+        for trigger in ("direct", "visual"):
+            for changed, reason in cases:
+                with self.subTest(trigger=trigger, changed=changed):
+                    s = self.session()
+                    self.warm(s)
+                    frame = self.frame(s, light_start=trigger == "visual")
+                    frame.motor_snapshot.update(changed)
+                    self.assertTrue(s.link_ok)
+                    readiness = s.readiness(frame)
+                    self.assertFalse(readiness["direct_start_ready"])
+                    self.assertIn(reason, readiness["blocked_by"])
+                    s.update(frame, ("start_now",) if trigger == "direct" else ())
+                    self.assertFalse(s.active)
+                    self.assertFalse(any(call[0] == 1 for call in s.link.calls))
+
+    def test_healthy_motor_status_recovers_readiness_without_erasing_permission(self):
+        s = self.session()
+        signal = self.granted_signal()
+        s.start_light = signal
+        self.warm(s)
+        frame = self.frame(s)
+        frame.motor_snapshot["ack"][4] = 4
+        self.assertFalse(s.readiness(frame)["direct_start_ready"])
+        self.assertTrue(signal.permission)
+        frame.motor_snapshot["ack"][4] = 0
+        self.assertTrue(s.readiness(frame)["direct_start_ready"])
+        self.assertTrue(signal.permission)
+
     def test_slow_active_frame_publishes_zero_and_later_timely_frame_recovers(self):
         s = self.session()
         self.start(s)
@@ -473,6 +513,30 @@ class DrivingSessionTests(unittest.TestCase):
         self.assertEqual(s.laps.started_at, start_at)
         self.assertEqual(s.laps.first_line_seen_at, start_at)
         self.assertTrue(s.laps.first_line_ignored)
+
+    def test_first_line_window_starts_after_successful_zero_output_arm_ack(self):
+        from tests.test_curve_laps import observation, motion
+        for first_seen_after_ack, ignored in ((29.9, True), (30.001, False)):
+            with self.subTest(first_seen_after_ack=first_seen_after_ack):
+                s = self.session()
+                self.warm(s)
+                frame = self.frame(s)
+                captured = frame.captured
+                send = s.link.send
+                accepted_at = []
+                def delayed_ack(op, *positional, **keyword):
+                    if op == 1:
+                        self.clock.now += .25
+                        accepted_at.append(self.clock.now)
+                    return send(op, *positional, **keyword)
+                s.link.send = delayed_ack
+                s.update(frame, ("start_now",))
+                self.assertTrue(s.active)
+                self.assertEqual(s.laps.started_at, accepted_at[0])
+                self.assertGreater(s.laps.started_at, captured)
+                s.laps.update(observation(.4, True, True), motion(),
+                              accepted_at[0] + first_seen_after_ack, True)
+                self.assertEqual(s.laps.first_line_ignored, ignored)
 
     def test_armed_target_is_used_for_visual_start(self):
         s = self.session()

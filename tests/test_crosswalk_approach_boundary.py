@@ -50,13 +50,25 @@ class CrosswalkApproachBoundaryTests(unittest.TestCase):
                     self.assertEqual(command, (0, 0))
                     self.assertFalse(state["yield_verified"])
 
-    def test_a_definitely_early_stop_can_still_approach(self):
+    def test_far_stop_serves_one_dwell_without_reapproach_or_claiming_legality(self):
         task = self.make_task()
         self.brake(task, 0.26)
-        state, command = self.observe(task, 0.45, 0.25)
-        self.assertEqual(state["phase"], "APPROACH")
+        for step in range(24):
+            now = 0.45 + step * 0.15
+            state, command = self.observe(task, now, (0.25, 0.24, 0.26)[step % 3], sigma=0.01)
+            self.assertNotEqual(state["phase"], "APPROACH")
+            self.assertEqual(state["position_outcome"], "TOO_FAR")
+            self.assertFalse(state["yield_verified"])
+            if state["phase"] == "PASSING":
+                break
+            self.assertEqual(command, (0, 0))
+            self.assertFalse(state["yield_completed"])
+        self.assertEqual(state["phase"], "PASSING")
+        self.assertTrue(state["yield_completed"])
+        self.assertFalse(state["yield_verified"])
+        self.assertGreaterEqual(state["hold_elapsed_s"], task.policy.hold_s)
+        self.assertLess(now - 0.45, task.policy.hold_s + 0.15)
         self.assertNotEqual(command, (0, 0))
-        self.assertFalse(state["stop_verified"])
 
     def test_fresh_legal_position_confirms_and_completes_normal_dwell(self):
         task = self.make_task()

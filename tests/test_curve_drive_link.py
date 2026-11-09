@@ -14,6 +14,18 @@ class RawReplyDiagnosticsTests(unittest.TestCase):
             with patch.object(drive_link, "time", Clock()):
                 self.assertEqual(obj.send(3)[5], flags)
 
+    def test_stop_and_status_report_latched_estop_but_arm_still_rejects_it(self):
+        body = b"1,0,0,0,4,7"
+        reply = b"!" + body + b"*%02X\n" % drive_link.crc8(body)
+        for op in (0, 3):
+            obj = link(reply)
+            with patch.object(drive_link, "time", Clock()):
+                self.assertEqual(obj.send(op), [1, 0, 0, 0, 4, 7])
+        obj = link(reply)
+        with patch.object(drive_link, "time", Clock()):
+            with self.assertRaisesRegex(RuntimeError, "UNO rejected motion"):
+                obj.send(1)
+
     def test_contradictory_lamp_status_is_rejected(self):
         for flags in (0, 2, 6, 8):
             body = ("1,0,0,0,0,%d" % flags).encode()

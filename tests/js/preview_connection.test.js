@@ -76,6 +76,29 @@ async function main(){
   assert.match(e.elements['start-light-status'].textContent,/响应超时.*通信已恢复/);
   assert.doesNotMatch(e.elements['start-light-status'].textContent,/信号中断/);
  }
- console.log('9 preview connection scenarios passed');
+ {
+  const e=setup();await flush();e.fetcher=async()=>{const s=e.defaultData();s.ready=false;s.readiness.direct_start_ready=false;s.readiness.blocked_by=['UNO_EMERGENCY_STOP'];return s};await e.context.updateStatus();
+  assert.equal(e.elements['direct-start'].disabled,true);
+  assert.match(e.elements.status.textContent,/UNO急停尚未解除/);
+  assert.match(e.elements.diagnostics.textContent,/UNO急停尚未解除/);
+ }
+ {
+  const e=setup();await flush();e.fetcher=async()=>{const s=e.defaultData();s.readiness.crosswalk={mode:'yield',phase:'PASSING',distance_to_body_m:.24,hold_elapsed_s:3.2,yield_completed:true,yield_verified:false};return s};await e.context.updateStatus();
+  assert.match(e.elements['crosswalk-status'].textContent,/异常通行：停位未验证/);
+  assert.doesNotMatch(e.elements['crosswalk-status'].textContent,/礼让已完成|合法停位与停留已验证/);
+ }
+ {
+  const e=setup();await flush();e.fetcher=async()=>{const s=e.defaultData();Object.assign(s.readiness.start_light,{search_roi:[0,0,320,240],target_locked:true,target_roi:[64,60,60,52]});return s};await e.context.updateStatus();
+  e.elements['esp-video'].onload();
+  assert.equal(e.elements['esp-roi'].hidden,true);
+  assert.equal(e.elements['esp-target'].hidden,false);
+ }
+ {
+  const e=setup();await flush();e.fetcher=async()=>{const s=e.defaultData();s.readiness.crosswalk={mode:'yield',phase:'SEARCH',observation:null,hold_elapsed_s:3.2,yield_completed:true,yield_verified:true};return s};await e.context.updateStatus();
+  assert.match(e.elements['crosswalk-status'].textContent,/上次横道：合法停位与停留已验证/);
+  e.fetcher=async()=>{const s=e.defaultData();s.readiness.crosswalk={mode:'yield',phase:'APPROACH',observation:{near_m:.3},hold_elapsed_s:0,yield_completed:false,yield_verified:false};return s};await e.context.updateStatus();
+  assert.doesNotMatch(e.elements['crosswalk-status'].textContent,/上次横道|合法停位与停留已验证/);
+ }
+ console.log('13 preview connection scenarios passed');
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

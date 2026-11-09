@@ -2,9 +2,9 @@
 <style>body{margin:20px auto;padding:0 18px;max-width:1000px;background:#0f172a;color:#e2e8f0;font:17px system-ui}h1{font-size:25px}#view{position:relative;width:100%;aspect-ratio:4/3;background:#020617;border-radius:12px;overflow:hidden}img{width:100%;height:100%;object-fit:contain}#target{position:absolute;box-sizing:border-box;pointer-events:none;border:3px solid #22c55e}#manualLayer{position:absolute;inset:0;width:100%;height:100%;touch-action:none}#manualLayer[hidden]{display:none}.edge{stroke:#facc15;stroke-width:1}.hit{stroke:transparent;stroke-width:15;pointer-events:stroke;cursor:move}button{font:inherit;padding:10px 14px;margin:4px;color:white;background:#334155;border:0;border-radius:7px}button:disabled{opacity:.4}#apply{background:#0369a1}p{line-height:1.6;margin:10px 0}small{color:#94a3b8}#notice{color:#facc15}.controls{margin:12px 0}</style>
 <h1>ESP32 · 发车灯预览</h1><p>默认自动定位；拖动四条黄线可手工调整，保存后生效。</p>
 <div id="view"><img id="image"><svg id="manualLayer" viewBox="0 0 320 240" hidden><rect id="shade" fill="#facc15" fill-opacity=".08"></rect><g id="edges"></g></svg></div>
-<div class="controls"><button id="apply" hidden>保存调整</button><button id="auto">重新自动定位</button><button id="test">准备等灯（独立验证）</button></div>
+<div class="controls"><button id="apply" hidden disabled>保存调整</button><button id="auto" disabled>重新自动定位</button><button id="test" disabled>准备等灯（独立验证）</button></div>
 <p id="notice"></p><p id="status">正在连接 ESP32…</p><p id="detail"></p>
-<p><small>手动框只需包含灯面，避开右侧数字屏及明显反光。灯灭时框好灯面并准备等灯；之后自动识别亮灯、再熄灯。独立验证不启动小车；正式比赛仍在 Maix 按 ARM。保存后拔掉电脑，ESP32 仍使用保存的范围。</small></p>
+<p><small>手动框只需包含灯面，避开右侧数字屏及明显反光。灯灭时框好灯面并准备等灯；之后自动识别亮灯、再熄灯。本页只做独立验证，不给 Maix 发车许可。正式比赛在 Maix 按 ARM；正式 ARM 会取消独立验证，此时本页只能预览，不能重新试验或修改范围。两者共用保存的框灯设置。保存后拔掉电脑，ESP32 仍使用保存的范围。</small></p>
 <button onclick="mark('ON')">标记灯亮</button><button onclick="mark('OFF')">标记灯灭</button><button onclick="mark('MOVED')">标记移动</button>
 <script>
 const el=id=>document.getElementById(id);let frame=-1,busy=false,last={},edit=false,manualVisible=true,box=[100,40,100,80],drag=null,pendingConfig=null;
@@ -16,7 +16,37 @@ for(const event of ['pointerup','pointercancel'])el('manualLayer').addEventListe
 async function post(path,data){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const d=await r.json();if(!r.ok)throw Error(d.error||'请求失败');return d;}
 el('apply').onclick=async()=>{try{await post('/roi',{manual:true,roi:box});pendingConfig={manual:true,roi:box.slice()};history.replaceState(null,'',location.pathname);edit=false;el('notice').textContent='正在保存调整…';draw();}catch(e){el('notice').textContent=e.message;}};
 el('auto').onclick=async()=>{try{await post('/roi',{manual:false});pendingConfig={manual:false};history.replaceState(null,'',location.pathname);edit=false;manualVisible=true;draw();el('notice').textContent='正在切换自动定位…';}catch(e){el('notice').textContent=e.message;}};
-el('test').onclick=async()=>{try{await post('/test',{});el('notice').textContent='已准备等灯：保持位置固定，等待亮灯后再次熄灯。';}catch(e){el('notice').textContent=e.message;}};
-async function poll(){if(busy)return;busy=true;try{let r=await fetch('/status',{cache:'no-store'}),d=await r.json(),m=d.model||{},v=m.diagnostic||{},c=v.configuration;last=m;if(d.frame!==frame){frame=d.frame;el('image').src='/frame?t='+frame;}for(const id of ['auto','apply'])el(id).disabled=!c||!!v.native_armed;if(pendingConfig&&c&&c.manual===pendingConfig.manual&&(!c.manual||JSON.stringify(c.roi)===JSON.stringify(pendingConfig.roi)))pendingConfig=null;if(!edit&&!pendingConfig&&c){manualVisible=true;if(c.manual)box=c.roi.slice();else if(v.locked)box=v.roi.slice();else if(m.candidate_valid)box=m.candidate_roi.slice();draw();}el('status').textContent=d.error||(edit?'调整尚未生效：请保存后重新准备':pendingConfig?'正在应用调整':!m.selftest_ok?'等待模型自检':v.confirmed?'已确认熄灯 · 许可保持（验证用）':v.locked?'灯面已锁定 · 等待熄灯':v.enabled?(v.phase==='WAIT_ON'?'已准备，等待裁判亮灯':'正在确认亮灯稳定'):c?.manual?'手动范围已保存 · 尚未开启独立验证':'自动定位预览');el('detail').textContent=(c?.manual?'手动框灯':'自动找灯')+' · 模型 '+((m.inference_us||0)/1e6).toFixed(2)+'秒 · 次数 '+(m.inferences||0)+' · '+(v.reason||'')+' · 熄灯 '+(v.hits||0)+'帧 / '+(v.elapsed_ms||0)+'ms · 灰度下降 '+(v.gray_drop||0)+' · V下降 '+(v.value_drop||0)+' · 已录 '+d.frame+'帧';if(d.config_error){pendingConfig=null;el('notice').textContent=d.config_error;}else if(d.config_result&&!edit&&!pendingConfig)el('notice').textContent=d.config_result;if(d.frame_age_ms>6000)el('status').textContent='预览更新延迟，正在等待新帧';}catch(e){el('status').textContent='等待采集服务';}finally{busy=false;}}
+el('test').onclick=async()=>{if(el('test').disabled)return;el('test').disabled=true;try{await post('/test',{});el('notice').textContent='独立验证请求已排队；请保持位置固定，以页面等灯状态为准。本页不授予正式发车许可。';}catch(e){el('notice').textContent=e.message;}};
+function renderStatus(d){
+ const m=d.model||{},v=m.diagnostic||{},c=v.configuration;
+ last=m;
+ if(d.frame!==frame){frame=d.frame;el('image').src='/frame?t='+frame;}
+ for(const id of ['auto','apply'])el(id).disabled=!c||!d.control_ready||!!d.configuration_pending;
+ if(pendingConfig&&c&&c.manual===pendingConfig.manual&&(!c.manual||JSON.stringify(c.roi)===JSON.stringify(pendingConfig.roi)))pendingConfig=null;
+ el('test').disabled=!d.test_ready||!!d.test_pending||edit||!!pendingConfig;
+ el('test').title=d.test_blocked_reason||'';
+ if(!edit&&!pendingConfig&&c){
+  manualVisible=true;
+  if(c.manual)box=c.roi.slice();else if(v.locked)box=v.roi.slice();else if(m.candidate_valid)box=m.candidate_roi.slice();
+  draw();
+ }
+ el('status').textContent=d.error||(v.native_armed?'Maix 正式等灯中 · 本页仅预览':edit?'调整尚未生效：请保存后重新准备':pendingConfig||d.configuration_pending?'正在应用调整':d.test_pending?'独立验证请求待处理':!c?.manual&&!m.selftest_ok?'自动定位等待模型自检':v.confirmed?'独立验证已确认熄灯 · 不代表 Maix 发车许可':v.locked?'独立灯面已锁定 · 等待熄灯':v.enabled?(v.phase==='WAIT_ON'?'独立验证已准备，等待裁判亮灯':'独立验证正在确认亮灯稳定'):c?.manual?'手动范围已保存 · 尚未开启独立验证':'自动定位预览');
+ el('detail').textContent=(c?.manual?'手动框灯':'自动找灯')+' · 模型 '+((m.inference_us||0)/1e6).toFixed(2)+'秒 · 次数 '+(m.inferences||0)+' · '+(v.reason||'')+' · 熄灯 '+(v.hits||0)+'帧 / '+(v.elapsed_ms||0)+'ms · 灰度下降 '+(v.gray_drop||0)+' · V下降 '+(v.value_drop||0)+' · 已录 '+d.frame+'帧';
+ if(d.config_error){pendingConfig=null;el('notice').textContent=d.config_error;}
+ else if(d.test_error)el('notice').textContent='上次独立验证未启动：'+d.test_error;
+ else if(d.config_result&&!edit&&!pendingConfig)el('notice').textContent=d.config_result;
+ if(d.frame_age_ms>6000)el('status').textContent='预览更新延迟，正在等待新帧';
+}
+async function poll(){
+ if(busy)return;busy=true;
+ try{
+  const response=await fetch('/status',{cache:'no-store'});
+  if(!response.ok)throw Error('状态连接失败');
+  renderStatus(await response.json());
+ }catch(e){
+  for(const id of ['auto','apply','test'])el(id).disabled=true;
+  el('status').textContent='等待采集服务';
+ }finally{busy=false;}
+}
 async function mark(label){await post('/marker',{label});}const draft=new URLSearchParams(location.hash.slice(1)).get('draft');if(draft){const r=draft.split(',').map(Number);if(r.length===4&&r.every(Number.isFinite)){box=r;edit=true;manualVisible=true;}}setInterval(poll,400);draw();poll();
 </script></html>

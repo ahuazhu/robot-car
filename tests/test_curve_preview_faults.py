@@ -4,6 +4,7 @@ from urllib.request import urlopen
 from unittest.mock import patch
 import numpy as np
 
+from robot import APP_VERSION
 from robot.interface.preview_transport import LiveStream
 from robot.tasks.lap_counter import LapCounter
 
@@ -61,6 +62,9 @@ class PreviewFaultTests(unittest.TestCase):
             self.assertTrue(done)
             with urlopen(base+"/", timeout=2) as response:
                 self.assertEqual(response.status, 200)
+                page = response.read().decode()
+                self.assertIn("v" + APP_VERSION, page)
+                self.assertNotIn("__APP_VERSION__", page)
         finally:
             stream.stop()
 

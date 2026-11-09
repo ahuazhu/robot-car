@@ -13,6 +13,7 @@ from robot.control.requests import ControlRequest
 from robot.control.controller import (
     assess_vision_command,
     compensate_pwm,
+    motor_startup_blockers,
     startup_blockers,
 )
 
@@ -104,6 +105,8 @@ class DrivingSession:
             s.road_policy.measurement_quality,
             required=s.road_policy.startup_observations,
         )
+        if not self.active and not s.preview_only:
+            blocked.extend(motor_startup_blockers(frame.motor_snapshot))
         blocked.extend(self.task_blockers(frame.motor_snapshot))
         if self.crosswalk.failure:
             blocked.append(self.crosswalk.failure)
@@ -140,6 +143,9 @@ class DrivingSession:
             self.laps.prepare(target)
         try:
             self.link.send(1)
+            # Begin only once UNO has accepted zero-output ARM. Frame capture
+            # predates vision processing and the UART round trip.
+            started_at = self.clock()
             self.active = True
             self.next_control = 0.0
             self.recovery.reset()
@@ -148,7 +154,7 @@ class DrivingSession:
             self.search.reset(clear_map=True)
             self.reason = frame.result["mode"]
             self.start_light.started()
-            self.laps.begin(frame.lap_observation, frame.captured)
+            self.laps.begin(frame.lap_observation, started_at)
             print(
                 "START",
                 json.dumps(
