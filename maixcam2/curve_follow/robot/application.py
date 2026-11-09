@@ -84,7 +84,7 @@ def main(app_dir):
     saved, stats = set(), {}
     ramp, recovery = CommandRamp(), RoadSupervisor(policy.missing_command_s)
     try:
-        stream = LiveStream(8000)
+        stream = LiveStream(8000, lamp_signal=start_light)
         session = DrivingSession(
             settings,
             link,
@@ -244,8 +244,8 @@ def main(app_dir):
             profile_ms["control_pipeline"] = round(detection_ms, 2)
             supervisor_tick = time.monotonic()
             x, y, pressed = touch.read()
-            action = stream.control.take()
             touch_action = device_screen.action_at(x, y) if pressed and not was_pressed else None
+            action = stream.control.take(touch_action=touch_action)
             was_pressed = pressed
             if touch_action == "exit":
                 break

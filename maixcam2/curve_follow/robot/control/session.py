@@ -110,13 +110,17 @@ class DrivingSession:
         blocked.extend(self.task_blockers(frame.motor_snapshot))
         if self.crosswalk.failure:
             blocked.append(self.crosswalk.failure)
+        configuring = bool(getattr(self.start_light, "configuration_pending", False))
+        if configuring:
+            blocked.append("LAMP_CONFIGURATION_PENDING")
         direct = bool(not self.active and not blocked)
         arm = (
             not self.active and not s.preview_only and not self.start_light.armed and self.start_light.available
             if self.start_light.enabled
             else direct
         )
-        return dict(blocked_by=blocked, direct_start_ready=direct, arm_start_light_ready=bool(arm))
+        return dict(blocked_by=blocked, direct_start_ready=direct,
+                    arm_start_light_ready=bool(arm and not configuring))
 
     def stop(self, reason, *, reset_tasks=False, clear_start_permission=False):
         # Local STOP/finish reset must not depend on receiving a UNO reply.

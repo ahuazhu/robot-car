@@ -1,16 +1,41 @@
-<!doctype html><html lang="zh-CN"><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>曲线中线巡线 v__APP_VERSION__</title><style>
-body{margin:0;background:#111827;color:#e5e7eb;font:16px system-ui;padding:20px}
-main{max-width:1440px;margin:auto}h1{font-size:24px}p{line-height:1.6}
-img{display:block;width:100%;height:auto;border:1px solid #374151;border-radius:10px}
-.labels{display:flex}.labels span{width:33.33%;padding:12px 0;font-weight:600}
-small{color:#9ca3af}button{padding:12px 22px;border:0;border-radius:6px;cursor:pointer;font:inherit}
-#direct-start{background:#16a34a;color:white}#start{background:#2563eb;color:white}#stop,#stop-bottom{background:#dc2626;color:white;font-weight:bold}
-button:disabled{opacity:.4;cursor:not-allowed}.lap-setting{display:flex;gap:8px;align-items:center}.lap-setting input{width:5em;padding:10px;border:1px solid #6b7280;border-radius:6px;background:#1f2937;color:#e5e7eb;font:inherit}.lap-setting input:disabled{opacity:.55;cursor:not-allowed}.lap-setting input[aria-invalid="true"]{border-color:#f87171}.controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:16px}
-#status{font-weight:600}#notice{min-height:1.6em;color:#fcd34d}
-.video-window{overflow:hidden;border:1px solid #374151;border-radius:10px}
-.video-window img{border:0;border-radius:0;max-width:none}
+<!doctype html><html lang="zh-CN"><head>
+<meta charset="utf-8">
+
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>赛道控制台 · v__APP_VERSION__</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1220;--panel:#131e30;--line:#2a394f;--muted:#97a9c2;--text:#edf3fc;--blue:#3979ff;--yellow:#f9ce55}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"PingFang SC",sans-serif;padding:24px 28px 164px}
+main{max-width:1360px;margin:auto}
+button,input{font:inherit}
+button{border:1px solid var(--line);border-radius:9px;background:#22324a;color:var(--text);padding:10px 16px;cursor:pointer;font-weight:600;min-height:44px;touch-action:manipulation}
+button:hover:not(:disabled){filter:brightness(1.13)}
+button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid #8bb4ff;outline-offset:3px}
+button:disabled{opacity:.4;cursor:not-allowed}
+p{margin:8px 0}
+small,.muted{color:var(--muted)}
+[hidden]{display:none!important}
+.page-header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:22px}
+.brand{display:flex;align-items:baseline;gap:12px}
+h1{margin:0;font-size:25px;letter-spacing:.02em}
+.version{font-size:12px;color:var(--muted)}
+.workflow{margin:4px 0 0;color:var(--muted);font-size:13px}
+.connection{display:flex;align-items:center;gap:12px;font-size:13px}
+.pill{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:30px;padding:5px 11px;white-space:nowrap;color:var(--muted);font-size:12px}
+.pill[data-tone="good"]{color:#85e0ba;border-color:#275a4d;background:#12362c}
+.pill[data-tone="warn"]{color:#ffd484;border-color:#765e32;background:#342b1c}
+.pill[data-tone="bad"]{color:#ffadb3;border-color:#71414a;background:#36202b}
+.camera-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
+.camera-card{border:1px solid var(--line);border-radius:16px;background:var(--panel);overflow:hidden;min-width:0}
+.card-header{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px 16px;min-height:66px}
+.camera-title{display:flex;align-items:center;gap:9px;font-size:16px;font-weight:650;margin:0}
+.step{display:grid;place-items:center;width:25px;height:25px;border-radius:8px;font-size:12px;background:#293b57;color:#b5cfff}
+.view-controls{display:flex;gap:2px;background:#0c1525;padding:3px;border:1px solid var(--line);border-radius:8px}
+.view-controls button{font-size:12px;min-height:32px;border:0;padding:5px 9px;background:transparent;color:var(--muted);border-radius:5px}
+.view-controls button.selected{background:#314e79;color:white}
+.video-window{overflow:hidden;background:#050a12;position:relative}
+.video-window img{display:block;max-width:none;border:0}
 .video-window[data-view="all"]{aspect-ratio:4/1}
 .video-window[data-view="all"] img{width:100%;transform:none}
 .video-window:not([data-view="all"]){aspect-ratio:4/3}
@@ -18,51 +43,255 @@ button:disabled{opacity:.4;cursor:not-allowed}.lap-setting{display:flex;gap:8px;
 .video-window[data-view="raw"] img{transform:translateX(0)}
 .video-window[data-view="annotated"] img{transform:translateX(-33.333333%)}
 .video-window[data-view="ground"] img{transform:translateX(-66.666667%)}
-.view-controls{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}
-.view-controls button{padding:8px 12px;background:#374151;color:#e5e7eb}
-.view-controls button.selected{background:#2563eb}
-#diagnostics{min-height:1.6em;color:#9ca3af}
-body{padding-bottom:100px}.bottom-controls{position:fixed;bottom:0;left:0;right:0;z-index:10;background:#111827;border-top:1px solid #374151;padding:12px 20px;display:flex;justify-content:center;box-sizing:border-box;padding-bottom:max(12px,env(safe-area-inset-bottom))}.bottom-controls button{width:min(320px,100%);min-height:52px}
-.camera-grid{display:grid;grid-template-columns:3fr 1fr;gap:12px;align-items:start}
-.camera-grid:not([data-view="all"]){grid-template-columns:1fr 1fr}
-.camera-title{margin:0 0 8px;font-size:15px;font-weight:600}
-.esp-window{position:relative;aspect-ratio:4/3;background:#0b111c;border:1px solid #374151;border-radius:10px;overflow:hidden}
-.esp-window img{width:100%;height:100%;object-fit:contain;border:0;border-radius:0}
-.esp-roi{position:absolute;left:25%;top:0%;width:50%;height:53.333333%;box-sizing:border-box;border:2px solid cyan;pointer-events:none}
-.esp-target{border-color:#facc15}
-.esp-placeholder{position:absolute;inset:0;display:grid;place-items:center;color:#9ca3af;font-size:14px;padding:12px;text-align:center}
-[hidden]{display:none!important}
-@media(max-width:600px){body{padding:12px;padding-bottom:100px}.camera-grid,.camera-grid:not([data-view="all"]){grid-template-columns:1fr 1fr}.camera-grid[data-view="all"]{grid-template-columns:1fr}.labels span{font-size:12px}}
-</style><main><h1>曲线中线巡线 v__APP_VERSION__</h1>
-<div class="view-controls" aria-label="选择画面">
-<button data-view="all" onclick="setView('all')">三图对照</button>
-<button data-view="raw" onclick="setView('raw')">完整原图</button>
-<button data-view="annotated" onclick="setView('annotated')">巡线叠加</button>
-<button data-view="ground" onclick="setView('ground')">地面投影</button></div>
-<div id="camera-grid" class="camera-grid" data-view="all">
-<section aria-label="Maix 巡线画面"><p class="camera-title">Maix · 巡线</p>
-<div id="video-window" class="video-window" data-view="all"><img id="video" alt="Maix 实时画面"></div>
-<div class="labels" id="labels"><span>原图</span><span>巡线</span><span>地面投影</span></div></section>
-<section aria-label="ESP32 发车灯画面"><p class="camera-title">ESP32 · 发车灯 <small id="esp-state">连接中</small></p>
-<div class="esp-window"><img id="esp-video" alt="ESP32 实时画面" hidden><div id="esp-roi" class="esp-roi" aria-label="发车灯定位框" hidden></div><div id="esp-target" class="esp-roi esp-target" aria-label="锁定的灯面" hidden></div><div id="esp-placeholder" class="esp-placeholder">等待 ESP32 连接</div></div>
-</section></div>
-<div class="controls"><label class="lap-setting" for="target-laps">目标圈数 <input id="target-laps" type="number" min="1" max="100" step="1" value="2" inputmode="numeric" aria-describedby="laps-help" disabled></label><small id="laps-help">1–100圈，ARM后锁定</small><button id="direct-start" disabled onclick="control('start_now')">▶ 手动测试启动</button><button id="start" disabled onclick="control('start')">START 开始</button>
-<button id="stop" onclick="control('stop')">STOP 停车</button><span id="status">正在连接…</span></div>
-<p id="notice" role="status" aria-live="polite"></p><p id="lap-status" role="status"></p><p id="start-light-status" role="status"></p><p id="crosswalk-status" role="status"></p><p id="diagnostics"></p>
-<p>左：原图｜中：巡线｜右：地面投影（未标定时仅供参考）。黄线：左边界；蓝线：右边界；绿线：中线；橙色虚线：预测中线；红十字：追踪点。</p>
-<p>正式发车：灯灭时摆好车，确认灯面范围后按 ARM；等待裁判亮灯，再确认熄灯。已保存的手工范围优先使用；切回自动定位时由模型寻找灯面，锁定后仅检测灯面变化。出发许可确认后保留至 STOP、完赛停车或应用退出，ESP32后续离线不影响本轮巡线。手动测试启动跳过等灯。横道采用一次刹停，停稳亮红灯满3.2秒后通行；停位未核实会明确标记异常。计满圈数后继续巡线累计40cm再停车，途中仍受道路与通信保护约束。</p>
-<button onclick="connectMaixPreview()">重新连接画面</button>
-<p><small>电脑或手机需与摄像头连接同一 Wi-Fi。退出巡线应用后，视频会断开。</small></p></main><footer class="bottom-controls" aria-label="底部停车菜单"><button id="stop-bottom" onclick="control('stop')">STOP 停车</button></footer><script>
+.labels{display:flex;background:#0f1929;color:var(--muted);font-size:11px;text-align:center}
+.labels span{width:33.333%;padding:5px}
+.camera-foot{padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;min-height:64px}
+.camera-foot p{margin:0;font-size:13px;color:var(--muted)}
+.health{display:flex;gap:8px;flex-wrap:wrap}
+.esp-window{position:relative;aspect-ratio:4/3;background:#050a12;overflow:hidden}
+.esp-window img{display:block;width:100%;height:100%;object-fit:contain}
+.esp-roi{position:absolute;box-sizing:border-box;border:2px solid var(--yellow);pointer-events:none}
+.esp-placeholder{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:14px;padding:20px;text-align:center}
+.roi-layer{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+.roi-edge{stroke:var(--yellow);stroke-width:1;pointer-events:none}
+.roi-hit{stroke:transparent;stroke-width:15;pointer-events:stroke;cursor:move}
+.roi-tools{padding:0 16px 14px}
+.roi-sliders{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;border-top:1px solid var(--line);padding-top:12px}
+.roi-sliders label{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted)}
+.roi-sliders input{width:100%;min-width:0;accent-color:var(--yellow);min-height:28px}
+.roi-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.roi-actions button{font-size:13px}
+.primary-small{background:#275abe;border-color:#4075dd}
+.text-button{padding:6px 10px;min-height:34px;font-size:12px;background:transparent}
+.roi-status{padding:0 16px 12px;font-size:12px;color:var(--yellow);margin:0}
+.support-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:18px}
+details{border:1px solid var(--line);border-radius:12px;background:#101a2a;overflow:hidden}
+summary{cursor:pointer;padding:13px 16px;color:var(--muted);font-size:13px;font-weight:600}
+details[open] summary{border-bottom:1px solid var(--line)}
+.details-body{padding:10px 16px 16px;font-size:13px;overflow-wrap:anywhere}
+.details-body p{color:var(--muted)}
+.details-body button{font-size:13px}
+.debug-actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.legend{line-height:1.9;font-size:12px}
+.legend b{font-weight:500}
+.yellow{color:#f9ce55}
+.blue{color:#84bdff}
+.green{color:#69dfa6}
+.orange{color:#f1ae62}
+.mission-bar{position:fixed;bottom:0;left:0;right:0;z-index:20;background:#101b2bf5;backdrop-filter:blur(12px);border-top:1px solid #344760;padding:14px 28px max(14px,env(safe-area-inset-bottom))}
+.mission-inner{max-width:1360px;margin:auto;display:grid;grid-template-columns:minmax(180px,1fr) auto auto;gap:24px;align-items:center}
+.mission-state{font-size:18px;font-weight:650;margin:0}
+.mission-detail{font-size:12px;color:var(--muted);margin:3px 0 0}
+.run-setting{display:flex;align-items:center;gap:12px}
+.lap-setting{display:flex;align-items:center;gap:10px;font-size:13px;white-space:nowrap}
+.lap-setting input{width:70px;min-height:50px;padding:8px 10px;background:#17263c;color:white;border:1px solid #4b607c;border-radius:9px;font-size:20px;font-weight:650}
+.lap-setting input[aria-invalid="true"]{border-color:#fa8c91}
+.lap-setting input:disabled{opacity:.55}
+#start{background:var(--blue);border-color:var(--blue);min-height:52px;min-width:170px}
+#stop{background:#df3344;border-color:#ee4a5a;min-height:56px;min-width:180px;color:white;font-size:18px;font-weight:750}
+#notice{max-width:1360px;margin:6px auto 0;color:#ffd484;font-size:12px}
+#notice:empty{display:none}
+@media(min-width:1050px){.camera-grid[data-view="all"]{grid-template-columns:3fr 1fr}
+}
+@media(max-width:1000px){body{padding:18px 18px 190px}
+.card-header{align-items:flex-start;flex-wrap:wrap;min-height:102px}
+.view-controls{margin-top:2px}
+.mission-inner{gap:16px;grid-template-columns:1fr auto}
+.run-setting{grid-column:1;grid-row:2}
+.stop-wrap{grid-column:2;grid-row:1/3}
+#start{min-width:160px}
+.mission-bar{padding:12px 18px max(12px,env(safe-area-inset-bottom))}
+.mission-state{font-size:16px}
+}
+@media(max-width:620px){body{padding:14px 12px 220px}
+.page-header{align-items:flex-start;margin-bottom:16px}
+h1{font-size:21px}
+.brand{gap:8px;flex-wrap:wrap}
+.workflow{font-size:11px}
+.connection{gap:0}
+.connection .connection-label{display:none}
+.camera-grid{gap:12px;grid-template-columns:1fr}
+.card-header{min-height:0;align-items:center;padding:11px 12px}
+.camera-title{font-size:14px}
+.view-controls button{padding:4px 7px;font-size:11px}
+.camera-foot{padding:10px 12px;min-height:52px}
+.support-grid{grid-template-columns:1fr;gap:10px;margin-top:12px}
+.mission-inner{gap:10px;grid-template-columns:1fr 128px}
+.run-setting{gap:10px;flex-wrap:wrap}
+.lap-setting{font-size:12px}
+.lap-setting input{min-height:44px;width:58px;font-size:18px}
+#start{min-height:46px;min-width:144px;font-size:14px}
+#stop{min-width:0;width:128px;min-height:76px;font-size:18px}
+.mission-detail{max-width:34em}
+.mission-bar{padding:11px 12px max(11px,env(safe-area-inset-bottom))}
+.version{font-size:11px}
+}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}
+}
+</style></head><body><main>
+<header class="page-header"><div><div class="brand"><h1>赛道控制台</h1><span class="version">v__APP_VERSION__</span></div><p class="workflow">摆车与框灯 <span aria-hidden="true">→</span> 准备等灯 <span aria-hidden="true">→</span> 自动行驶</p></div><div class="connection"><span class="connection-label muted">小车连接</span><span class="pill" id="connection-state">连接中</span></div></header>
+
+<div id="camera-grid" class="camera-grid" data-view="annotated">
+<section class="camera-card" aria-label="Maix 巡线画面"><div class="card-header"><h2 class="camera-title"><span class="step">1</span>巡线画面</h2><div class="view-controls" aria-label="选择巡线画面"><button data-view="raw" onclick="setView('raw')">原图</button><button data-view="annotated" onclick="setView('annotated')">巡线</button><button data-view="ground" onclick="setView('ground')">投影</button><button data-view="all" onclick="setView('all')">三图</button></div></div>
+<div id="video-window" class="video-window" data-view="annotated"><img id="video" alt="Maix 巡线实时画面"></div><div class="labels" id="labels" hidden><span>原图</span><span>巡线</span><span>地面投影</span></div>
+<div class="camera-foot"><div class="health"><span id="road-state" class="pill">等待道路</span><span id="motor-state" class="pill">等待电机</span></div><p id="road-hint">将车摆正，确认中线沿道路延伸。</p></div></section>
+
+<section class="camera-card" aria-label="ESP32 发车灯画面"><div class="card-header"><h2 class="camera-title"><span class="step">2</span>发车信号灯</h2><span id="esp-state" class="pill">连接中</span></div>
+<div class="esp-window"><img id="esp-video" alt="ESP32 发车灯实时画面" hidden><div id="esp-roi" class="esp-roi" hidden></div><div id="esp-target" class="esp-roi" aria-label="已保存或锁定的灯面" hidden></div>
+<svg id="roi-layer" class="roi-layer" viewBox="0 0 320 240" aria-label="拖动四条黄线框住灯面" hidden>
+<rect id="roi-shade" fill="#f9ce55" fill-opacity=".08"></rect>
+<line id="roi-line-left" class="roi-edge"/><line id="roi-line-right" class="roi-edge"/><line id="roi-line-top" class="roi-edge"/><line id="roi-line-bottom" class="roi-edge"/>
+<line id="roi-hit-left" data-edge="left" class="roi-hit"/><line id="roi-hit-right" data-edge="right" class="roi-hit"/><line id="roi-hit-top" data-edge="top" class="roi-hit"/><line id="roi-hit-bottom" data-edge="bottom" class="roi-hit"/>
+</svg><div id="esp-placeholder" class="esp-placeholder">等待 ESP32 连接</div></div>
+<div class="camera-foot"><span id="lamp-mode" class="pill">读取灯面设置</span><button id="roi-edit" class="text-button" onclick="beginROIEdit()" disabled>调整灯面</button></div>
+<div id="roi-tools" class="roi-tools" hidden><div class="roi-sliders">
+<label for="roi-left">左边<input id="roi-left" type="range" min="0" max="304" step="1" oninput="setROIBound('left',this.value)"></label><label for="roi-right">右边<input id="roi-right" type="range" min="16" max="320" step="1" oninput="setROIBound('right',this.value)"></label><label for="roi-top">上边<input id="roi-top" type="range" min="0" max="224" step="1" oninput="setROIBound('top',this.value)"></label><label for="roi-bottom">下边<input id="roi-bottom" type="range" min="16" max="240" step="1" oninput="setROIBound('bottom',this.value)"></label></div>
+<div class="roi-actions"><button id="roi-save" class="primary-small" onclick="saveLampConfiguration(true)" disabled>保存灯面</button><button id="roi-cancel" onclick="cancelROIEdit()">取消调整</button><button id="roi-auto" onclick="saveLampConfiguration(false)" disabled>恢复自动定位</button></div></div>
+<p id="roi-status" class="roi-status">只圈灯面，避开右侧数字屏。</p></section>
+</div>
+<div class="support-grid"><details id="diagnostics-panel"><summary>状态与诊断</summary><div class="details-body"><p id="status">正在连接…</p><p id="lap-status"></p><p id="start-light-status"></p><p id="crosswalk-status"></p><p id="diagnostics"></p></div></details>
+<details id="advanced-panel"><summary>调试与说明</summary><div class="details-body"><p>灯灭时摆好车、确认灯面，设置圈数后按“准备等灯”。裁判亮灯后再次熄灯，小车自动出发。</p><div class="debug-actions"><button id="direct-start" disabled onclick="control('start_now')">手动测试启动</button><button onclick="connectMaixPreview()">重连巡线画面</button></div><p>手动测试启动会跳过信号灯，请确认场地允许。</p><p class="legend"><b class="yellow">黄：左边界</b> · <b class="blue">蓝：右边界</b> · <b class="green">绿：中线</b> · <b class="orange">橙：预测</b> · 红十字：追踪点</p><p>横道停稳亮红灯满3.2秒后通行。计满圈数后继续巡线40cm再停车；道路与通信异常仍会触发保护。</p></div></details></div>
+
+</main>
+<footer class="mission-bar" aria-label="比赛操作"><div class="mission-inner"><div><p id="mission-state" class="mission-state" role="status" aria-live="polite">正在连接小车</p><p id="mission-detail" class="mission-detail">连接后可设置圈数和准备等灯。</p></div><div class="run-setting"><label class="lap-setting" for="target-laps">目标圈数<input id="target-laps" type="number" min="1" max="100" step="1" value="2" inputmode="numeric" aria-describedby="laps-help" disabled></label><small id="laps-help" hidden>1–100圈，准备等灯后锁定</small><button id="start" disabled onclick="control('start')">ARM 准备等灯</button></div><div class="stop-wrap"><button id="stop" onclick="control('stop')">STOP 停车</button></div></div><p id="notice" role="status" aria-live="polite"></p></footer>
+<script>
+
 const token="__CONTROL_TOKEN__";
 let generation=0,canStart=false,canDirect=false,busy=false,statusBusy=false;
 let lapsInitialized=false,serverActive=false,serverArmed=false,lastServerLocked=false,statusExpiresAt=0,controlRevision=0;
+let lampConfiguration=null,roiDraft=[100,40,100,80],roiEditing=false,roiDirty=false,roiSaving=false,roiPending=null,roiRequestId=null,roiRemotePending=false,roiConfigError='',roiDrag=null;
+const roiBounds=['left','right','top','bottom'];
+function validLampBox(a){return Array.isArray(a)&&a.length===4&&a.every(Number.isInteger)&&a[0]>=0&&a[1]>=0&&a[2]>=16&&a[3]>=16&&a[0]+a[2]<=320&&a[1]+a[3]<=240;}
+function candidateLampBox(lamp){const c=lamp.candidate_hint;return c&&c.valid===true&&Number.isInteger(c.age_ms)&&c.age_ms>=0&&c.age_ms<=2500&&validLampBox(c.roi)?c.roi:null;}
+function sameConfiguration(a,b){return a&&b&&a.manual===b.manual&&(!a.manual||JSON.stringify(a.roi)===JSON.stringify(b.roi));}
+function canEditLamp(){return Date.now()<statusExpiresAt&&!espVideo.hidden&&Date.now()-espFrameAt<2000&&!!espLamp.connected&&!!lampConfiguration&&!serverActive&&!serverArmed&&!busy&&!roiSaving&&!roiPending&&!roiRemotePending;}
+function syncROIControls(){
+ const editable=canEditLamp();
+ document.getElementById('roi-edit').disabled=!editable||roiEditing;
+ document.getElementById('roi-save').disabled=!editable||!roiEditing||!validLampBox(roiDraft);
+ document.getElementById('roi-auto').disabled=!editable;
+ document.getElementById('roi-cancel').disabled=roiSaving||!!roiPending||roiRemotePending;
+ for(const edge of roiBounds)document.getElementById('roi-'+edge).disabled=!editable||!roiEditing;
+ if(!editable)roiDrag=null;
+}
+function drawROI(){
+ const [x,y,w,h]=roiDraft,values={left:x,right:x+w,top:y,bottom:y+h};
+ document.getElementById('roi-layer').hidden=!roiEditing||espVideo.hidden;
+ document.getElementById('roi-tools').hidden=!roiEditing;
+ for(const edge of roiBounds){
+  document.getElementById('roi-'+edge).value=String(values[edge]);
+  const vertical=edge==='left'||edge==='right',a=values[edge];
+  const attrs=vertical?{x1:a,x2:a,y1:0,y2:240}:{x1:0,x2:320,y1:a,y2:a};
+  for(const prefix of ['roi-line-','roi-hit-'])for(const [name,value] of Object.entries(attrs))document.getElementById(prefix+edge).setAttribute(name,value);
+ }
+ for(const [name,value] of Object.entries({x,y,width:w,height:h}))document.getElementById('roi-shade').setAttribute(name,value);
+ if(roiEditing)espTarget.hidden=true;
+ syncROIControls();
+}
+function beginROIEdit(){
+ if(!canEditLamp())return;
+ roiDraft=(lampConfiguration.manual?lampConfiguration.roi:espLamp.target_locked&&validLampBox(espLamp.target_roi)?espLamp.target_roi:candidateLampBox(espLamp)||roiDraft).slice();
+ roiEditing=true;roiDirty=false;roiConfigError='';drawROI();syncControls();
+ document.getElementById('roi-status').textContent='拖动四条黄线，只框灯面。调整后点击“保存灯面”。';
+}
+function cancelROIEdit(){
+ if(roiSaving||roiPending||roiRemotePending)return;
+ roiEditing=false;roiDirty=false;roiDrag=null;roiConfigError='';drawROI();syncControls();renderLampConfiguration(espLamp);
+}
+function setROIBound(edge,value){
+ if(!roiEditing||!canEditLamp()||!roiBounds.includes(edge))return;
+ const n=Math.round(Number(value));if(!Number.isFinite(n))return;
+ let [l,t,w,h]=roiDraft,r=l+w,b=t+h;
+ if(edge==='left')l=Math.max(0,Math.min(r-16,n));
+ if(edge==='right')r=Math.min(320,Math.max(l+16,n));
+ if(edge==='top')t=Math.max(0,Math.min(b-16,n));
+ if(edge==='bottom')b=Math.min(240,Math.max(t+16,n));
+ roiDraft=[l,t,r-l,b-t];roiDirty=true;drawROI();syncControls();
+ document.getElementById('roi-status').textContent='灯面范围尚未保存。保存后再准备等灯。';
+}
+async function saveLampConfiguration(manual){
+ if(!canEditLamp()||(manual&&(!roiEditing||!validLampBox(roiDraft))))return;
+ const configuration=manual?{manual:true,roi:roiDraft.slice()}:{manual:false};
+ roiSaving=true;roiPending=configuration;roiRequestId=null;roiConfigError='';controlRevision++;statusExpiresAt=0;syncControls();
+ document.getElementById('roi-status').textContent=manual?'正在保存灯面…':'正在恢复自动定位…';
+ try{
+  const response=await fetch('/lamp-config',{method:'POST',headers:{'Content-Type':'application/json','X-Control-Token':token},body:JSON.stringify({generation,configuration}),signal:AbortSignal.timeout(2500)});
+  const result=await response.json();if(!response.ok)throw Error(result.message||'灯面设置未保存');
+  if(!Number.isInteger(result.request_id)||result.request_id<1)throw Error('保存回执无效，请重新核对灯面');
+  roiRequestId=result.request_id;
+ }catch(e){roiPending=null;roiRequestId=null;roiConfigError=e.message;}
+ finally{roiSaving=false;await updateStatus();syncControls();}
+}
+function renderLampConfiguration(lamp){
+ const cfg=lamp.lamp_configuration,update=lamp.configuration_update||{};
+ roiRemotePending=!!update.pending;
+ if(cfg&&typeof cfg.manual==='boolean'&&validLampBox(cfg.roi))lampConfiguration={manual:cfg.manual,roi:cfg.roi.slice()};
+ else lampConfiguration=null;
+ if(update.error&&(!roiPending||(roiRequestId!==null&&update.request_id===roiRequestId))){
+  const errors={invalid_configuration:'灯面范围无效',invalid_request:'设置请求无效',pairing_required:'ESP32 配对异常',boot_changed:'ESP32 已重启，请重试',native_armed_stop_first:'请先停车并取消等灯',storage_failed:'ESP32 保存失败，请重试',configuration_mismatch:'灯面设置未能核实，请重试',configuration_response_invalid:'灯面设置回执无效',configuration_failed:'灯面设置未能完成，请重试',configuration_offline:'ESP32 暂不可达，请检查连接',stop_first:'请先停车再调整灯面',not_ready:'请等待 ESP32 连接稳定'};
+  roiPending=null;roiRequestId=null;roiConfigError=errors[update.error]||update.error;
+ }
+ if(!roiSaving&&!roiRemotePending&&roiPending&&roiRequestId!==null&&update.request_id===roiRequestId&&update.state==='SAVED'&&sameConfiguration(lampConfiguration,roiPending)){
+  roiPending=null;roiRequestId=null;roiEditing=false;roiDirty=false;roiConfigError='';
+ }
+ if(!roiEditing&&!roiPending&&lampConfiguration?.manual)roiDraft=lampConfiguration.roi.slice();
+ const mode=document.getElementById('lamp-mode');
+ mode.textContent=lampConfiguration?(lampConfiguration.manual?'手动灯面已保存':'自动定位灯面'):'等待读取灯面设置';
+ mode.dataset.tone=lampConfiguration?'good':'';
+ document.getElementById('roi-status').textContent=roiConfigError?'设置未保存：'+roiConfigError:roiSaving||roiPending||roiRemotePending?'正在应用灯面设置，请稍候':serverActive?'已发车，信号灯不再影响本轮行驶。':serverArmed?'本轮灯面已固定，停车后可调整。':roiEditing?(roiDirty?'灯面范围尚未保存。保存后再准备等灯。':'拖动四条黄线，只框灯面。调整后点击“保存灯面”。'):!lampConfiguration?'等待 ESP32 灯面设置。':lampConfiguration.manual?'黄框为已保存灯面；灯灭时按“准备等灯”。':'默认自动找灯；需要时可手工调整灯面。';
+ drawROI();
+ if(!roiEditing&&lamp.connected&&!espVideo.hidden){
+  const box=lampConfiguration?.manual?lampConfiguration.roi:lamp.target_locked?lamp.target_roi:candidateLampBox(lamp);
+  if(validLampBox(box)){setESPRect(espTarget,box);espTarget.hidden=false;}else espTarget.hidden=true;
+ }
+}
+function updateFieldSummary(s,fresh){
+ const d=s.readiness||{},lamp=d.start_light||{},laps=d.laps||{},blockers=d.blocked_by||[];
+ const connection=document.getElementById('connection-state');connection.textContent=fresh?'已连接':'状态过期';connection.dataset.tone=fresh?'good':'bad';
+ const motorBlocked=blockers.some(k=>k.startsWith('UNO_'));
+ const roadBlocked=blockers.some(k=>/^(ROAD_|PATH_|VISION_|PREVIEW_ONLY)/.test(k));
+ const road=document.getElementById('road-state'),motor=document.getElementById('motor-state');
+ road.textContent=!fresh?'道路状态未知':roadBlocked?'道路待确认':'道路就绪';road.dataset.tone=!fresh?'':roadBlocked?'warn':'good';
+ motor.textContent=!fresh?'电机状态未知':motorBlocked?'电机待检查':'电机就绪';motor.dataset.tone=!fresh?'':motorBlocked?'warn':'good';
+ const stopFailures={'CROSSWALK STOP UNVERIFIED':'横道停位未确认','CROSSWALK POSITION UNCERTAIN':'横道距离不确定','CROSSWALK STOP WINDOW MISSED':'横道停车窗口已错过','UNO NOT CONNECTED':'电机通信异常','CONTROL STALE':'控制更新超时','MOTOR LINK STOP':'电机连接保护停车','CROSSWALK SETUP REQUIRED':'横道停车设置未就绪','CALIBRATION REQUIRED':'需要重新标定','PREVIEW ONLY':'当前为仅预览模式','ESP32 NOT READY':'发车灯尚未就绪','ESP32 PERMISSION REQUIRED':'尚未取得发车许可'};
+ let title='待准备',detail='灯灭时摆好车，确认灯面后准备等灯。';
+ if(!fresh){title='状态更新中断';detail='请检查小车与电脑的网络连接。';}
+ else if(!s.active&&stopFailures[s.reason]){title='已停车 · '+stopFailures[s.reason];detail='请检查小车位置与状态，确认后重新准备。';}
+ else if(s.reason==='LAPS COMPLETE'){title='已完赛 · 停车';detail=`完成 ${laps.completed_laps??laps.total_laps??0} / ${laps.total_laps??2} 圈`;}
+ else if(s.active){
+  title=s.reason==='FINISH DISTANCE'?'完赛冲线中':s.reason==='WAIT START LIGHT'?(lamp.permission?'已收到发车信号':'准备等灯中'):'行驶中';
+  if(['ROAD SEARCH SCANNING','ROAD SEARCH SETTLING','REACQUIRING ROAD','VISION WAIT','ROAD SEARCH','ROAD NOT FOUND'].includes(s.reason))title='寻路恢复中';
+  const c=d.crosswalk||{};if(['STOPPING','HOLD','RECOVERY_HOLD'].includes(c.phase))title=c.phase==='STOPPING'?'横道刹停中':'横道停车礼让';
+  detail=lamp.permission?'发车许可已确认，本轮独立巡线。':'小车正在执行本轮任务。';
+  if(laps.enabled)detail=`圈数 ${laps.completed_laps??0} / ${laps.total_laps??2}`+(s.reason==='FINISH DISTANCE'?` · 还需约 ${Math.ceil((laps.finish_remaining_m??0)*100)}cm`:'');
+  if(['HOLD','RECOVERY_HOLD'].includes(c.phase))detail=`停稳亮红灯 ${Number(c.hold_elapsed_s||0).toFixed(1)} / ${Number(c.required_hold_s||3.2).toFixed(1)} 秒`+(c.phase==='RECOVERY_HOLD'?' · 停位未核实':'');
+ }
+ else if(lamp.armed){title=lamp.permission?'已收到发车信号':lamp.phase==='WAIT_ON'?'已准备 · 等待亮灯':['WAIT_OFF','CONFIRM_OFF'].includes(lamp.phase)?'已见亮灯 · 等待熄灯':'正在准备等灯';detail=lamp.permission?'等待道路和电机就绪后自动出发。':'准备后请保持车子和相机固定。';}
+ else if(lamp.phase==='FAULT'){title='等灯已取消';detail='查看灯面与连接状态，重新准备等灯。';}
+ else if(motorBlocked){title='电机待检查';detail='检查 UNO 供电与串口连接，详情见状态与诊断。';}
+ else if(roiEditing||roiPending||roiRemotePending){title=roiEditing?'正在调整灯面':'正在保存灯面';detail='完成灯面设置后再准备等灯。';}
+ else if(roadBlocked){title='摆车准备中';detail='对准道路后可准备等灯；发车前会再次检查道路。';}
+ document.getElementById('mission-state').textContent=title;
+ document.getElementById('mission-detail').textContent=detail;
+ document.getElementById('road-hint').textContent=roadBlocked?'将车摆正，让中线沿道路延伸。':'中线与道路已确认。';
+}
+
 const directButton=document.getElementById('direct-start'),startButton=document.getElementById('start'),statusBox=document.getElementById('status'),notice=document.getElementById('notice');
 const lapsInput=document.getElementById('target-laps'),lapsError='请输入1–100之间的整数圈数。';
 function syncControls(){
  const fresh=Date.now()<statusExpiresAt;
- directButton.disabled=!fresh||!canDirect||busy;
- startButton.disabled=!fresh||!canStart||busy;
+ directButton.disabled=!fresh||!canDirect||busy||roiEditing||roiSaving||!!roiPending||roiRemotePending;
+ startButton.disabled=!fresh||!canStart||busy||roiEditing||roiSaving||!!roiPending||roiRemotePending;
  lapsInput.disabled=!fresh||busy||serverActive||serverArmed;
+ syncROIControls();
+ if(!fresh){
+  document.getElementById('connection-state').textContent='连接待确认';document.getElementById('connection-state').dataset.tone='bad';
+  document.getElementById('mission-state').textContent=busy?'正在发送准备请求':'连接待确认 · 状态未知';
+  document.getElementById('mission-detail').textContent='等待小车最新状态；停车按钮仍可发送请求。';
+  for(const [id,label] of [['road-state','道路'],['motor-state','电机']]){const e=document.getElementById(id);e.textContent=label+'状态未知';e.dataset.tone='';}
+ }
+
+
 }
 lapsInput.addEventListener('input',()=>{
  lapsInput.removeAttribute('aria-invalid');
@@ -112,7 +341,7 @@ async function updateStatus(){
    const lamp=d.start_light||{};
    if(fresh&&maixNeedsReconnect)connectMaixPreview();
    if(fresh)syncESP(lamp);else markESPUnknown('Maix 状态已过期');
-   startButton.textContent=lamp.enabled?'ARM 准备等灯':'START 开始';
+   startButton.textContent=lamp.armed?'已准备 · 等待信号':lamp.enabled?'ARM 准备等灯':'START 开始';
    const lampPhases={ARMING:'正在准备等灯',FAULT:'本轮等灯已取消，请重新 ARM',WAIT_CONNECTION:'等待 ESP32 恢复，尚无出发许可',PERMITTED:'出发许可已锁存',WAIT_ON:'已准备，等待裁判亮灯',WAIT_TARGET:'等待灯面定位',LOCK_TARGET:'正在确认灯面稳定',WAIT_OFF:'灯面已锁定，等待熄灯',CONFIRM_OFF:'正在确认熄灯',TARGET_UNCERTAIN:'光照或画面不稳定，请检查灯面',SIGNAL_READY:'出发许可已锁存，等待道路和电机就绪',RUNNING:'本次已启动',DISARMED:'灯灭时框好灯面并按 ARM'};
    const signalErrors={ESP32_WAITING_FOR_RECOVERY:'等待 ESP32 恢复，尚无出发许可',ESP32_OFFLINE:'ESP32 暂不可达',ESP32_OFFLINE_REARM_REQUIRED:'本轮等灯因通信异常取消，请重新 ARM',ESP32_STALE_REARM_REQUIRED:'发车状态过期，请重新 ARM',PAIRING_REQUIRED:'ESP32 尚未配对',CONNECTING:'正在连接 ESP32'};
    const faultReasons={STATUS_STALE:'状态超时',RESPONSE_TOO_SLOW:'响应超时',CAMERA_FRAME_STALE:'相机帧过期',INVALID_SIGNAL_RESPONSE:'发车数据校验失败',DEVICE_REBOOTED:'ESP32 已重启',SESSION_CHANGED:'发车会话已变化',FRAME_SEQUENCE_REGRESSED:'相机帧序号回退',TimeoutError:'请求超时',URLError:'网络请求失败',OSError:'网络请求失败',HTTPError:'发车请求被拒绝'};
@@ -135,7 +364,9 @@ async function updateStatus(){
     document.getElementById('crosswalk-status').textContent=[`横道：${mode}`,phases[crossing.phase]||crossing.phase,range,['HOLD','RECOVERY_HOLD'].includes(crossing.phase)?`已停 ${crossing.hold_elapsed_s.toFixed(1)}/${(crossing.required_hold_s??3.2).toFixed(1)}秒`:'',crossing.failure||crossing.recovery_reason||'',yieldResult].filter(Boolean).join(' · ');
    }
 
-   const labels={LAP_START_NOT_READY:'请在计圈白线前摆正，等待龙门架与白线确认',PREVIEW_ONLY:'当前仅预览',UNO_DISCONNECTED:'UNO未连接',VISION_TOO_SLOW:'视觉处理超时',PATH_CONFIRMING:'正在确认中线',ROAD_NO_TARGET:'暂无有效追踪点',ROAD_UNOBSERVED:'等待有效道路观测',ROAD_WEAK:'道路置信度不足',ROAD_STABILIZING:'等待道路稳定',CROSSWALK_STOP_UNVERIFIED:'横道停车位置尚未确认',UNO_STATUS_UNAVAILABLE:'等待UNO状态',UNO_WORKER_STOPPED:'电机通信进程已停止',UNO_STATUS_STALE:'UNO状态已过期',UNO_STATUS_INVALID:'UNO状态数据无效',UNO_EMERGENCY_STOP:'UNO急停尚未解除',UNO_LINK_ERROR:'UNO串口通信异常',UNO_NOT_STOPPED:'UNO未确认零输出与解除布防'};
+   renderLampConfiguration(lamp);
+   updateFieldSummary(s,fresh);syncControls();
+   const labels={LAMP_CONFIGURATION_PENDING:'灯面配置正在保存',LAP_START_NOT_READY:'请在计圈白线前摆正，等待龙门架与白线确认',PREVIEW_ONLY:'当前仅预览',UNO_DISCONNECTED:'UNO未连接',VISION_TOO_SLOW:'视觉处理超时',PATH_CONFIRMING:'正在确认中线',ROAD_NO_TARGET:'暂无有效追踪点',ROAD_UNOBSERVED:'等待有效道路观测',ROAD_WEAK:'道路置信度不足',ROAD_STABILIZING:'等待道路稳定',CROSSWALK_STOP_UNVERIFIED:'横道停车位置尚未确认',UNO_STATUS_UNAVAILABLE:'等待UNO状态',UNO_WORKER_STOPPED:'电机通信进程已停止',UNO_STATUS_STALE:'UNO状态已过期',UNO_STATUS_INVALID:'UNO状态数据无效',UNO_EMERGENCY_STOP:'UNO急停尚未解除',UNO_LINK_ERROR:'UNO串口通信异常',UNO_NOT_STOPPED:'UNO未确认零输出与解除布防'};
    const blockerLabel=k=>failures[k]||labels[k]||(k.startsWith('UNO_FAULT_')?'UNO故障，代码'+k.slice(10):k);
    const motorBlocker=(d.blocked_by||[]).find(k=>k.startsWith('UNO_'));
    if(fresh&&!s.active&&motorBlocker)statusBox.textContent=blockerLabel(motorBlocker)+` · L=${s.left} R=${s.right}`;
@@ -145,12 +376,12 @@ async function updateStatus(){
    const waiting=(!s.active&&!s.ready)?(d.blocked_by||[]).map(blockerLabel).join('；'):'';
    document.getElementById('diagnostics').textContent=[waiting,searchNotice,d.observed_streak!==undefined?`道路确认 ${Math.min(d.observed_streak,d.required_observations)}/${d.required_observations}`:'',d.processing_ms!==undefined?`视觉 ${d.processing_ms}ms`:'',d.confidence!==undefined?`置信度 ${Math.round(d.confidence*100)}%`:'',d.frame!==undefined?`帧 ${d.frame}`:''].filter(Boolean).join(' · ');
 
- }catch(e){if(revision===controlRevision){statusExpiresAt=0;canStart=canDirect=false;syncControls();statusBox.textContent=receivedStatus?'控制台显示异常，请刷新页面':'Maix 连接中断，请检查电脑与小车网络';maixNeedsReconnect=true;markESPUnknown('Maix 状态暂不可达');console.warn('Control status update failed',e);}}
+ }catch(e){if(revision===controlRevision){statusExpiresAt=0;canStart=canDirect=false;syncControls();statusBox.textContent=receivedStatus?'控制台显示异常，请刷新页面':'Maix 连接中断，请检查电脑与小车网络';maixNeedsReconnect=true;markESPUnknown('Maix 状态暂不可达');document.getElementById('mission-state').textContent='小车连接中断';document.getElementById('mission-detail').textContent='请检查电脑与小车网络；停车按钮仍可发送请求。';console.warn('Control status update failed',e);}}
  finally{statusBusy=false;}
 }
 async function control(action){
  const starting=action==='start'||action==='start_now';
- if(starting&&(busy||Date.now()>=statusExpiresAt||(action==='start_now'?!canDirect:!canStart)))return;
+ if(starting&&(roiEditing||roiSaving||roiPending||roiRemotePending||busy||Date.now()>=statusExpiresAt||(action==='start_now'?!canDirect:!canStart)))return;
  const payload={action,generation};
  if(starting){
   const laps=Number(lapsInput.value);
@@ -200,7 +431,7 @@ function pauseESP(){
  espVideo.onload=espVideo.onerror=null;espVideo.removeAttribute('src');
 }
 function espMessage(message,state){
- espVideo.hidden=true;espROI.hidden=true;espTarget.hidden=true;
+ espVideo.hidden=true;espROI.hidden=true;espTarget.hidden=true;document.getElementById('roi-layer').hidden=true;syncROIControls();
  espPlaceholder.hidden=false;espPlaceholder.textContent=message;espState.textContent=state;
 }
 function espLabel(){
@@ -224,7 +455,7 @@ function nextESPFrame(){
   if(request!==espRequest)return;
   clearTimeout(espDeadline);espRetryMs=250;espFrameAt=Date.now();
   espVideo.hidden=false;espROI.hidden=!(espSignalFresh&&espHasSearchROI);espPlaceholder.hidden=true;espLabel();
-  espTarget.hidden=!(espSignalFresh&&espLamp.target_locked);
+  espTarget.hidden=!(espSignalFresh&&espLamp.target_locked);renderLampConfiguration(espLamp);
   espTimer=setTimeout(nextESPFrame,100);
  };
  espVideo.onerror=failed;
@@ -260,13 +491,25 @@ document.addEventListener('visibilitychange',()=>{
  else{statusExpiresAt=0;syncControls();connectMaixPreview();updateStatus();nextESPFrame();}
 });
 function setView(view){
- if(!['all','raw','annotated','ground'].includes(view))view='all';
+ if(!['all','raw','annotated','ground'].includes(view))view='annotated';
  document.getElementById('video-window').dataset.view=view;
  document.getElementById('camera-grid').dataset.view=view;
- document.getElementById('labels').style.display=view==='all'?'flex':'none';
+ document.getElementById('labels').hidden=view!=='all';
  document.querySelectorAll('.view-controls button').forEach(b=>b.classList.toggle('selected',b.dataset.view===view));
- try{localStorage.setItem('curve-camera-view',view)}catch(e){}
+ try{localStorage.setItem('race-console-view-v1',view)}catch(e){}
 }
-let initialView='all';try{initialView=localStorage.getItem('curve-camera-view')||'all'}catch(e){}
+const roiLayer=document.getElementById('roi-layer');
+roiLayer.addEventListener('pointerdown',e=>{
+ if(!roiEditing||!canEditLamp()||!e.target.dataset.edge)return;
+ roiDrag=e.target.dataset.edge;roiLayer.setPointerCapture(e.pointerId);
+});
+roiLayer.addEventListener('pointermove',e=>{
+ if(!roiDrag)return;
+ const r=roiLayer.getBoundingClientRect();
+ if(r.width<=0||r.height<=0)return;
+ setROIBound(roiDrag,roiDrag==='left'||roiDrag==='right'?(e.clientX-r.left)/r.width*320:(e.clientY-r.top)/r.height*240);
+});
+for(const event of ['pointerup','pointercancel','lostpointercapture'])roiLayer.addEventListener(event,()=>roiDrag=null);
+let initialView='annotated';try{initialView=localStorage.getItem('race-console-view-v1')||'annotated'}catch(e){}
 setView(initialView);connectMaixPreview();updateStatus();setInterval(updateStatus,500);setInterval(syncControls,200);
 </script></html>

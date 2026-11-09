@@ -15,10 +15,12 @@ CONTROL_FRESH_SECONDS = 1.0
 class WebControl:
     """Queue commands for the motor loop; STOP invalidates old START requests."""
 
-    def __init__(self):
+    def __init__(self, lamp_signal=None):
         import threading
 
         self.lock = threading.Lock()
+        self.lamp_signal = lamp_signal
+        self.start_transition = False
         self.generation = 0
         self.pending = None
         self.updated = 0
@@ -27,6 +29,7 @@ class WebControl:
     def update(self, active, ready, reason, pwm, readiness=None):
         with self.lock:
             self.updated = time.monotonic()
+            self.start_transition = False
             self.state = dict(
                 active=active,
                 ready=ready,
@@ -58,6 +61,8 @@ class WebControl:
                 return False, "状态已变化，请重试"
             if self.pending is not None:
                 return False, "上一条操作尚未完成"
+            if self.lamp_signal is not None and self.lamp_signal.configuration_pending:
+                return False, "灯面配置正在保存，请稍候"
             readiness = self.state.get("readiness", {})
             if (
                 readiness.get("start_light", {}).get("armed")
@@ -79,8 +84,27 @@ class WebControl:
             self.pending = (request, time.monotonic())
             return True, "启动请求已接收"
 
-    def take(self):
+    def submit_lamp_configuration(self, configuration, generation=None):
         with self.lock:
+            if self.lamp_signal is None:
+                return False, "发车灯配置不可用", None
+            if generation != self.generation:
+                return False, "状态已变化，请重试", None
+            if (time.monotonic() - self.updated >= CONTROL_FRESH_SECONDS
+                    or self.state["active"] or self.start_transition or self.pending is not None
+                    or self.state.get("readiness", {}).get("start_light", {}).get("armed")):
+                return False, "请先停车并取消ARM，再调整灯面", None
+            try:
+                request_id = self.lamp_signal.queue_configuration(configuration)
+            except RuntimeError as exc:
+                return False, "当前不能调整灯面：" + str(exc), None
+            return True, "配置已排队", request_id
+
+    def take(self, *, touch_action=None):
+        with self.lock:
+            # Reserve even a touchscreen start before its zero-output UNO ARM
+            # exchange. HTTP must not slip a config edit into that round trip.
+            self.start_transition = touch_action in ("start", "start_now")
             pending, self.pending = self.pending, None
             if pending is None:
                 return None
@@ -95,6 +119,10 @@ class WebControl:
                     flush=True,
                 )
                 return None
+            if request.action in ("start", "start_now"):
+                if self.lamp_signal is not None and self.lamp_signal.configuration_pending:
+                    return None
+                self.start_transition = True
             return request
 
     def stopped(self):
@@ -106,13 +134,13 @@ class WebControl:
 class LiveStream:
     """Latest-frame HTTP preview. Slow viewers never block motor commands."""
 
-    def __init__(self, port=8000):
+    def __init__(self, port=8000, *, lamp_signal=None):
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
         import threading
         import secrets
 
         self.token = secrets.token_urlsafe(24)
-        self.control = WebControl()
+        self.control = WebControl(lamp_signal)
         self.condition = threading.Condition()
         self.closed = False
         self.jpeg = None
@@ -140,7 +168,7 @@ class LiveStream:
             def do_POST(self):
                 from urllib.parse import urlsplit
 
-                if self.path != "/control":
+                if self.path not in ("/control", "/lamp-config"):
                     self.send_json(404, dict(message="不存在的接口"))
                     return
                 origin = self.headers.get("Origin")
@@ -161,6 +189,16 @@ class LiveStream:
                         raise ValueError("invalid command")
                 except (ValueError, OSError):
                     self.send_json(400, dict(message="无效请求"))
+                    return
+                if self.path == "/lamp-config":
+                    try:
+                        ok, message, request_id = owner.control.submit_lamp_configuration(
+                            data.get("configuration"), data.get("generation")
+                        )
+                    except ValueError:
+                        self.send_json(400, dict(message="灯面范围无效"))
+                        return
+                    self.send_json(202 if ok else 409, dict(message=message, request_id=request_id))
                     return
                 ok, message = owner.control.submit(
                     data.get("action"), data.get("generation"), laps=data.get("laps")

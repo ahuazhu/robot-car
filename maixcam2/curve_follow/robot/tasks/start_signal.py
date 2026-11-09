@@ -6,6 +6,7 @@ event is accepted, permission is held locally until explicit mission reset;
 ESP32 health is then telemetry only and cannot revoke it.
 """
 import json
+import math
 import os
 import socket
 from pathlib import Path
@@ -13,6 +14,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 from urllib.request import Request, ProxyHandler, build_opener
+from urllib.error import HTTPError
 
 
 class StartSignal:
@@ -60,6 +62,143 @@ class StartSignal:
         self.reset_remote_pending = True
         self.confirmation = {}
         self.fault_reason = self.fault_kind = ""
+        self.configuration_sequence = 0
+        self.configuration_request = None
+        self.configuration_update = dict(pending=False, state="IDLE", error=None, request_id=0)
+
+    CONFIGURATION_ERRORS = frozenset((
+        "invalid_configuration", "invalid_request", "pairing_required", "boot_changed",
+        "native_armed_stop_first", "storage_failed", "configuration_mismatch",
+        "configuration_response_invalid", "configuration_failed", "stop_first", "not_ready",
+    ))
+
+    @staticmethod
+    def normalize_configuration(configuration):
+        if not isinstance(configuration, dict) or type(configuration.get("manual")) is not bool:
+            raise ValueError("invalid_configuration")
+        if set(configuration) - {"manual", "roi"}:
+            raise ValueError("invalid_configuration")
+        if not configuration["manual"] and "roi" not in configuration:
+            return {"manual": False}
+        roi = configuration.get("roi")
+        if (not isinstance(roi, list) or len(roi) != 4
+                or any(type(value) is not int for value in roi)):
+            raise ValueError("invalid_configuration")
+        x, y, width, height = roi
+        if x < 0 or y < 0 or width < 16 or height < 16 or x+width > 320 or y+height > 240:
+            raise ValueError("invalid_configuration")
+        return dict(manual=True, roi=list(roi)) if configuration["manual"] else {"manual": False}
+
+    @staticmethod
+    def _lamp_configuration(peer):
+        configuration = peer.get("lamp_configuration")
+        if not isinstance(configuration, dict):
+            return None
+        try:
+            normalized = StartSignal.normalize_configuration(dict(configuration, manual=True))
+        except ValueError:
+            return None
+        if type(configuration.get("manual")) is not bool:
+            return None
+        return dict(manual=configuration["manual"], roi=normalized["roi"])
+
+    def _candidate_hint(self):
+        """Forward a fresh locator hint, never formal signal/permission evidence."""
+        hint = self.peer.get("candidate_hint")
+        if (not isinstance(hint, dict) or hint.get("valid") is not True
+                or type(hint.get("age_ms")) is not int or not 0 <= hint["age_ms"] <= 2500
+                or self.received is None):
+            return None
+        elapsed = self.clock() - self.received
+        if not math.isfinite(elapsed) or elapsed < 0:
+            return None
+        age = hint["age_ms"] + math.ceil(elapsed * 1000)
+        if age > 2500:
+            return None
+        try:
+            roi = self.normalize_configuration(dict(manual=True, roi=hint.get("roi")))["roi"]
+        except ValueError:
+            return None
+        return dict(valid=True, roi=roi, age_ms=age)
+
+    @property
+    def configuration_pending(self):
+        with self.lock:
+            return self.configuration_request is not None
+
+    def queue_configuration(self, configuration):
+        """Reserve one edit locally; only the existing ESP worker performs I/O."""
+        configuration = self.normalize_configuration(configuration)
+        with self.lock:
+            if self.configuration_request is not None:
+                raise RuntimeError("configuration_pending")
+            if self.armed or self.permission or self.phase == "RUNNING" or self.peer.get("armed"):
+                raise RuntimeError("stop_first")
+            if (not self.enabled or not self.key or not self._fresh() or self.error
+                    or self.peer.get("paired") is not True or self.cancel_queue
+                    or self.reset_remote_pending):
+                raise RuntimeError("not_ready")
+            if self._lamp_configuration(self.peer) is None:
+                raise RuntimeError("configuration_unsupported")
+            self.configuration_sequence += 1
+            request = dict(request_id=self.configuration_sequence, boot=self.peer["boot"],
+                           configuration=configuration)
+            self.configuration_request = request
+            self.configuration_update = dict(pending=True, state="QUEUED", error=None,
+                                             request_id=request["request_id"])
+            return request["request_id"]
+
+    def _configure_step(self):
+        """Recheck the reservation before I/O, and never turn a save into ARM."""
+        with self.lock:
+            request = self.configuration_request
+            if request is None:
+                return
+            if self.armed or self.permission or self.phase == "RUNNING" or self.peer.get("armed"):
+                refusal = "stop_first"
+            elif (not self._fresh() or self.error or self.peer.get("paired") is not True
+                  or self.peer.get("boot") != request["boot"]):
+                refusal = "not_ready"
+            else:
+                refusal = None
+            if refusal:
+                self.configuration_request = None
+                self.configuration_update = dict(pending=False, state="ERROR", error=refusal,
+                                                 request_id=request["request_id"])
+                return
+            self.configuration_update = dict(self.configuration_update, state="SENDING")
+        try:
+            peer = self.transport("configure", "", request["boot"],
+                                  configuration=request["configuration"])
+            if not self._valid(peer) or self._lamp_configuration(peer) is None:
+                raise ValueError("configuration_response_invalid")
+            if peer["boot"] != request["boot"]:
+                raise ValueError("boot_changed")
+            if peer["armed"]:
+                raise ValueError("native_armed_stop_first")
+            applied = self._lamp_configuration(peer)
+            expected = request["configuration"]
+            if (applied["manual"] != expected["manual"]
+                    or expected["manual"] and applied["roi"] != expected["roi"]):
+                raise ValueError("configuration_mismatch")
+            with self.lock:
+                self.peer, self.received, self.error = peer, self.clock(), ""
+                self.configuration_request = None
+                self.configuration_update = dict(pending=False, state="SAVED", error=None,
+                                                 request_id=request["request_id"])
+        except Exception as exc:
+            error = str(exc) if str(exc) in self.CONFIGURATION_ERRORS else (
+                "configuration_offline" if isinstance(exc, OSError) else "configuration_failed")
+            with self.lock:
+                # A timeout may follow a successful device save. Require a
+                # fresh status before ARM; never guess which ROI is installed.
+                self.received = None
+                self.error = "ESP32_CONFIGURATION_UNCONFIRMED"
+                if isinstance(exc, OSError):
+                    self.endpoint = None
+                self.configuration_request = None
+                self.configuration_update = dict(pending=False, state="ERROR", error=error,
+                                                 request_id=request["request_id"])
 
     def start(self):
         if self.enabled and self.key and self.thread is None:
@@ -72,12 +211,16 @@ class StartSignal:
     @property
     def available(self):
         with self.lock:
+            if self.configuration_request is not None:
+                return False
             if self.permission:
                 return not self.armed
             return self._fresh() and not self.error and self.peer.get("paired") is True and not self.peer.get("armed") and not self.cancel_queue and not self.reset_remote_pending
 
     def arm(self):
         with self.lock:
+            if self.configuration_request is not None:
+                return False
             if self.armed:
                 return True
             if self.permission:
@@ -143,7 +286,7 @@ class StartSignal:
                 self.phase = "WAIT_CONNECTION"
             return False
 
-    def _http(self, op, session, boot):
+    def _http(self, op, session, boot, *, configuration=None):
         opener = build_opener(ProxyHandler({}))
         # Resolve only once per healthy connection. Some mDNS stacks retry AAAA
         # for several seconds per request; IPv4 pinning also keeps UI video fast.
@@ -153,10 +296,22 @@ class StartSignal:
         if op == "status":
             request = Request(self.endpoint+"/status")
         else:
-            body = json.dumps(dict(op=op, session=session, boot=boot)).encode()
+            payload = dict(op=op, session=session, boot=boot)
+            if op == "configure":
+                payload = dict(op=op, boot=boot, configuration=configuration)
+            body = json.dumps(payload).encode()
             request = Request(self.endpoint+"/signal", data=body, headers={"X-Signal-Key": self.key, "Content-Type": "application/json"})
-        with opener.open(request, timeout=0.3) as response:
-            data = response.read(4097)
+        try:
+            with opener.open(request, timeout=0.3) as response:
+                data = response.read(4097)
+        except HTTPError as exc:
+            if op != "configure":
+                raise
+            try:
+                error = json.loads(exc.read(4097)).get("error")
+            except (ValueError, AttributeError):
+                error = None
+            raise ValueError(error if error in self.CONFIGURATION_ERRORS else "configuration_failed") from exc
         if len(data)>4096:
             raise ValueError("Oversized ESP32 response")
         data = json.loads(data)
@@ -207,6 +362,11 @@ class StartSignal:
         return isinstance(session,str) and len(session)==32 and all(c in "0123456789abcdef" for c in session)
 
     def _step(self):
+        with self.lock:
+            configuring = self.configuration_request is not None and not self.cancel_queue
+        if configuring:
+            self._configure_step()
+            return
         with self.lock:
             cancel = self.cancel_queue.pop(0) if self.cancel_queue else None
             session, boot = self.session, self.boot
@@ -310,6 +470,9 @@ class StartSignal:
                         permission=self.permission, phase=self.phase, connected=self._fresh() and not self.error,
                         error=self.error, error_kind=self.last_error_kind, error_reason=self.last_error_reason,
                         fault_reason=self.fault_reason, fault_kind=self.fault_kind,
+                        lamp_configuration=self._lamp_configuration(self.peer),
+                        candidate_hint=self._candidate_hint(),
+                        configuration_update=dict(self.configuration_update),
                         request_ms=self.last_request_ms, control_endpoint=self.endpoint or self.last_endpoint,
                         event_confirmed=self.permission, signal_confirmed=self.permission,
                         confirmation_frames=p.get("confirmation_frames",0) if evidence else 0,

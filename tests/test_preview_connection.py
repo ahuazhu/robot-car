@@ -7,10 +7,11 @@ from tests.support import ROOT, APP_ROOT
 
 
 class PreviewConnectionTests(unittest.TestCase):
-    def test_disconnect_hung_image_background_resume_and_freshness(self):
+    def test_field_controls_connection_and_roi_draft(self):
         node=shutil.which('node')
         if not node:
             bundled=Path('/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node')
             if bundled.exists():node=str(bundled)
         if not node:self.skipTest('Node.js required for browser-script regression')
-        subprocess.run([node,str(ROOT/'tests/js/preview_connection.test.js'),str(APP_ROOT/'robot/interface/preview.html')],check=True,capture_output=True,text=True)
+        result=subprocess.run([node,str(ROOT/'tests/js/preview_connection.test.js'),str(APP_ROOT/'robot/interface/preview.html')],capture_output=True,text=True)
+        self.assertEqual(result.returncode,0,result.stdout+'\n'+result.stderr)

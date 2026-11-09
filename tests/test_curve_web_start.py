@@ -6,26 +6,45 @@ from robot.control.requests import ControlRequest
 
 
 class WebStartTests(unittest.TestCase):
-    def test_bottom_stop_uses_same_stop_action_and_remains_enabled(self):
+    def test_single_stop_remains_enabled_in_the_fixed_mission_bar(self):
         from html.parser import HTMLParser
 
         class Buttons(HTMLParser):
             def __init__(self):
                 super().__init__()
+                self.ancestors = []
+                self.stops = []
                 self.buttons = {}
 
             def handle_starttag(self, tag, attrs):
                 attrs = dict(attrs)
-                if tag == "button" and "id" in attrs:
-                    self.buttons[attrs["id"]] = attrs
+                if tag == "button":
+                    if "id" in attrs:
+                        self.buttons[attrs["id"]] = attrs
+                    if attrs.get("onclick") == "control('stop')":
+                        self.stops.append((attrs, list(self.ancestors)))
+                if tag not in {"area", "base", "br", "col", "embed", "hr", "img",
+                               "input", "link", "meta", "param", "source", "track", "wbr"}:
+                    self.ancestors.append((tag, attrs))
+
+            def handle_endtag(self, tag):
+                while self.ancestors:
+                    if self.ancestors.pop()[0] == tag:
+                        break
 
         page = Buttons()
         page.feed(web.LIVE_HTML)
-        top = page.buttons["stop"]
-        bottom = page.buttons["stop-bottom"]
-        self.assertEqual(bottom["onclick"], top["onclick"])
-        self.assertEqual(bottom["onclick"], "control('stop')")
-        self.assertNotIn("disabled", bottom)
+        self.assertEqual(len(page.stops), 1)
+        stop, parents = page.stops[0]
+        self.assertEqual(stop["id"], "stop")
+        self.assertNotIn("disabled", stop)
+        self.assertNotIn("hidden", stop)
+        self.assertNotIn("stop-bottom", page.buttons)
+        self.assertTrue(any(tag == "footer" and "mission-bar" in attrs.get("class", "").split()
+                            for tag, attrs in parents))
+        self.assertFalse(any(tag == "details" or "hidden" in attrs for tag, attrs in parents))
+        self.assertRegex(web.LIVE_HTML,
+                         r"\.mission-bar\s*\{[^}]*position\s*:\s*fixed[^}]*bottom\s*:\s*0")
 
     def ready(self):
         c = web.WebControl()
