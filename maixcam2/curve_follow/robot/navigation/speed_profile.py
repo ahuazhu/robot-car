@@ -1,7 +1,7 @@
 """Sampled path-speed envelope in metres/seconds, independent of PWM and tasks.
 
-The offline replay tool consumes this module. It does not yet own production
-motor commands. Callers must supply a supported path starting at station zero,
+Offline replay, the read-only observer and the active scalar speed controller
+consume this module. Callers supply a supported path starting at station zero,
 physical limits and conservative distance margins; no unseen gaps are joined.
 """
 

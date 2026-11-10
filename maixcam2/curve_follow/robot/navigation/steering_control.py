@@ -22,6 +22,7 @@ class SteeringControl:
         response_s=0.4,
         straight_cruise=None,
         confirmed_cruise=None,
+        speed_control=None,
     ):
         self.policy = policy
         self.origin = np.asarray(origin, float)
@@ -32,6 +33,7 @@ class SteeringControl:
         self.cruise = cruise
         self.deceleration = deceleration
         self.speed_per_pwm = speed_per_pwm
+        self.speed_control = speed_control
         if self.origin.shape != (2,) or not np.isfinite(self.origin).all():
             raise ValueError("Invalid control origin")
         if body is not None and (
@@ -65,6 +67,8 @@ class SteeringControl:
         self.reset()
 
     def reset(self):
+        if self.speed_control is not None:
+            self.speed_control.reset()
         self.trim = 0.0
         self.commands = []
         self.requested = 0.0
@@ -78,6 +82,8 @@ class SteeringControl:
         self.lookahead_at = None
 
     def applied(self, now, wheels):
+        if self.speed_control is not None:
+            self.speed_control.applied(now, wheels)
         moving = max(abs(v) for v in wheels) > 0
         saturated = min(wheels) <= 0 and moving
         self.commands.append((now, self.requested, moving, saturated, tuple(wheels)))
@@ -224,7 +230,8 @@ class SteeringControl:
         quality = float(profile[first:last].min())
         return quality, "FORWARD_PROFILE"
 
-    def command(self, result, age_s=0.0, *, lookahead_m=None, alternatives=True):
+    def command(self, result, age_s=0.0, *, lookahead_m=None, alternatives=True,
+                speed_profile_allowed=True):
         """Follow geometry at command time, not at frame-receive time.
 
         Extrapolate ONLY valid measured body twist over the measured processing
@@ -237,6 +244,10 @@ class SteeringControl:
         self.status.pop("envelope", None)
         self.status.pop("prediction", None)
         self.status.pop("handoff", None)
+        if self.speed_control is not None:
+            self.status['speed_profile_control'] = dict(
+                mode='ACTIVE', selected=False, reason='NO_ACCEPTED_PURSUIT'
+            )
         stable_s = self._confirm_observed_road(result, age_s)
         if (
             point is None
@@ -406,6 +417,29 @@ class SteeringControl:
         boost_ready = (
             road_eligible and "body_speed_m_s" in self.status and stable_s >= self.response_s
         )
+        if self.speed_control is not None:
+            resolved_forward_motion = (
+                self.status.get('body_speed_m_s', 0.)
+                * self.status.get('motion_interval_s', 0.)
+                > 2 * self.status.get('motion_sigma_m', float('inf'))
+            )
+            planned = self.speed_control.command(
+                result, path, self.observed_at + age_s,
+                self.status.get('body_speed_m_s'), self.requested + self.trim,
+                support_sigma + prediction_sigma, self.body[0] if self.body else self.width,
+                eligible=(speed_profile_allowed and boost_ready and scale == 1.
+                          and resolved_forward_motion),
+            )
+            if not speed_profile_allowed:
+                self.speed_control.status['reason'] = 'TASK_OWNS_SPEED'
+            elif not resolved_forward_motion:
+                self.speed_control.status['reason'] = 'MEASURED_FORWARD_SPEED_UNRESOLVED'
+            self.status['speed_profile_control'] = self.speed_control.status
+            if planned is not None:
+                self.status.update(envelope=envelope, target_selection='ADAPTIVE_PURSUIT',
+                                   target_speed_scale=target_scale,
+                                   speed_plan=dict(mode='PROFILE', boost_eligible=boost_ready))
+                return planned
         bend = max(
             abs(self.requested + self.trim),
             self.gain * abs(float(result.get("path_curvature_m_inv", 0.0))),
@@ -507,7 +541,8 @@ class SteeringControl:
             for radius in sorted(radii, key=lambda r: abs(r - lookahead)):
                 if abs(radius - lookahead) < self.policy.sample_step_m:
                     continue
-                alternate = self.command(result, age_s, lookahead_m=radius, alternatives=False)
+                alternate = self.command(result, age_s, lookahead_m=radius, alternatives=False,
+                                         speed_profile_allowed=speed_profile_allowed)
                 if alternate is not None and any(alternate):
                     self.status["target_selection"] = "FEASIBLE_PURSUIT"
                     return alternate

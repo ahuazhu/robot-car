@@ -218,12 +218,13 @@ class ApplicationBoundaryTests(unittest.TestCase):
                 drive.side_effect = AssertionError("Preview opened UART")
             stack.enter_context(patch.object(application, "MotorChannel", side_effect=lambda x: x))
             stack.enter_context(patch.object(application.cv2, "imwrite", side_effect=save))
-            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+            output = stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
             application.main(APP_ROOT)
         return types.SimpleNamespace(
             shown=shown, written=written, rendered=rendered, composed=composed,
             controls=control_frames, touches=touch_frames, stops=stops,
             saved=saved, events=events, stream=stream,
+            output=output.getvalue(),
         )
 
     def test_preview_frame_updates_ui_and_closes_without_drive_commands(self):
@@ -235,6 +236,19 @@ class ApplicationBoundaryTests(unittest.TestCase):
         self.assertTrue(run.stream.metrics["preview_only"])
         self.assertTrue(all(e[1] in (0, 3) for e in run.events if isinstance(e, tuple)))
         self.assertEqual(run.events[-4:], ["stopped", "stream_closed", "camera_closed", "link_closed"])
+
+    def test_idle_log_throttle_keeps_every_control_and_preview_frame(self):
+        run = self.run_application(4, camera_intervals=[.6]*4)
+        logs = [line for line in run.output.splitlines() if line.startswith('CONTROL ')]
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(run.controls, [1,2,3,4])
+        self.assertEqual(len(run.stream.publications), 4)
+
+    def test_arm_and_stop_log_immediately_despite_idle_throttle(self):
+        run = self.run_application(4, preview=False, touch_actions={2:'start',4:'stop'})
+        logs = [json.loads(line[len('CONTROL '):]) for line in run.output.splitlines()
+                if line.startswith('CONTROL ')]
+        self.assertEqual([entry['frame'] for entry in logs], [1,2,4])
 
     def test_published_vision_frame_is_complete_before_http_can_read_it(self):
         run = self.run_application(4)

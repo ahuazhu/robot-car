@@ -15,6 +15,7 @@ from robot.config import RuntimeSettings
 from robot.interface.preview_transport import LiveStream
 from robot.navigation.steering_control import SteeringControl
 from robot.navigation.speed_observer import SpeedObserver
+from robot.navigation.profile_speed_control import ProfileSpeedControl
 from robot.navigation.road_recovery import RoadSearch
 from robot.tasks.start_signal import StartSignal
 from robot.tasks.lap_counter import LapMarkerDetector, LapCounter
@@ -60,6 +61,7 @@ def main(app_dir):
         response_s=crosswalk_policy.speed_response_s,
         straight_cruise=settings.straight_cruise_pwm,
         confirmed_cruise=settings.confirmed_cruise_pwm,
+        speed_control=ProfileSpeedControl.from_settings(settings),
     )
     search = RoadSearch(
         policy,
@@ -82,6 +84,7 @@ def main(app_dir):
     last_display_state = None
     last_tracking_state = previous_captured = None
     last_crosswalk_log_state = None
+    last_log_engaged = False
     began = time.monotonic()
     frames = observed_frames = 0
     saved, stats = set(), {}
@@ -192,7 +195,8 @@ def main(app_dir):
             observed_frames += int(result["observed"])
             steering_tick = time.monotonic()
             steering.observe(details["ground_motion"], captured, allow_feedback=active)
-            command = steering.command(result, age_s=time.monotonic() - captured)
+            command = steering.command(result, age_s=time.monotonic() - captured,
+                                       speed_profile_allowed=crosswalk_task.allows_road_search())
             if (
                 command is None
                 and (steering.status.get("envelope") or {}).get("first_unsafe_m") == 0
@@ -414,11 +418,15 @@ def main(app_dir):
                 (crossing_view.get("event_id"), crossing_view["phase"],
                  crossing_view.get("legal_stop_acquired")) if active else None
             )
+            log_engaged = active or start_light.armed
             if (
                 now >= next_log
-                or result["state"] == "CONFIRMING"
-                or result["state"] != last_tracking_state
-                or crosswalk_log_state != last_crosswalk_log_state
+                or log_engaged != last_log_engaged
+                or log_engaged and (
+                    result["state"] == "CONFIRMING"
+                    or result["state"] != last_tracking_state
+                    or crosswalk_log_state != last_crosswalk_log_state
+                )
             ):
                 print(
                     "CONTROL",
@@ -448,13 +456,14 @@ def main(app_dir):
                     ),
                     flush=True,
                 )
-                next_log = now + 0.5
+                next_log = now + (0.5 if log_engaged else 30.)
             profile_ms["logging"] = round((time.monotonic() - log_tick) * 1000, 2)
             profile_ms["frame_processing"] = round((time.monotonic() - captured) * 1000, 2)
             metrics["profile_ms"] = profile_ms
             stream.metrics = metrics
             last_tracking_state = result["state"]
             last_crosswalk_log_state = crosswalk_log_state
+            last_log_engaged = log_engaged
             for second in debug_seconds:
                 folder = os.path.join(os.environ["MAIXPY_SKILL_RUN_DIR"], "artifacts")
                 os.makedirs(folder, exist_ok=True)

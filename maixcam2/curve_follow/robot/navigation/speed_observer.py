@@ -3,40 +3,9 @@
 from dataclasses import asdict
 import math
 
-import numpy as np
-
 from robot.core.geometry import arc, describe_curve
 from robot.navigation.speed_profile import SpeedLimits, plan_speed_profile
-
-
-def supported_segment(target):
-    """First contiguous currently observed forward segment; never bridge gaps.
-
-    The first point is NOT the vehicle origin. Its entry speed envelope does
-    not authorize traversing the unknown road between the car and that point.
-    """
-    if (not target.get("valid") or not target.get("observed")
-            or target.get("state") != "OBSERVED" or target.get("transition_pending")):
-        return None, "NOT_CURRENT_OBSERVATION"
-    raw_mask = target.get("path_observed_mask", [])
-    if not isinstance(raw_mask, list) or any(type(v) is not bool for v in raw_mask):
-        return None, "INVALID_PATH_OR_MASK"
-    try:
-        path = np.asarray(target.get("control_path_m", []), dtype=float)
-    except (ValueError, TypeError):
-        return None, "INVALID_PATH_OR_MASK"
-    mask = np.asarray(raw_mask, dtype=bool)
-    if (path.ndim != 2 or path.shape[1:] != (2,) or not np.isfinite(path).all()
-            or mask.shape != (len(path),)):
-        return None, "INVALID_PATH_OR_MASK"
-    start = next((i for i, point in enumerate(path) if point[0] > 0), len(path))
-    end = start
-    while end < len(path) and mask[end]:
-        if end > start and np.hypot(*(path[end] - path[end - 1])) > 0.05:
-            break
-        end += 1
-    segment = path[start:end]
-    return (segment, "") if len(segment) >= 5 else (None, "NO_CONTIGUOUS_SUPPORT")
+from robot.navigation.supported_path import supported_segment
 
 
 class SpeedObserver:

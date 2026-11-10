@@ -5,6 +5,12 @@
   "turn_lever_m": 0.15,
   "steering_gain": 0.85,
   "cruise_pwm": 120,
+  "speed_profile": {
+    "mode": "ACTIVE",
+    "maximum_m_s": 0.3,
+    "lateral_acceleration_m_s2": 0.15,
+    "acceleration_m_s2": 0.3
+  },
   "crosswalk": {
     "mode": "yield",
     "body_front_m": 0.02,
