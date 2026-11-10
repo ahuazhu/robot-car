@@ -19,6 +19,7 @@ Dependencies: NumPy and OpenCV. `tests.support` adds the application source root
 
 - `test_session.py`, `test_startup.py`: STOP/start ordering, shared readiness gates, command freshness, recovery, and motor failure.
 - `test_curve_*`: road perception, physical target geometry, road memory, handoff, steering, bounded search, motor protocol, and preview controls.
+- `test_speed_profile.py`: offline speed-envelope physics, sampled stops, latency, measured PWM reference bounds and recorded-road continuity. This planner does not yet own production motor commands.
 - `test_native_geometry.py`, `test_curve_nearest_fast.py`: native kernels against their independent Python/NumPy paths, including malformed input and fallback limits.
 - `test_crosswalk*`: observed bars, brightness changes, stop positions, verified dwell, spatial rearming, and recovery.
 - `test_curve_laps.py`, `test_curve_confirmed_forward.py`: departure suppression, measured crossings, rear clearance and optical-flow-measured 40 cm finish travel.
