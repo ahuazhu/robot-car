@@ -1,6 +1,6 @@
 """Firmware identities implementing the existing USB Wi-Fi/pairing commands."""
 
-CURRENT_FIRMWARE = "0.4.16-initial-lamp-state"
+CURRENT_FIRMWARE = "0.4.17-strong-rgb-or"
 
 KNOWN_FIRMWARE = frozenset({
     "0.4.3-larger-roi",
@@ -12,6 +12,7 @@ KNOWN_FIRMWARE = frozenset({
     "0.4.13-exposure-cache",
     "0.4.14-http-lamp-config",
     "0.4.15-lamp-noise",
+    "0.4.16-initial-lamp-state",
     CURRENT_FIRMWARE,
 })
 

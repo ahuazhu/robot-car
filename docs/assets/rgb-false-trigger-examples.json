@@ -1,0 +1,234 @@
+[
+  {
+    "label": "baseline",
+    "name": "white_global_gain65",
+    "kind": "exposure_wb",
+    "mode": "ON",
+    "expected": false,
+    "passes": true,
+    "locked": true,
+    "fired": false,
+    "first_confirm_ms": null,
+    "sequence": [
+      {
+        "t_ms": 400,
+        "confirmed": false,
+        "hits": 0,
+        "elapsed_ms": 0,
+        "reason": "LAMP_NOT_DARK_ENOUGH"
+      },
+      {
+        "t_ms": 610,
+        "confirmed": false,
+        "hits": 0,
+        "elapsed_ms": 0,
+        "reason": "LAMP_NOT_DARK_ENOUGH"
+      },
+      {
+        "t_ms": 820,
+        "confirmed": false,
+        "hits": 0,
+        "elapsed_ms": 0,
+        "reason": "LAMP_NOT_DARK_ENOUGH"
+      },
+      {
+        "t_ms": 1030,
+        "confirmed": false,
+        "hits": 0,
+        "elapsed_ms": 0,
+        "reason": "LAMP_NOT_DARK_ENOUGH"
+      }
+    ],
+    "diagnostic": {
+      "background_change": -41.0,
+      "background_residual": 2.0,
+      "darkened_fraction": 0.0,
+      "required_drop": 14.330209732055664,
+      "noise": 0.0,
+      "exposure_gain": 0.6328125,
+      "gray_drop": 87.06512451171875,
+      "value_drop": 89.0,
+      "saturation_change": -0.009890712797641754,
+      "mask_pixels": 252,
+      "reason": "LAMP_NOT_DARK_ENOUGH"
+    }
+  },
+  {
+    "label": "old_simple_or",
+    "name": "white_global_gain65",
+    "kind": "exposure_wb",
+    "mode": "ON",
+    "expected": false,
+    "passes": false,
+    "locked": true,
+    "fired": true,
+    "first_confirm_ms": 820,
+    "sequence": [
+      {
+        "t_ms": 400,
+        "confirmed": false,
+        "hits": 1,
+        "elapsed_ms": 0,
+        "reason": "CONFIRMING_OFF"
+      },
+      {
+        "t_ms": 610,
+        "confirmed": false,
+        "hits": 2,
+        "elapsed_ms": 210,
+        "reason": "CONFIRMING_OFF"
+      },
+      {
+        "t_ms": 820,
+        "confirmed": true,
+        "hits": 3,
+        "elapsed_ms": 420,
+        "reason": "SIGNAL_CONFIRMED"
+      },
+      {
+        "t_ms": 1030,
+        "confirmed": true,
+        "hits": 3,
+        "elapsed_ms": 420,
+        "reason": "SIGNAL_CONFIRMED"
+      }
+    ],
+    "diagnostic": {
+      "background_change": -41.0,
+      "background_residual": 2.0,
+      "darkened_fraction": 0.0,
+      "required_drop": 14.330209732055664,
+      "noise": 0.0,
+      "exposure_gain": 0.6328125,
+      "gray_drop": 87.06512451171875,
+      "value_drop": 89.0,
+      "saturation_change": -0.009890712797641754,
+      "mask_pixels": 252,
+      "reason": "SIGNAL_CONFIRMED"
+    }
+  },
+  {
+    "header": "baseline",
+    "name": "noisy_still_red_on_global_wb_bgR0",
+    "mode": "ON",
+    "expected": false,
+    "locked": true,
+    "fired": false,
+    "passes": true,
+    "diagnostic": {
+      "background_change": 0.0,
+      "background_residual": 0.0,
+      "darkened_fraction": 1.0,
+      "required_drop": 13.247638702392578,
+      "noise": 4.415879726409912,
+      "exposure_gain": 1.0,
+      "gray_drop": 9.867042541503906,
+      "value_drop": 30.0,
+      "saturation_change": -0.3166665732860565,
+      "mask_pixels": 252,
+      "reason": "LAMP_NOT_DARK_ENOUGH"
+    },
+    "lock_diagnostic": {
+      "background_change": 0.0,
+      "background_residual": 0.0,
+      "darkened_fraction": 0.0,
+      "required_drop": 0.0,
+      "noise": 4.415879726409912,
+      "exposure_gain": 1.0,
+      "gray_drop": 0.0,
+      "value_drop": 0.0,
+      "saturation_change": 0.0,
+      "mask_pixels": 252,
+      "reason": "WAIT_OFF"
+    },
+    "series": [
+      {
+        "t": 400,
+        "confirmed": false,
+        "hits": 0,
+        "elapsed": 0
+      },
+      {
+        "t": 610,
+        "confirmed": false,
+        "hits": 0,
+        "elapsed": 0
+      },
+      {
+        "t": 820,
+        "confirmed": false,
+        "hits": 0,
+        "elapsed": 0
+      },
+      {
+        "t": 1030,
+        "confirmed": false,
+        "hits": 0,
+        "elapsed": 0
+      }
+    ],
+    "rationale": "Synthetic global camera red white-balance gain2/3, applied to the complete image. The red emitter remains ON at its final source level; low-red cyan background provides weak/no red-gain evidence. This is a known RGB ambiguity, not a recorded event."
+  },
+  {
+    "header": "constrained_or",
+    "name": "noisy_still_red_on_global_wb_bgR0",
+    "mode": "ON",
+    "expected": false,
+    "locked": true,
+    "fired": true,
+    "passes": false,
+    "diagnostic": {
+      "background_change": 0.0,
+      "background_residual": 0.0,
+      "darkened_fraction": 1.0,
+      "required_drop": 13.247638702392578,
+      "noise": 4.415879726409912,
+      "exposure_gain": 1.0,
+      "gray_drop": 9.867042541503906,
+      "value_drop": 30.0,
+      "saturation_change": -0.3166665732860565,
+      "mask_pixels": 252,
+      "reason": "SIGNAL_CONFIRMED"
+    },
+    "lock_diagnostic": {
+      "background_change": 0.0,
+      "background_residual": 0.0,
+      "darkened_fraction": 0.0,
+      "required_drop": 0.0,
+      "noise": 4.415879726409912,
+      "exposure_gain": 1.0,
+      "gray_drop": 0.0,
+      "value_drop": 0.0,
+      "saturation_change": 0.0,
+      "mask_pixels": 252,
+      "reason": "WAIT_OFF"
+    },
+    "series": [
+      {
+        "t": 400,
+        "confirmed": false,
+        "hits": 1,
+        "elapsed": 0
+      },
+      {
+        "t": 610,
+        "confirmed": false,
+        "hits": 2,
+        "elapsed": 210
+      },
+      {
+        "t": 820,
+        "confirmed": true,
+        "hits": 3,
+        "elapsed": 420
+      },
+      {
+        "t": 1030,
+        "confirmed": true,
+        "hits": 3,
+        "elapsed": 420
+      }
+    ],
+    "rationale": "Synthetic global camera red white-balance gain2/3, applied to the complete image. The red emitter remains ON at its final source level; low-red cyan background provides weak/no red-gain evidence. This is a known RGB ambiguity, not a recorded event."
+  }
+]

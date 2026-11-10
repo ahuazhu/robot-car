@@ -14,6 +14,10 @@ class Diagnostic(ctypes.Structure):
     _fields_ = [(name,ctypes.c_float) for name in ("background_change","background_residual","darkened_fraction","required_drop","noise","exposure_gain","gray_drop","value_drop","saturation_change")]+[("mask_pixels",ctypes.c_uint32),("reason",ctypes.c_char_p)]
 
 
+class RGBDiagnostic(ctypes.Structure):
+    _fields_ = [(name,ctypes.c_uint32) for name in ("workspace_available","reference_ready","luma_off","rgb_off")]+[("channel",ctypes.c_int32),("joint_fraction",ctypes.c_float),("dark_fraction",ctypes.c_float),("background_samples",ctypes.c_uint32),("background_span",ctypes.c_float),("background_fitted",ctypes.c_uint32),("reason",ctypes.c_char_p)]
+
+
 class NativeDetector:
     def __init__(self,full_frame=False,header=None):
         self.folder = tempfile.TemporaryDirectory(prefix="esp-start-replay-")
@@ -25,6 +29,29 @@ extern "C" {
 struct State {unsigned armed,confirmed,baseline,sequence,hits,elapsed,count,locked,phase,target_x,target_y,target_w,target_h,contrast,baseline_contrast,event_age;};
 struct Diagnostic {float background_change,background_residual,darkened_fraction,required_drop,noise,exposure_gain,gray_drop,value_drop,saturation_change;unsigned mask_pixels;const char *reason;};
 Diagnostic diagnostic(void *p){auto &d=*(start_signal::Detector*)p;return {d.backgroundChangeL,d.backgroundResidualL,d.darkenedFraction,d.requiredDrop,d.noise,d.exposureGain,d.grayDrop,d.valueDrop,d.saturationChange,d.baseline?d.maskPixels:0,d.rejectionReason};}
+struct RGBDiagnostic {unsigned workspace_available,reference_ready,luma_off,rgb_off;int channel;float joint_fraction,dark_fraction;unsigned background_samples;float background_span;unsigned background_fitted;const char *reason;};
+RGBDiagnostic rgbDiagnostic(void *p){
+#ifdef ROBOT_SIGNAL_RGB_OR
+ auto &d=*(start_signal::Detector*)p;
+ return {d.rgb_workspace_available,d.rgb_reference_ready,d.luma_off,d.rgb_off,d.rgb_channel,d.rgb_joint_fraction,d.rgb_dark_fraction,d.rgb_background_samples,d.rgb_background_span,d.rgb_background_fitted,d.rgb_rejection_reason};
+#else
+ return {0,0,0,0,-1,0,0,0,0,0,"UNSUPPORTED"};
+#endif
+}
+unsigned rgbReferenceBytes(){
+#ifdef ROBOT_SIGNAL_RGB_OR
+ return start_signal::Detector::RGB_REFERENCE_BYTES;
+#else
+ return 0;
+#endif
+}
+int rgbReferenceBuffer(void *p,unsigned char *buffer,unsigned size){
+#ifdef ROBOT_SIGNAL_RGB_OR
+ return ((start_signal::Detector*)p)->setRGBReferenceBuffer(buffer,size);
+#else
+ return 0;
+#endif
+}
 void *create(){return new start_signal::Detector();}
 void destroy(void *p){delete (start_signal::Detector*)p;}
 void mask(void *p,unsigned char *out){((start_signal::Detector*)p)->copyMask(out);}
@@ -48,6 +75,9 @@ State state(void *p){auto &d=*(start_signal::Detector*)p;return {d.armed,d.confi
         for method in ("destroy","arm","cancel"):
             getattr(self.lib,method).argtypes=[ctypes.c_void_p]
         self.lib.diagnostic.argtypes=[ctypes.c_void_p];self.lib.diagnostic.restype=Diagnostic
+        self.lib.rgbDiagnostic.argtypes=[ctypes.c_void_p];self.lib.rgbDiagnostic.restype=RGBDiagnostic
+        self.lib.rgbReferenceBytes.restype=ctypes.c_uint
+        self.lib.rgbReferenceBuffer.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_uint];self.lib.rgbReferenceBuffer.restype=ctypes.c_int
         self.lib.mask.argtypes=[ctypes.c_void_p,ctypes.c_void_p]
         self.lib.process.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_uint32,ctypes.c_int]
         self.lib.state.argtypes=[ctypes.c_void_p];self.lib.state.restype=State
@@ -55,6 +85,13 @@ State state(void *p){auto &d=*(start_signal::Detector*)p;return {d.armed,d.confi
         self.lib.manual.argtypes=[ctypes.c_void_p]+[ctypes.c_int]*5;self.lib.manual.restype=ctypes.c_int
         self.lib.cycle.argtypes=[ctypes.c_void_p,ctypes.c_int]
         self.handle=self.lib.create()
+        self._rgb_reference=None
+        size=int(self.lib.rgbReferenceBytes())
+        if size:
+            self._rgb_reference=ctypes.create_string_buffer(size)
+            if not self.lib.rgbReferenceBuffer(self.handle,self._rgb_reference,size):
+                self.close()
+                raise RuntimeError('Cannot attach RGB reference workspace')
 
     def hint(self,box,required=True):
         x,y,w,h=box if box is not None else [0,0,0,0]
@@ -77,6 +114,9 @@ State state(void *p){auto &d=*(start_signal::Detector*)p;return {d.armed,d.confi
     def diagnostics(self):
         d=self.lib.diagnostic(self.handle)
         return {name:(d.reason.decode() if name=="reason" else int(getattr(d,name)) if name=="mask_pixels" else float(getattr(d,name))) for name,_ in Diagnostic._fields_}
+    def rgb_diagnostics(self):
+        d=self.lib.rgbDiagnostic(self.handle)
+        return {name:(d.reason.decode() if name=="reason" else float(getattr(d,name)) if kind is ctypes.c_float else int(getattr(d,name))) for name,kind in RGBDiagnostic._fields_}
     def mask(self):
         # One pixel represents STEP x STEP native camera pixels; no bbox fill.
         out=np.empty((self.roi[3]//self.step,self.roi[2]//self.step),dtype=np.uint8)
@@ -84,6 +124,7 @@ State state(void *p){auto &d=*(start_signal::Detector*)p;return {d.armed,d.confi
         return out
     def close(self):
         if self.handle:self.lib.destroy(self.handle);self.handle=None
+        self._rgb_reference=None
         self.folder.cleanup()
 
 

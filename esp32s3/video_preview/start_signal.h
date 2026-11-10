@@ -1,4 +1,5 @@
 #pragma once
+#define ROBOT_SIGNAL_RGB_OR 1
 // Shared by the ESP32 firmware and native replay; no camera/network dependencies.
 #include <stdint.h>
 #include <math.h>
@@ -19,6 +20,9 @@ class Detector {
   static constexpr int ALIGNMENT_WIDTH=128,ALIGNMENT_HEIGHT=112;
 #endif
   static constexpr int W=RW/STEP,H=RH/STEP,N=W*H;
+  static constexpr size_t RGB_REFERENCE_BYTES=size_t(N)*3;
+  static constexpr float RGB_ABS_DROP=48.f,RGB_RELATIVE_DROP=.40f,RGB_CONSENSUS=.60f;
+  static constexpr unsigned RGB_DARK_MAX=96,RGB_DARK_CHROMA_MAX=12,RGB_BLACK_MAX=32;
   static constexpr unsigned LOCK_FRAMES=4,LOCK_MS=300,CONFIRM_FRAMES=3,CONFIRM_MS=400;
   enum Phase { IDLE,SEARCH,ACQUIRE,ON,CONFIRM_OFF,UNCERTAIN,FIRED,WAIT_ON };
   bool armed=false,confirmed=false,baseline=false;
@@ -29,12 +33,26 @@ class Detector {
   float backgroundChangeL=0,backgroundResidualL=0,darkenedFraction=0,requiredDrop=0,exposureGain=1;
   unsigned maskPixels=0;
   const char *rejectionReason="DISARMED";
+  // RGB is an optional extra OFF path. Its image buffer is caller-owned PSRAM
+  // on device; allocation failure must never remove the existing L* path.
+  bool rgb_workspace_available=false,rgb_reference_ready=false,luma_off=false,rgb_off=false;
+  int rgb_channel=-1;
+  float rgb_joint_fraction=0,rgb_dark_fraction=0,rgb_background_span=0;
+  unsigned rgb_background_samples=0;
+  bool rgb_background_fitted=false;
+  const char *rgb_rejection_reason="NO_RGB_REFERENCE";
+  bool setRGBReferenceBuffer(uint8_t *buffer,size_t bytes){
+    if(armed||baseline)return false;
+    rgbReference=buffer&&bytes>=RGB_REFERENCE_BYTES?buffer:nullptr;
+    rgb_workspace_available=rgbReference!=nullptr;rgb_reference_ready=false;resetRGBEvidence();
+    return rgb_workspace_available;
+  }
 
   Detector(){
     for(int i=0;i<256;++i){float s=i/255.f;linear[i]=s<=.04045f?s/12.92f:powf((s+.055f)/1.055f,2.4f);}
     for(int i=0;i<1024;++i){float y=i/1023.f;float f=y>.00885645f?cbrtf(y):7.787037f*y+16.f/116.f;int l=int((116.f*f-16.f)*2.55f+.5f);lightness[i]=l<0?0:l>255?255:l;}
   }
-  void cancel(){offBaselineReady=false;onRise=brightenedFraction=0;grayDrop=valueDrop=saturationChange=0;armed=confirmed=baseline=false;target=region=Region();targetHits=0;hits=elapsed=0;haveLast=false;contextValid=false;contrast=baselineContrast=noise=0;backgroundChangeL=backgroundResidualL=darkenedFraction=requiredDrop=0;exposureGain=1;maskPixels=0;rejectionReason="DISARMED";phase=IDLE;}
+  void cancel(){offBaselineReady=false;onRise=brightenedFraction=0;grayDrop=valueDrop=saturationChange=0;armed=confirmed=baseline=false;target=region=Region();targetHits=0;hits=elapsed=0;haveLast=false;contextValid=false;contrast=baselineContrast=noise=0;backgroundChangeL=backgroundResidualL=darkenedFraction=requiredDrop=0;exposureGain=1;maskPixels=0;rejectionReason="DISARMED";phase=IDLE;rgb_reference_ready=false;resetRGBEvidence();}
   void arm(){cancel();armed=true;phase=cycleRequired?WAIT_ON:SEARCH;rejectionReason=cycleRequired?"WAIT_ON":"WAIT_LAMP_FACE";}
   void requireOffOnOff(bool required){cycleRequired=required;}
   bool offBaselineReady=false;float onRise=0,brightenedFraction=0;
@@ -60,7 +78,7 @@ class Detector {
   void process(const uint8_t *rgb565,uint32_t now,int roiY=Y){
     ++sequence;
     if(!armed||confirmed)return;
-    if(haveLast&&uint32_t(now-last)>750){baseline=false;offBaselineReady=false;targetHits=0;hits=elapsed=0;phase=cycleRequired?WAIT_ON:SEARCH;}
+    if(haveLast&&uint32_t(now-last)>750){baseline=false;offBaselineReady=false;targetHits=0;hits=elapsed=0;phase=cycleRequired?WAIT_ON:SEARCH;rgb_reference_ready=false;resetRGBEvidence();}
     // Only automatic acquisition reads chromatic partitions. Reset a stale
     // baseline first so the first frame after a gap can still reacquire.
     prepare(rgb565,roiY,!baseline&&!manualValid);
@@ -77,6 +95,7 @@ class Detector {
  private:
   // Workspace belongs to the detector, never the FreeRTOS camera task stack.
   uint8_t current[N],reference[N],rgb[N*3],colourMask[N],seen[N],lamp[N],ring[N],background[N],component[N];
+  uint8_t *rgbReference=nullptr;
   uint16_t queue[N];float linear[256];uint8_t lightness[1024];
   bool cycleRequired=false;
   bool manualValid=false;Region manualBox;float referenceGray=0,referenceValue=0,referenceSaturation=0;
@@ -86,10 +105,16 @@ class Detector {
   uint16_t exposureHistogram[16][256];
   bool contextValid=false;Region contextBox;
   struct Exposure {
-    unsigned samples=0;
+    unsigned samples=0,channelSamples=0;
+    float span=0;
     float delta=0,gain=1,fittedGain=1,fittedOffset=0;
     bool fitted=false;
   };
+  void resetRGBEvidence(){
+    luma_off=rgb_off=false;rgb_channel=-1;rgb_joint_fraction=rgb_dark_fraction=rgb_background_span=0;
+    rgb_background_samples=0;rgb_background_fitted=false;
+    rgb_rejection_reason=rgb_workspace_available?"NO_RGB_REFERENCE":"NO_WORKSPACE";
+  }
 
   static float overlap(const Region&a,const Region&b){
     int x0=a.x>b.x?a.x:b.x,y0=a.y>b.y?a.y:b.y;
@@ -238,7 +263,12 @@ class Detector {
     for(int i=0;i<N;++i)if(lamp[i]){float r=rgb[i*3],g=rgb[i*3+1],b=rgb[i*3+2],hi=fmaxf(r,fmaxf(g,b)),lo=fminf(r,fminf(g,b));gray+=.299f*r+.587f*g+.114f*b;value+=hi;saturation+=hi?(hi-lo)/hi:0;++count;}
     if(count){gray/=count;value/=count;saturation/=count;}
   }
-  void colourBaseline(){colourEvidence(referenceGray,referenceValue,referenceSaturation);grayDrop=valueDrop=saturationChange=0;}
+  void colourBaseline(){
+    colourEvidence(referenceGray,referenceValue,referenceSaturation);grayDrop=valueDrop=saturationChange=0;
+    if(rgb_workspace_available){memcpy(rgbReference,rgb,RGB_REFERENCE_BYTES);rgb_reference_ready=true;}
+    else rgb_reference_ready=false;
+    resetRGBEvidence();rgb_rejection_reason=rgb_reference_ready?"BASELINE_READY":"NO_WORKSPACE";
+  }
   void beginAcquisition(float level,uint32_t now){
     targetHits=1;lockSince=now;minContrast=maxContrast=meanContrast=level;acquisitionM2=0;noise=0;
   }
@@ -281,23 +311,30 @@ class Detector {
   static int quantile(const uint16_t *hist,int size,unsigned count){
     unsigned sum=0;for(int i=0;i<size;++i){sum+=hist[i];if(sum>=(count+1)/2)return i;}return size-1;
   }
-  Exposure estimateExposure(){
+  Exposure estimateExposure(int channel=-1){
     // ON and OFF use the same background evidence, with opposite conservative
     // bounds later. Build all histograms in one pass over the image workspace.
-    Exposure result;
+    Exposure result;if(channel>=0&&!rgb_reference_ready)return result;
     uint16_t deltas[511]={},ratios[513]={};unsigned ratioSamples=0,counts[16]={};float sums[16]={};
     memset(exposureHistogram,0,sizeof(exposureHistogram));
-    for(int i=0;i<N;++i)if(background[i]&&reference[i]<=245){
-      ++deltas[int(current[i])-reference[i]+255];++result.samples;
-      if(reference[i]>=32){
-        ++ratios[minimum(512,int(current[i])*128/reference[i])];++ratioSamples;
-        int bin=reference[i]/16;++counts[bin];sums[bin]+=reference[i];++exposureHistogram[bin][current[i]];
+    for(int i=0;i<N;++i)if(background[i]){
+      unsigned before=channel<0?reference[i]:rgbReference[i*3+channel];
+      unsigned after=channel<0?current[i]:rgb[i*3+channel];
+      if(before>245)continue;
+      ++deltas[int(after)-int(before)+255];++result.samples;
+      if(before>=32){
+        ++ratios[minimum(512,int(after)*128/before)];++ratioSamples;
+        int bin=before/16;++counts[bin];sums[bin]+=before;++exposureHistogram[bin][after];
       }
     }
+    result.channelSamples=ratioSamples;
     if(result.samples<32)return result;
     result.delta=quantile(deltas,511,result.samples)-255;
     result.gain=ratioSamples>=32?quantile(ratios,513,ratioSamples)/128.f:1.f;
     result.fitted=fitExposure(counts,sums,result.fittedGain,result.fittedOffset);
+    float low=255,high=0;unsigned bins=0;
+    for(int j=0;j<16;++j)if(counts[j]>=24){float level=sums[j]/counts[j];low=fminf(low,level);high=fmaxf(high,level);++bins;}
+    result.span=bins?high-low:0;
     return result;
   }
   // Fit only when the background has enough independent brightness levels.
@@ -320,7 +357,50 @@ class Detector {
     gain=(n*sxy-sx*sy)/denominator;offset=(sy-gain*sx)/n;
     return gain>=.4f&&gain<=1.6f&&fabsf(offset)<=48;
   }
+  bool rgbDarkPixel(int i) const {
+    int hi=maximum(rgb[i*3],maximum(rgb[i*3+1],rgb[i*3+2]));
+    int lo=minimum(rgb[i*3],minimum(rgb[i*3+1],rgb[i*3+2]));
+    return hi<=int(RGB_DARK_MAX)&&(hi<=int(RGB_BLACK_MAX)||hi-lo<=int(RGB_DARK_CHROMA_MAX));
+  }
+  bool strongRGBOff(unsigned lampCount){
+    if(!rgb_workspace_available){rgb_rejection_reason="NO_WORKSPACE";return false;}
+    if(!rgb_reference_ready){rgb_rejection_reason="NO_RGB_REFERENCE";return false;}
+    if(!lampCount){rgb_rejection_reason="NO_LAMP_PIXELS";return false;}
+    unsigned darkCount=0;
+    for(int i=0;i<N;++i)if(lamp[i]&&rgbDarkPixel(i))++darkCount;
+    rgb_dark_fraction=float(darkCount)/lampCount;
+    if(darkCount*10<lampCount*6){rgb_rejection_reason="RGB_NOT_DARK";return false;}
+    bool observable=false;unsigned bestJoint=0;
+    for(int channel=0;channel<3;++channel){
+      Exposure exposure=estimateExposure(channel);
+      // A flat/dark background cannot rule out a per-channel WB gain+offset.
+      // fitExposure requires >=3 populated bins and >=32 brightness span.
+      if(exposure.channelSamples<32||!exposure.fitted){
+        if(!observable&&exposure.channelSamples>rgb_background_samples){
+          rgb_background_samples=exposure.channelSamples;rgb_background_span=exposure.span;
+        }
+        continue;
+      }
+      observable=true;unsigned joint=0;
+      for(int i=0;i<N;++i)if(lamp[i]){
+        if(!rgbDarkPixel(i))continue;
+        float before=rgbReference[i*3+channel];
+        float expected=fminf(before,fminf(before+exposure.delta,before*exposure.gain));
+        expected=fminf(expected,before*exposure.fittedGain+exposure.fittedOffset);
+        expected=fminf(255.f,fmaxf(0.f,expected));float drop=expected-rgb[i*3+channel];
+        if(drop>=RGB_ABS_DROP&&drop>=expected*RGB_RELATIVE_DROP)++joint;
+      }
+      if(rgb_channel<0||joint>bestJoint){
+        bestJoint=joint;rgb_channel=channel;rgb_joint_fraction=float(joint)/lampCount;
+        rgb_background_samples=exposure.channelSamples;rgb_background_span=exposure.span;rgb_background_fitted=true;
+      }
+      if(joint*10>=lampCount*6){rgb_rejection_reason="RGB_STRONG_OFF";return true;}
+    }
+    rgb_rejection_reason=observable?"RGB_DROP_INSUFFICIENT":"BACKGROUND_UNOBSERVABLE";
+    return false;
+  }
   void compare(uint32_t now){
+    resetRGBEvidence();rgb_rejection_reason="SHARED_BACKGROUND_NOT_READY";
     float g,v,s;colourEvidence(g,v,s);grayDrop=referenceGray-g;valueDrop=referenceValue-v;saturationChange=s-referenceSaturation;
     Exposure exposure=estimateExposure();unsigned samples=exposure.samples;
     if(samples<32){hits=elapsed=0;phase=UNCERTAIN;rejectionReason="NO_BACKGROUND_REFERENCE";return;}
@@ -353,10 +433,13 @@ class Detector {
     if(stable*10<samples*6||backgroundResidualL>14||(ringCount&&newBright*5>ringCount)){hits=elapsed=0;phase=UNCERTAIN;rejectionReason="BACKGROUND_STRUCTURE_CHANGED";return;}
     float threshold=fmaxf(8.f,fmaxf(noise*3.f,baselineContrast*.10f));
     requiredDrop=threshold;float drop=lampCount?dropSum/lampCount:0;
-    bool off=drop>=threshold&&lampCount&&changed*10>=lampCount*6;
+    luma_off=drop>=threshold&&lampCount&&changed*10>=lampCount*6;
+    if(luma_off)rgb_rejection_reason="LUMA_PATH_USED";
+    else rgb_off=strongRGBOff(lampCount);
+    bool off=luma_off||rgb_off;
     if(!off){hits=elapsed=0;phase=drop<threshold*.4f?ON:UNCERTAIN;rejectionReason=drop<threshold?"LAMP_NOT_DARK_ENOUGH":"TOO_FEW_DARKENED_PIXELS";return;}
     if(!hits)offSince=now;
-    ++hits;elapsed=uint32_t(now-offSince);phase=CONFIRM_OFF;rejectionReason="CONFIRMING_OFF";region=target;region.count=changed;region.strength=drop;
+    ++hits;elapsed=uint32_t(now-offSince);phase=CONFIRM_OFF;rejectionReason=rgb_off?"CONFIRMING_RGB_OFF":"CONFIRMING_OFF";region=target;region.count=changed;region.strength=drop;
     if(hits>=CONFIRM_FRAMES&&elapsed>=CONFIRM_MS){confirmed=true;phase=FIRED;rejectionReason="SIGNAL_CONFIRMED";}
   }
   void prepare(const uint8_t *pixels,int roiY,bool needColourMask){

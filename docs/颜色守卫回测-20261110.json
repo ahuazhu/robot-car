@@ -1,0 +1,855 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-10",
+  "decision": "Select strong RGB OR v2 with neutral/black per-pixel constraints. Original L-star decision remains intact; RGB only rescues failed L-star evidence after shared background checks. Prior A/C/O/P/C2/C3 are rejected. Software replay acceptance is not real colored-lamp validation.",
+  "baseline": {
+    "commit": "e355646dfc39498cd97994fa950137f005021cb7",
+    "header_sha256": "388f8967225e22858e771b7a3dc28a5f3b2cbb9b76e92d3ec7c6d74bdb95e025"
+  },
+  "datasets": [
+    {
+      "name": "esp_20261107_a",
+      "root": "lamp-recordings/lamp-trial-20261107-a",
+      "roi": [
+        124,
+        40,
+        64,
+        44
+      ],
+      "roi_source": "New inner-core visual estimate from frames 000000/000313; about +/-4px, not an operator-saved ROI",
+      "start": 0,
+      "end": 91,
+      "off_start": 49,
+      "windows": {
+        "ON1": [
+          0,
+          44
+        ],
+        "OFF": [
+          49,
+          55
+        ],
+        "ON2": [
+          60,
+          69
+        ],
+        "OFF2": [
+          75,
+          89
+        ]
+      },
+      "labels": "User described sequence plus visual spot checks: 190=ON,218 at47.445862=OFF,264 at59.117697=ON,313=OFF. Stable ON1 is deliberately narrowed to0..44 (not0..50) because the actual lamp is OFF by47s; 47s confirmation is not a false trigger. New OFF2 window is75..89. Exact physical switch times unknown."
+    },
+    {
+      "name": "esp_20261109_122729",
+      "root": "esp32-lampnet-20261109/trial-122729",
+      "roi": [
+        124,
+        50,
+        40,
+        35
+      ],
+      "roi_source": "Existing report manually_selected_lamp_core; full face annotation about [105,34,75,64] +/-3px",
+      "start": 425,
+      "end": 790,
+      "off_start": 540,
+      "windows": {
+        "ON1": [
+          425,
+          450
+        ],
+        "OFF": [
+          540,
+          570
+        ],
+        "ON2": [
+          760,
+          790
+        ]
+      },
+      "labels": "Existing independent trial report stable windows. User markers are delayed confirmations, not switch timestamps. Not used to train the model version tested in this recording."
+    },
+    {
+      "name": "esp_20261109_manual2",
+      "root": "esp32-refine-20261109/trial-manual-2",
+      "roi": [
+        61,
+        59,
+        64,
+        53
+      ],
+      "roi_source": "Operator configuration_saved at t396.915814; quantized detector target [64,60,60,52]",
+      "start": 466,
+      "end": 630,
+      "off_start": 495,
+      "windows": {
+        "ON1": [
+          470,
+          485
+        ],
+        "OFF": [
+          495,
+          525
+        ],
+        "ON2": [
+          550,
+          575
+        ]
+      },
+      "labels": "User ON/OFF/ON sequence plus visual spot checks: frame202=ON,213=OFF,237=ON. Window edges are approximate; embedded confirmation telemetry is corroboration, not independent ground truth."
+    }
+  ],
+  "private_data_policy": "root fields are relative to --data-root. Original images and raw device logs are private inputs, not included in git. No credentials required.",
+  "results": {
+    "baseline": {
+      "header_sha256": "388f8967225e22858e771b7a3dc28a5f3b2cbb9b76e92d3ec7c6d74bdb95e025",
+      "controlled_snapshot_positives": {
+        "passed": 6,
+        "total": 6
+      },
+      "controlled_snapshot_negatives": {
+        "passed": 12,
+        "total": 12
+      },
+      "strict_ON_confirmation_source_t": 47.445862,
+      "strict_ON_confirmation_span_ms": 448,
+      "strict_OFF_complete_cycle_validated": false
+    },
+    "value-guard": {
+      "header_sha256": "9ab0040312cad2d1de2cdb7b1557915c5fd549ca4b4706c3bbd7f49b70abab64",
+      "controlled_snapshot_positives": {
+        "passed": 4,
+        "total": 6
+      },
+      "controlled_snapshot_negatives": {
+        "passed": 12,
+        "total": 12
+      },
+      "strict_ON_confirmation_source_t": 47.445862,
+      "strict_ON_confirmation_span_ms": 448,
+      "strict_OFF_complete_cycle_validated": false
+    },
+    "conditional_guard": {
+      "header_sha256": "805d8579c869597447ef19ae4e2e817511e894f6144d10b24ee3a038f8e2dd53",
+      "controlled_snapshot_positives": {
+        "passed": 6,
+        "total": 6
+      },
+      "controlled_snapshot_negatives": {
+        "passed": 12,
+        "total": 12
+      },
+      "strict_ON_confirmation_source_t": 47.445862,
+      "strict_ON_confirmation_span_ms": 448,
+      "strict_OFF_complete_cycle_validated": false
+    },
+    "rgb_or": {
+      "header_sha256": "160a0f76313a621082652aad6645caaeca16b0286ee4f9271d08b20655a85110",
+      "controlled_snapshot_positives": {
+        "passed": 6,
+        "total": 6
+      },
+      "controlled_snapshot_negatives": {
+        "passed": 12,
+        "total": 12
+      },
+      "strict_ON_confirmation_source_t": 47.445862,
+      "strict_ON_confirmation_span_ms": 448,
+      "strict_OFF_complete_cycle_validated": false
+    },
+    "constrained_or": {
+      "header_sha256": "4f9b77f26de10f26ea847e82a3c07eb281732e357d19f6137da463be3bfb8a06",
+      "controlled_snapshot_positives": {
+        "passed": 6,
+        "total": 6
+      },
+      "controlled_snapshot_negatives": {
+        "passed": 12,
+        "total": 12
+      },
+      "strict_ON_confirmation_source_t": 47.445862,
+      "strict_ON_confirmation_span_ms": 448,
+      "strict_OFF_complete_cycle_validated": false
+    },
+    "reliable_guard": {
+      "header_sha256": "46960448775c23acda6af5e52c22cc5712c9b8616da2308e10f80387d0b1437f",
+      "controlled_snapshot_positives": {
+        "passed": 6,
+        "total": 6
+      },
+      "controlled_snapshot_negatives": {
+        "passed": 12,
+        "total": 12
+      },
+      "strict_ON_confirmation_source_t": 47.445862,
+      "strict_ON_confirmation_span_ms": 448,
+      "strict_OFF_complete_cycle_validated": false
+    },
+    "clip_guard": {
+      "header_sha256": "633c0c28e8bde8a175624d7dcaf6aa80b64e183ce3213f57606548f053c64d05",
+      "controlled_snapshot_positives": {
+        "passed": 6,
+        "total": 6
+      },
+      "controlled_snapshot_negatives": {
+        "passed": 12,
+        "total": 12
+      },
+      "strict_ON_confirmation_source_t": 47.445862,
+      "strict_ON_confirmation_span_ms": 448,
+      "strict_OFF_complete_cycle_validated": false
+    },
+    "strong-rgb-or-v2": {
+      "header_sha256": "01488a74ce12ea9a6bb3f4a2d906f521f59c4b0bd07b5ba60a00ea0614ab7771",
+      "controlled_snapshot_positives": {
+        "passed": 6,
+        "total": 6
+      },
+      "controlled_snapshot_negatives": {
+        "passed": 12,
+        "total": 12
+      },
+      "new_real_positive_cases": [],
+      "new_real_negative_events": [],
+      "real_RGB_rescue_cases": [],
+      "strict_ON_confirmation_source_t": 47.445862,
+      "strict_ON_confirmation_span_ms": 448,
+      "strict_OFF_complete_cycle_validated": false,
+      "old_Maix_jitter_frames": 17,
+      "old_Maix_jitter_events_per_mode": 0
+    }
+  },
+  "known_real_value_guard_regression": {
+    "dataset": "esp_20261109_manual2",
+    "ROI": [
+      61,
+      59,
+      64,
+      53
+    ],
+    "ON_frames": [
+      "frames/000202.jpg",
+      "frames/000205.jpg"
+    ],
+    "OFF_frame": "frames/000213.jpg",
+    "gray_drop": 47.797454833984375,
+    "value_drop": 3.1468505859375,
+    "darkened_fraction": 1.0,
+    "background_residual": 8.0,
+    "description": "Real OFF panel remains warm/red near saturation; uniform V-drop veto suppresses valid L-star evidence."
+  },
+  "strict_time_limits": {
+    "valid_ON_confirmation": {
+      "dataset": "esp_20261107_a",
+      "file": "frames/000218.jpg",
+      "source_t": 47.445862,
+      "confirmation_span_ms": 448,
+      "visual_truth": "OFF"
+    },
+    "invalid_OFF_cycle_gap": {
+      "previous_t": 68.475715,
+      "next_t": 69.284702,
+      "gap_ms": 808.987,
+      "continuity_limit_ms": 750
+    },
+    "jitter": {
+      "camera": "Old Maix, not ESP",
+      "frames": 17,
+      "original_timestamps_available": false,
+      "assigned_interval_ms": 210,
+      "events_in_each_initial_mode": 0
+    }
+  },
+  "external_synthetic_evidence": {
+    "author": "Independent collaborating reviewer; read and summarized here, not independently regenerated by this real-data replay",
+    "directory": ".maixpy/color-independent-20261110",
+    "reflection_counterexample_file": "nonclipped-reflection-counterexample.json",
+    "reflection_counterexample": [
+      {
+        "header": "baseline",
+        "mode": "OFF",
+        "on_bgr": [
+          80,
+          180,
+          200
+        ],
+        "off_bgr": [
+          80,
+          60,
+          200
+        ],
+        "confirmed": true,
+        "value_drop": 0.0,
+        "gray_drop": 71.61348724365234
+      },
+      {
+        "header": "baseline",
+        "mode": "ON",
+        "on_bgr": [
+          80,
+          180,
+          200
+        ],
+        "off_bgr": [
+          80,
+          60,
+          200
+        ],
+        "confirmed": true,
+        "value_drop": 0.0,
+        "gray_drop": 71.61348724365234
+      },
+      {
+        "header": "baseline",
+        "mode": "OFF",
+        "on_bgr": [
+          100,
+          180,
+          231
+        ],
+        "off_bgr": [
+          30,
+          60,
+          230
+        ],
+        "confirmed": true,
+        "value_drop": 0.0,
+        "gray_drop": 80.05014038085938
+      },
+      {
+        "header": "baseline",
+        "mode": "ON",
+        "on_bgr": [
+          100,
+          180,
+          231
+        ],
+        "off_bgr": [
+          30,
+          60,
+          230
+        ],
+        "confirmed": true,
+        "value_drop": 0.0,
+        "gray_drop": 80.05014038085938
+      },
+      {
+        "header": "clip_guard",
+        "mode": "OFF",
+        "on_bgr": [
+          80,
+          180,
+          200
+        ],
+        "off_bgr": [
+          80,
+          60,
+          200
+        ],
+        "confirmed": false,
+        "value_drop": 0.0,
+        "gray_drop": 71.61348724365234
+      },
+      {
+        "header": "clip_guard",
+        "mode": "ON",
+        "on_bgr": [
+          80,
+          180,
+          200
+        ],
+        "off_bgr": [
+          80,
+          60,
+          200
+        ],
+        "confirmed": false,
+        "value_drop": 0.0,
+        "gray_drop": 71.61348724365234
+      },
+      {
+        "header": "clip_guard",
+        "mode": "OFF",
+        "on_bgr": [
+          100,
+          180,
+          231
+        ],
+        "off_bgr": [
+          30,
+          60,
+          230
+        ],
+        "confirmed": false,
+        "value_drop": 0.0,
+        "gray_drop": 80.05014038085938
+      },
+      {
+        "header": "clip_guard",
+        "mode": "ON",
+        "on_bgr": [
+          100,
+          180,
+          231
+        ],
+        "off_bgr": [
+          30,
+          60,
+          230
+        ],
+        "confirmed": false,
+        "value_drop": 0.0,
+        "gray_drop": 80.05014038085938
+      }
+    ],
+    "simple_OR_added_exposure_failures": {
+      "source": "extended-rgb_or.json compared with extended-baseline.json",
+      "count": 12,
+      "cases": [
+        {
+          "name": "white_global_gain65",
+          "mode": "OFF"
+        },
+        {
+          "name": "white_global_gain65",
+          "mode": "ON"
+        },
+        {
+          "name": "white_global_offset30",
+          "mode": "OFF"
+        },
+        {
+          "name": "white_global_offset30",
+          "mode": "ON"
+        },
+        {
+          "name": "red_global_gain65",
+          "mode": "OFF"
+        },
+        {
+          "name": "red_global_gain65",
+          "mode": "ON"
+        },
+        {
+          "name": "red_global_offset30",
+          "mode": "OFF"
+        },
+        {
+          "name": "red_global_offset30",
+          "mode": "ON"
+        },
+        {
+          "name": "green_global_gain65",
+          "mode": "OFF"
+        },
+        {
+          "name": "green_global_gain65",
+          "mode": "ON"
+        },
+        {
+          "name": "green_global_offset30",
+          "mode": "OFF"
+        },
+        {
+          "name": "green_global_offset30",
+          "mode": "ON"
+        }
+      ]
+    },
+    "constrained_OR_added_WB_failures": {
+      "source": "green-sweep.json",
+      "count": 14,
+      "cases": [
+        {
+          "pattern": [
+            115,
+            115,
+            90,
+            90
+          ],
+          "background": 0,
+          "mode": "OFF"
+        },
+        {
+          "pattern": [
+            115,
+            115,
+            90,
+            90
+          ],
+          "background": 0,
+          "mode": "ON"
+        },
+        {
+          "pattern": [
+            115,
+            115,
+            90,
+            90
+          ],
+          "background": 20,
+          "mode": "OFF"
+        },
+        {
+          "pattern": [
+            115,
+            115,
+            90,
+            90
+          ],
+          "background": 20,
+          "mode": "ON"
+        },
+        {
+          "pattern": [
+            114,
+            114,
+            90,
+            90
+          ],
+          "background": 0,
+          "mode": "OFF"
+        },
+        {
+          "pattern": [
+            114,
+            114,
+            90,
+            90
+          ],
+          "background": 0,
+          "mode": "ON"
+        },
+        {
+          "pattern": [
+            114,
+            114,
+            90,
+            90
+          ],
+          "background": 20,
+          "mode": "OFF"
+        },
+        {
+          "pattern": [
+            114,
+            114,
+            90,
+            90
+          ],
+          "background": 20,
+          "mode": "ON"
+        },
+        {
+          "pattern": [
+            110,
+            110,
+            90,
+            90
+          ],
+          "background": 0,
+          "mode": "OFF"
+        },
+        {
+          "pattern": [
+            110,
+            110,
+            90,
+            90
+          ],
+          "background": 0,
+          "mode": "ON"
+        },
+        {
+          "pattern": [
+            110,
+            110,
+            90,
+            90
+          ],
+          "background": 20,
+          "mode": "OFF"
+        },
+        {
+          "pattern": [
+            110,
+            110,
+            90,
+            90
+          ],
+          "background": 20,
+          "mode": "ON"
+        },
+        {
+          "pattern": [
+            110,
+            100,
+            95,
+            90
+          ],
+          "background": 20,
+          "mode": "OFF"
+        },
+        {
+          "pattern": [
+            110,
+            100,
+            95,
+            90
+          ],
+          "background": 20,
+          "mode": "ON"
+        }
+      ]
+    },
+    "strong_v2": {
+      "author": "Independent reviewer generated these matrices; this report read and compared their saved JSON",
+      "ninety_case_source_files": [
+        "strong-rgb-baseline.json",
+        "strong-rgb-candidate-v2.json"
+      ],
+      "ninety_total": 90,
+      "ninety_added_true": 8,
+      "ninety_added_false": 0,
+      "ninety_added_misses": 0,
+      "ninety_changes": [
+        {
+          "name": "red_off_dark_boundary_80",
+          "mode": "OFF",
+          "expected": true,
+          "before_fired": false,
+          "after_fired": true
+        },
+        {
+          "name": "red_off_dark_boundary_80",
+          "mode": "ON",
+          "expected": true,
+          "before_fired": false,
+          "after_fired": true
+        },
+        {
+          "name": "red_off_dark_boundary_92",
+          "mode": "OFF",
+          "expected": true,
+          "before_fired": false,
+          "after_fired": true
+        },
+        {
+          "name": "red_off_dark_boundary_92",
+          "mode": "ON",
+          "expected": true,
+          "before_fired": false,
+          "after_fired": true
+        },
+        {
+          "name": "red_off_dark_boundary_95",
+          "mode": "OFF",
+          "expected": true,
+          "before_fired": false,
+          "after_fired": true
+        },
+        {
+          "name": "red_off_dark_boundary_95",
+          "mode": "ON",
+          "expected": true,
+          "before_fired": false,
+          "after_fired": true
+        },
+        {
+          "name": "stable_strong_red_real_off",
+          "mode": "OFF",
+          "expected": true,
+          "before_fired": false,
+          "after_fired": true
+        },
+        {
+          "name": "stable_strong_red_real_off",
+          "mode": "ON",
+          "expected": true,
+          "before_fired": false,
+          "after_fired": true
+        }
+      ],
+      "extended_source_files": [
+        "extended-baseline.json",
+        "extended-strong-rgb-or-v2.json"
+      ],
+      "extended_total": 144,
+      "extended_changed_locked": 0,
+      "extended_changed_fired": 0,
+      "extended_changed_first_confirmation": 0,
+      "extended_changed_sequences": 0,
+      "extended_changed_diagnostic": 0,
+      "interpretation": "Equivalent to baseline does not mean every negative/positive expectation passes; known baseline ambiguities remain."
+    }
+  },
+  "limitations": [
+    "JPEGs differ from original camera RGB565; no physical switching latency can be measured.",
+    "No verified real red/green ON/OFF recordings were found. Available physical lamps are white/warm white, often saturated.",
+    "No independently labeled occlusion, ambient-exposure-only or white-balance-only negative recordings were found. People/glare in images do not supply event truth.",
+    "Golden/self-test images and old Maix-camera fixtures are excluded from primary real-ESP evaluation.",
+    "Frames within a recording are correlated; frame counts are not independent trials or an accuracy denominator.",
+    "Paced probes are photometric/protocol sensitivity checks only; they assign 210ms to distinct snapshots and may reorder stable windows, never source-camera accuracy or latency.",
+    "The selected v2 has no RGB-only accepted frame on the real white/warm-white replay groups. Its eight added true detections are synthetic controls, not eight independent physical trials. Deployment status is tracked separately."
+  ],
+  "jitter": {
+    "root": "../tests/fixtures/start_signal_jitter_20261031",
+    "roi": [
+      139,
+      51,
+      63,
+      61
+    ],
+    "camera": "Old Maix, not ESP",
+    "source_timestamps_available": false,
+    "assigned_interval_ms": 210,
+    "crop_first_320_columns": true
+  },
+  "deployment": {
+    "status": "not_deployed",
+    "reason": "device_unreachable",
+    "status_owner": "Deployment coordinator; this report performs no device I/O"
+  },
+  "selected_candidate": {
+    "name": "strong_rgb_or_v2_neutral",
+    "evaluated_header_sha256": "01488a74ce12ea9a6bb3f4a2d906f521f59c4b0bd07b5ba60a00ea0614ab7771",
+    "production_header_sha256": "01488a74ce12ea9a6bb3f4a2d906f521f59c4b0bd07b5ba60a00ea0614ab7771",
+    "unchanged": [
+      "L-star branch calculations",
+      "shared background safeguards",
+      "same fixed ROI/reference",
+      "3 frames and >=400ms confirmation",
+      "Maix permission latch"
+    ],
+    "rgb_path": {
+      "logic": "original_luma_off OR strong_rgb_off",
+      "same_pixel_fraction": 0.6,
+      "absolute_channel_drop": 48,
+      "relative_channel_drop": 0.4,
+      "maximum_rgb": 96,
+      "neutral_condition": "maxRGB<=32 OR maxRGB-minRGB<=12",
+      "channel_background": "robust observable affine fit required; insufficient background disables RGB branch"
+    }
+  },
+  "reader_examples": {
+    "image": "assets/rgb-false-trigger-examples.png",
+    "machine_results": "assets/rgb-false-trigger-examples.json",
+    "source": "Synthetic images only, no private camera photographs",
+    "scope": "Rejected old simple OR and old constrained OR; not selected v2",
+    "truth": "Lamp remains ON by explicit scene-generation definition; examples are not claims of observed real-world false starts."
+  },
+  "synthetic_display_inputs": [
+    {
+      "name": "white_global_gain65",
+      "mode": "ON",
+      "shape": [
+        240,
+        320,
+        3
+      ],
+      "channel_order": "BGR",
+      "roi": [
+        100,
+        40,
+        80,
+        64
+      ],
+      "background": {
+        "type": "horizontal_linear_gradient",
+        "minimum": 45,
+        "maximum": 160,
+        "dtype": "uint8",
+        "same_in_all_channels": true
+      },
+      "on_roi_bgr": [
+        240,
+        240,
+        240
+      ],
+      "on_t_ms": [
+        0,
+        100,
+        200,
+        300
+      ],
+      "after": {
+        "type": "whole_image_gain",
+        "gain": 0.65,
+        "quantization": "floor to uint8"
+      },
+      "after_t_ms": [
+        400,
+        610,
+        820,
+        1030
+      ],
+      "physical_truth": "emitter stays ON; camera exposure gain changes"
+    },
+    {
+      "name": "noisy_still_red_on_global_wb_bgR0",
+      "mode": "ON",
+      "shape": [
+        240,
+        320,
+        3
+      ],
+      "channel_order": "BGR",
+      "roi": [
+        100,
+        40,
+        80,
+        64
+      ],
+      "background": {
+        "type": "constant",
+        "bgr": [
+          100,
+          100,
+          0
+        ]
+      },
+      "on_roi_bgr_sequence": [
+        [
+          60,
+          60,
+          120
+        ],
+        [
+          60,
+          60,
+          110
+        ],
+        [
+          60,
+          60,
+          100
+        ],
+        [
+          60,
+          60,
+          90
+        ]
+      ],
+      "on_t_ms": [
+        0,
+        100,
+        200,
+        300
+      ],
+      "after": {
+        "type": "whole_image_channel_gain",
+        "channel": "R",
+        "gain": 0.6666666666666666,
+        "base": "last ON frame",
+        "quantization": "floor to uint8"
+      },
+      "after_t_ms": [
+        400,
+        610,
+        820,
+        1030
+      ],
+      "physical_truth": "red emitter stays at its final ON level; global camera red WB gain changes"
+    }
+  ]
+}

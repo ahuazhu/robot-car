@@ -567,6 +567,35 @@ async function lampSignalScenarios(){
   assertLampSignal(e,'UNKNOWN',/待确认/);
  }
  {
+  const e=setup();await flush();await replaceStatus(e,s=>Object.assign(s.readiness.start_light,{
+   phase:'CONFIRM_OFF',permission:false,armed:true,connected:true,rgb_off:true,luma_off:false,rgb_channel:1}));
+  assertLampSignal(e,'OFF',/灯 OFF.*确认中/);
+  assert.match(e.elements['lamp-signal-state'].getAttribute('title'),/RGB通道大幅下降且灯面转暗，正在确认/);
+  assert.match(e.elements['start-light-status'].textContent,/依据：RGB G/);
+  await replaceStatus(e,s=>Object.assign(s.readiness.start_light,{
+   phase:'CONFIRM_OFF',permission:false,armed:true,connected:true,luma_off:true,rgb_off:false}));
+  assertLampSignal(e,'OFF',/灯 OFF.*确认中/);
+  assert.doesNotMatch(e.elements['lamp-signal-state'].getAttribute('title'),/RGB通道/);
+  assert.match(e.elements['start-light-status'].textContent,/依据：亮度/);
+ }
+ {
+  const e=setup();await flush();await replaceStatus(e,s=>Object.assign(s.readiness.start_light,{
+   phase:'SIGNAL_READY',permission:false,armed:true,connected:true,rgb_off:true,rgb_channel:0}));
+  assert.notEqual(e.elements['lamp-signal-state'].dataset.state,'START','RGB evidence cannot substitute for a formal permission');
+  assert.doesNotMatch(e.elements['start-light-status'].textContent,/依据：/);
+  await replaceStatus(e,s=>Object.assign(s.readiness.start_light,{
+   phase:'RUNNING',permission:true,armed:false,connected:false,error:'ESP32_OFFLINE',rgb_off:true,rgb_channel:2}));
+  assertLampSignal(e,'START',/出发/);
+  assert.match(e.elements['start-light-status'].textContent,/依据：RGB B/);
+ }
+ {
+  const e=setup();await flush();await replaceStatus(e,s=>Object.assign(s.readiness.start_light,{
+   phase:'CONFIRM_OFF',permission:false,armed:true,connected:true,rgb_off:'true',rgb_channel:1}));
+  assertLampSignal(e,'OFF',/确认中/);
+  assert.doesNotMatch(e.elements['lamp-signal-state'].getAttribute('title'),/RGB通道/,'diagnostic strings are not booleans');
+  assert.doesNotMatch(e.elements['start-light-status'].textContent,/依据：/);
+ }
+ {
   const e=setup();await flush();await replaceStatus(e,s=>Object.assign(s.readiness.start_light,{phase:'FAULT',permission:false,armed:false,connected:true,fault_reason:'RESPONSE_TOO_SLOW'}));
   assertLampSignal(e,'FAULT',/等灯中断/);
  }

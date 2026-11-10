@@ -506,4 +506,33 @@ class StartSignal:
                         rejection_reason=p.get("rejection_reason"), background_change=p.get("background_change"),
                         background_residual=p.get("background_residual"), darkened_fraction=p.get("darkened_fraction"),
                         lamp=dict(direction=p.get("direction","")),
-                        peer_url=self.peer.get("preview_url") or ("http://%s/" % urlsplit(self.endpoint).hostname if self.endpoint else self.url))
+                        peer_url=self.peer.get("preview_url") or ("http://%s/" % urlsplit(self.endpoint).hostname if self.endpoint else self.url),
+                        **self._rgb_diagnostics(p))
+
+    @staticmethod
+    def _rgb_diagnostics(peer):
+        """Optional display evidence, never part of event/permission validation."""
+        result = {}
+        for name in ("rgb_workspace_available", "rgb_reference_ready", "luma_off", "rgb_off",
+                     "rgb_background_fitted"):
+            if name in peer:
+                value = peer[name]
+                result[name] = value if type(value) is bool else None
+        for name, low, high in (("rgb_channel", -1, 2), ("rgb_background_samples", 0, 320*240),
+                               ("rgb_dark_max", 0, 255), ("rgb_dark_chroma_max", 0, 255),
+                               ("rgb_black_max", 0, 255)):
+            if name in peer:
+                value = peer[name]
+                result[name] = value if type(value) is int and low <= value <= high else None
+        for name, low, high in (("rgb_joint_fraction", 0., 1.), ("rgb_dark_fraction", 0., 1.),
+                               ("rgb_background_span", 0., 255.), ("rgb_required_drop", 0., 255.),
+                               ("rgb_required_relative_drop", 0., 1.), ("rgb_required_fraction", 0., 1.)):
+            if name in peer:
+                value = peer[name]
+                result[name] = value if (type(value) in (int, float) and math.isfinite(value)
+                                        and low <= value <= high) else None
+        if "rgb_rejection_reason" in peer:
+            value = peer["rgb_rejection_reason"]
+            result["rgb_rejection_reason"] = value if (type(value) is str and 0 < len(value) <= 80
+                and all(character in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_" for character in value)) else None
+        return result

@@ -25,7 +25,7 @@ static httpd_handle_t web=nullptr, controlServer=nullptr;
 #include "signal_service.h"
 
 #if defined(ROBOT_LAMPNET_FULL_FRAME)
-static const char *FIRMWARE_VERSION="0.4.16-initial-lamp-state";
+static const char *FIRMWARE_VERSION="0.4.17-strong-rgb-or";
 #elif defined(ROBOT_LAMPNET_FACE)
 static const char *FIRMWARE_VERSION="0.4.9-lamp-face";
 #elif defined(ROBOT_LAMPNET_SHADOW) && defined(ROBOT_LAMPNET_ESP_NN)

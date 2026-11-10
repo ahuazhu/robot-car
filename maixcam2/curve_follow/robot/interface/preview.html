@@ -294,6 +294,10 @@ function renderLampConfiguration(lamp){
  document.getElementById('roi-status').textContent=roiScanBusy?'正在自动找灯…':preparationPending?'正在保存灯面并准备等灯…':preparationError?'准备未完成：'+preparationError:roiScanError?roiScanError:serverActive?'已发车，信号灯不再影响本轮行驶。':serverArmed?'已准备等灯，灯面已固定。':lockedROI?'灯面位置已固定；可重试 ARM，或 STOP 后调整。':roiDirty?'范围已调整，点击“ARM 准备等灯”一起保存。':!lampConfiguration?'等待 ESP32 灯面设置。':!lampConfiguration.manual&&!candidateLampBox(lamp)?'未找到灯面，请直接拖动黄线手工框选。':'直接拖动黄线框住灯面，ARM 时一起保存。';
  drawROI();
 }
+function lampEvidenceLabel(lamp){
+ if(lamp.rgb_off===true)return Number.isInteger(lamp.rgb_channel)&&lamp.rgb_channel>=0&&lamp.rgb_channel<=2?'RGB '+['R','G','B'][lamp.rgb_channel]:'RGB';
+ return lamp.luma_off===true?'亮度':'';
+}
 function renderLampSignalState(lamp=espLamp){
  let state='LOCATING',label='定位中',detail='拖动黄线框住灯面，按 ARM 保存并锁定',tone='';
  if(Date.now()>=statusExpiresAt){state='UNKNOWN';label='状态未知';detail='等待 Maix 最新状态';tone='warn';}
@@ -305,7 +309,7 @@ function renderLampSignalState(lamp=espLamp){
  else if(lamp.phase==='TARGET_UNCERTAIN'){state='UNKNOWN';label='待确认';detail='光照或画面不稳定，尚未确认灯态';tone='warn';}
  else if(['SIGNAL_READY','PERMITTED'].includes(lamp.phase)){state='UNKNOWN';label='待确认';detail='尚未收到有效出发许可';tone='warn';}
  else if(lamp.armed&&lamp.phase==='WAIT_OFF'){state='ON';label='灯 ON';detail=(lamp.initial_lamp_state||lockedInitialLampState||initialLampState)==='ON'?'已记录稳定基准，等待熄灯；请确保准备时灯已亮':'亮灯已确认，等待熄灯';tone='warn';}
- else if(lamp.armed&&lamp.phase==='CONFIRM_OFF'){state='OFF';label='灯 OFF · 确认中';detail='正在确认熄灯，尚未授予出发许可';}
+ else if(lamp.armed&&lamp.phase==='CONFIRM_OFF'){state='OFF';label='灯 OFF · 确认中';detail=lamp.rgb_off===true?'RGB通道大幅下降且灯面转暗，正在确认，尚未授予出发许可':'正在确认熄灯，尚未授予出发许可';}
  else if(lamp.armed&&['WAIT_TARGET','LOCK_TARGET'].includes(lamp.phase)){detail='正在确认灯面和亮灯稳定性';}
  else if(lockedROI||preparationPending||((lamp.armed||lamp.phase==='ARMING')&&lamp.lamp_configuration?.manual===true)){
   state='LOCKED';label='已锁定';detail=lamp.phase==='WAIT_ON'?'灯框已固定，等待裁判亮灯':preparationPending?'灯框已固定，正在保存并准备等灯':'灯框位置已固定';
@@ -435,7 +439,8 @@ async function updateStatus(){
    if(lamp.phase==='FAULT'&&lamp.connected)lampText=`本轮等灯已取消${lamp.fault_reason?'（'+(faultReasons[lamp.fault_reason]||lamp.fault_reason)+'）':''}；通信已恢复，请重新 ARM`;
    if(lamp.permission)lampText=s.active?'出发许可已锁存，ESP32后续状态不影响本轮行驶':lamp.armed?'出发许可已锁存，等待道路和电机就绪':'出发许可已锁存';
    const lampRequired=Math.max(3,Number(lamp.required_frames)||3);
-   document.getElementById('start-light-status').textContent=lamp.enabled?`ESP32 发车信号：${lampText} · 熄灯确认 ${Math.min(lamp.confirmation_frames||0,lampRequired)}/${lampRequired}帧`:'';
+   const lampBasis=lamp.permission===true||lamp.armed&&lamp.phase==='CONFIRM_OFF'?lampEvidenceLabel(lamp):'';
+   document.getElementById('start-light-status').textContent=lamp.enabled?`ESP32 发车信号：${lampText} · 熄灯确认 ${Math.min(lamp.confirmation_frames||0,lampRequired)}/${lampRequired}帧${lampBasis?' · 依据：'+lampBasis:''}`:'';
    if(fresh&&s.reason==='WAIT START LIGHT')statusBox.textContent=lamp.permission?'出发许可已锁存，等待道路和电机就绪 · L=0 R=0':((lamp.initial_lamp_state||lockedInitialLampState||initialLampState)==='ON'?'等待当前亮灯稳定并熄灯 · L=0 R=0':'等待亮灯后再次熄灯 · L=0 R=0');
    const crossing=d.crosswalk;
    if(crossing){

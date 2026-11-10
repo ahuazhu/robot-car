@@ -5,6 +5,27 @@ static start_signal::Detector signalDetector;
 static String signalKey,signalSession,lastSignalSession;
 static bool signalInitialLampOn=false;
 static const char *signalInitialLampState(){return signalInitialLampOn?"ON":"OFF";}
+static uint8_t *signalRGBWorkspace=nullptr;
+// Both image workspaces live in PSRAM, never the already constrained internal
+// global BSS or camera task stack. The detector only borrows these buffers.
+static bool installRGBWorkspace(start_signal::Detector &detector,uint8_t *&workspace){
+  if(!workspace)workspace=(uint8_t*)heap_caps_malloc(start_signal::Detector::RGB_REFERENCE_BYTES,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+  return detector.setRGBReferenceBuffer(workspace,workspace?start_signal::Detector::RGB_REFERENCE_BYTES:0);
+}
+static String rgbSignalDiagnostics(const start_signal::Detector &d){
+  return String(",\"rgb_workspace_available\":")+(d.rgb_workspace_available?"true":"false")+
+    ",\"rgb_reference_ready\":"+(d.rgb_reference_ready?"true":"false")+
+    ",\"luma_off\":"+(d.luma_off?"true":"false")+",\"rgb_off\":"+(d.rgb_off?"true":"false")+
+    ",\"rgb_channel\":"+String(d.rgb_channel)+",\"rgb_joint_fraction\":"+String(d.rgb_joint_fraction,3)+
+    ",\"rgb_dark_fraction\":"+String(d.rgb_dark_fraction,3)+",\"rgb_background_samples\":"+String(d.rgb_background_samples)+
+    ",\"rgb_background_span\":"+String(d.rgb_background_span,1)+",\"rgb_background_fitted\":"+(d.rgb_background_fitted?"true":"false")+
+    ",\"rgb_rejection_reason\":\""+String(d.rgb_rejection_reason)+"\",\"rgb_required_drop\":"+String(start_signal::Detector::RGB_ABS_DROP,1)+
+    ",\"rgb_required_relative_drop\":"+String(start_signal::Detector::RGB_RELATIVE_DROP,2)+
+    ",\"rgb_dark_max\":"+String(start_signal::Detector::RGB_DARK_MAX)+
+    ",\"rgb_dark_chroma_max\":"+String(start_signal::Detector::RGB_DARK_CHROMA_MAX)+
+    ",\"rgb_black_max\":"+String(start_signal::Detector::RGB_BLACK_MAX)+
+    ",\"rgb_required_fraction\":"+String(start_signal::Detector::RGB_CONSENSUS,2);
+}
 static char signalBoot[17];
 // Caller holds signalLock; never emit the key in status or errors.
 static bool signalKeyMatches(const char *key){
@@ -14,6 +35,7 @@ static bool signalKeyMatches(const char *key){
 }
 #ifdef ROBOT_LAMPNET_FACE
 static start_signal::Detector *modelTestDetector=nullptr;
+static uint8_t *modelTestRGBWorkspace=nullptr;
 static bool modelTestEnabled=false,manualLampEnabled=false;
 static int manualLampROI[4]={100,40,100,80};
 static bool validManualROI(const int *r){return r[0]>=start_signal::Detector::X&&r[1]>=start_signal::Detector::Y&&r[0]<=start_signal::Detector::X+start_signal::Detector::RW&&r[1]<=start_signal::Detector::Y+start_signal::Detector::RH&&r[2]>=16&&r[3]>=16&&r[2]<=start_signal::Detector::RW&&r[3]<=start_signal::Detector::RH&&r[0]+r[2]<=start_signal::Detector::X+start_signal::Detector::RW&&r[1]+r[3]<=start_signal::Detector::Y+start_signal::Detector::RH;}
@@ -89,6 +111,7 @@ static String modelTestJSON(){
   out+=",\"native_armed\":"+String(signalDetector.armed?"true":"false")+",\"native_confirmed\":"+String(signalDetector.confirmed?"true":"false");
   if(modelTestDetector){auto &d=*modelTestDetector;out+=",\"phase\":\""+String(d.phaseName())+"\",\"locked\":"+String(d.baseline?"true":"false")+",\"confirmed\":"+String(d.confirmed?"true":"false")+",\"hits\":"+String(d.hits)+",\"elapsed_ms\":"+String(d.elapsed)+",\"sequence\":"+String(d.sequence)+",\"reason\":\""+String(d.rejectionReason)+"\",\"roi\":["+String(start_signal::Detector::X+d.target.x*start_signal::Detector::STEP)+","+String(start_signal::Detector::Y+d.target.y*start_signal::Detector::STEP)+","+String(d.target.w*start_signal::Detector::STEP)+","+String(d.target.h*start_signal::Detector::STEP)+"],\"drop_threshold\":"+String(d.requiredDrop)+",\"dark_fraction\":"+String(d.darkenedFraction);}
   if(modelTestDetector){out+=",\"cycle\":\"OFF_ON_OFF\",\"off_baseline_ready\":"+String(modelTestDetector->offBaselineReady?"true":"false")+",\"on_rise\":"+String(modelTestDetector->onRise,1)+",\"brightened_fraction\":"+String(modelTestDetector->brightenedFraction,3);out+=",\"gray_drop\":"+String(modelTestDetector->grayDrop,1)+",\"value_drop\":"+String(modelTestDetector->valueDrop,1)+",\"saturation_change\":"+String(modelTestDetector->saturationChange,3);}
+  if(modelTestDetector)out+=rgbSignalDiagnostics(*modelTestDetector);
   out+="}";xSemaphoreGive(signalLock);return out;
 }
 static void modelTestCommand(bool enable){
@@ -96,7 +119,7 @@ static void modelTestCommand(bool enable){
   if(!signalDetector.armed){
     if(enable&&!modelTestDetector){void *p=heap_caps_malloc(sizeof(start_signal::Detector),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);if(p)modelTestDetector=new(p) start_signal::Detector();}
     modelTestEnabled=enable&&modelTestDetector;
-    if(modelTestDetector){if(modelTestEnabled){modelTestDetector->requireModelLocator(true);modelTestDetector->requireOffOnOff(true);modelTestDetector->arm();}else modelTestDetector->cancel();}
+    if(modelTestDetector){if(modelTestEnabled){modelTestDetector->cancel();installRGBWorkspace(*modelTestDetector,modelTestRGBWorkspace);modelTestDetector->requireModelLocator(true);modelTestDetector->requireOffOnOff(true);modelTestDetector->arm();}else modelTestDetector->cancel();}
   }
   xSemaphoreGive(signalLock);Serial.println("LAMP_TEST "+modelTestJSON());
 }
@@ -128,6 +151,7 @@ static String signalJSON(){
   data+=",\"target_locked\":"+String(signalDetector.baseline?"true":"false")+",\"target_roi\":["+String(start_signal::Detector::X+signalDetector.target.x*start_signal::Detector::STEP)+","+String(start_signal::Detector::Y+signalDetector.target.y*start_signal::Detector::STEP)+","+String(signalDetector.target.w*start_signal::Detector::STEP)+","+String(signalDetector.target.h*start_signal::Detector::STEP)+"]";
   data+=",\"contrast\":"+String(signalDetector.contrast,1)+",\"baseline_contrast\":"+String(signalDetector.baselineContrast,1)+",\"noise\":"+String(signalDetector.noise,1);
   data+=",\"rejection_reason\":\""+String(signalDetector.rejectionReason)+"\",\"background_change\":"+String(signalDetector.backgroundChangeL,1)+",\"background_residual\":"+String(signalDetector.backgroundResidualL,1)+",\"darkened_fraction\":"+String(signalDetector.darkenedFraction,3)+",\"required_drop\":"+String(signalDetector.requiredDrop,1);
+  data+=rgbSignalDiagnostics(signalDetector);
   data+=",\"segmentation\":\""+String(
 #ifdef ROBOT_LAMPNET_FACE
     "MODEL_FACE_LUMA_CHROMA"
@@ -245,6 +269,7 @@ static void cameraProducer(void*){
 }
 static void initSignal(){
   signalLock=xSemaphoreCreateMutex();jpegLock=xSemaphoreCreateMutex();
+  installRGBWorkspace(signalDetector,signalRGBWorkspace);
 #ifdef ROBOT_LAMPNET_FACE
   Preferences lampSaved;if(lampSaved.begin("lamp_roi",true)){int value[5]={};bool ok=lampSaved.getBytesLength("config")==sizeof(value)&&lampSaved.getBytes("config",value,sizeof(value))==sizeof(value);lampSaved.end();if(ok&&validManualROI(value+1)){manualLampEnabled=value[0]==1;memcpy(manualLampROI,value+1,sizeof(manualLampROI));}}
 #endif
