@@ -488,6 +488,118 @@ async function fieldScenarios(){
  console.log('direct image guides, atomic ARM, pending/STOP locks and field console scenarios passed');
 }
 
+
+function assertLampSignal(e,state,text){
+ const badge=e.elements['lamp-signal-state'];assert.ok(badge,'signal state has a dedicated badge');
+ assert.equal(badge.dataset.state,state);assert.match(badge.textContent,text);
+ assert.equal(badge.hidden,false);assert.equal(badge.closest('details'),null);
+}
+async function lampSignalScenarios(){
+ {
+  const e=setup();await flush();assertLampSignal(e,'LOCATING',/定位中/);
+  assert.equal(e.elements['lamp-signal-state'].closest('.card-header'),e.elements['esp-state'].closest('.card-header'));
+  assert.notEqual(e.elements['lamp-signal-state'],e.elements['esp-state'],'signal progression and preview connectivity are separate');
+  assert.doesNotMatch(e.elements['lamp-mode'].textContent,/已锁定/,'a saved manual rectangle is not an armed lock');
+ }
+ for(const phase of ['WAIT_TARGET','LOCK_TARGET']){
+  const e=setup();await flush();await replaceStatus(e,s=>Object.assign(s.readiness.start_light,{armed:true,permission:false,phase,target_locked:false}));
+  assertLampSignal(e,'LOCATING',/定位中/);
+  assert.doesNotMatch(e.elements['lamp-signal-state'].textContent,/灯\s*OFF|灯\s*ON|出发/,'acquisition phases are not proof of the lamp level');
+ }
+ for(const phase of ['WAIT_ON','ARMING']){
+  const e=setup();await flush();await replaceStatus(e,s=>Object.assign(s.readiness.start_light,{armed:true,permission:false,phase,target_locked:false,off_baseline_ready:true}));
+  assertLampSignal(e,'LOCKED',/已锁定/);assert.match(e.elements['lamp-mode'].textContent,/已锁定/);
+  assert.doesNotMatch(e.elements['lamp-signal-state'].textContent,/灯\s*OFF|灯\s*ON|出发/,'WAIT_ON is entered before the first frame and must not claim a verified OFF');
+ }
+ {
+  const e=setup();await flush();await replaceStatus(e,s=>{s.preparation={pending:true,phase:'SAVING',error:null,request_id:9,generation:0}});
+  assertLampSignal(e,'LOCKED',/已锁定/);assertStopUsable(e);
+ }
+ {
+  const e=setup();await flush();loadedESP(e);dragBound(e,'left',140);let release;
+  e.fetcher=async(url,options)=>url==='/control'&&JSON.parse(options.body).action==='start'?new Promise(resolve=>release=resolve):e.defaultData();
+  const starting=e.click('start');await flush();assertLampSignal(e,'UNKNOWN',/未知|更新|确认/);
+  release(e.response({message:'准备请求已接收'},202));await starting;
+  assertLampSignal(e,'LOCKED',/已锁定/);assert.match(e.elements['lamp-mode'].textContent,/已锁定/);
+ }
+ {
+  const e=setup();await flush();await replaceStatus(e,s=>Object.assign(s.readiness.start_light,{armed:true,permission:false,phase:'WAIT_OFF',target_locked:true,target_roi:[139,51,63,61]}));
+  assertLampSignal(e,'ON',/灯\s*ON/);assert.match(e.elements['lamp-mode'].textContent,/已锁定/);
+  loadedESP(e);assertLampSignal(e,'ON',/灯\s*ON/);
+  e.elements['esp-video'].onerror();assertLampSignal(e,'ON',/灯\s*ON/);
+  assert.match(e.elements['esp-state'].textContent,/重连/,'image failure only changes the connection badge');
+ }
+ {
+  const e=setup();await flush();await replaceStatus(e,s=>Object.assign(s.readiness.start_light,{armed:true,permission:false,phase:'CONFIRM_OFF',target_locked:true,target_roi:[139,51,63,61],confirmation_frames:1}));
+  assertLampSignal(e,'OFF',/灯\s*OFF.*确认中/);assert.doesNotMatch(e.elements['lamp-signal-state'].textContent,/出发/);
+  assert.match(e.elements['lamp-mode'].textContent,/已锁定/);
+ }
+ for(const phase of ['SIGNAL_READY','PERMITTED','RUNNING']){
+  const e=setup();await flush();await replaceStatus(e,s=>{s.active=phase==='RUNNING';s.reason=s.active?'FOLLOW':'WAIT START LIGHT';Object.assign(s.readiness.start_light,{phase,permission:true,armed:!s.active,connected:false,error:'ESP32_OFFLINE'})});
+  assertLampSignal(e,'START',/出发/);assertStopUsable(e);
+ }
+ {
+  const e=setup();await flush();await replaceStatus(e,s=>{s.active=true;s.reason='FOLLOW';Object.assign(s.readiness.start_light,{phase:'RUNNING',permission:false,armed:false,connected:true})});
+  assertLampSignal(e,'MANUAL',/未等灯/);assert.doesNotMatch(e.elements['lamp-signal-state'].textContent,/出发/);
+ }
+ {
+  const e=setup();await flush();await replaceStatus(e,s=>{s.active=true;s.reason='FOLLOW';Object.assign(s.readiness.start_light,{
+   phase:'RUNNING',permission:false,armed:false,connected:true,target_locked:false,lamp_configuration:{manual:false,roi:[139,51,63,61]},
+   candidate_hint:{valid:true,roi:[80,48,48,40],age_ms:100}})});
+  assertLampSignal(e,'MANUAL',/未等灯/);assert.doesNotMatch(e.elements['lamp-mode'].textContent,/已锁定/,'manual driving does not freeze an automatic locator');
+ }
+ {
+  const e=setup();await flush();await replaceStatus(e,s=>Object.assign(s.readiness.start_light,{
+   phase:'WAIT_ON',permission:false,armed:true,connected:true,target_locked:false,lamp_configuration:{manual:false,roi:[139,51,63,61]}}));
+  assertLampSignal(e,'LOCATING',/定位中/);assert.doesNotMatch(e.elements['lamp-mode'].textContent,/已锁定/,'a remote automatic ARM without a located face does not prove the geometry is fixed');
+ }
+ for(const permission of ['true',1]){
+  const e=setup();await flush();await replaceStatus(e,s=>Object.assign(s.readiness.start_light,{phase:'SIGNAL_READY',permission,armed:true,connected:true}));
+  assert.notEqual(e.elements['lamp-signal-state'].dataset.state,'START','only a true boolean permission can report the start signal');
+ }
+ for(const phase of ['SIGNAL_READY','PERMITTED']){
+  const e=setup();await flush();await replaceStatus(e,s=>Object.assign(s.readiness.start_light,{phase,permission:false,armed:true,connected:true}));
+  assert.notEqual(e.elements['lamp-signal-state'].dataset.state,'START','phase label alone never substitutes for the Maix permission latch');
+ }
+ {
+  const e=setup();await flush();await replaceStatus(e,s=>Object.assign(s.readiness.start_light,{phase:'TARGET_UNCERTAIN',permission:false,armed:true,connected:true}));
+  assertLampSignal(e,'UNKNOWN',/待确认/);
+ }
+ {
+  const e=setup();await flush();await replaceStatus(e,s=>Object.assign(s.readiness.start_light,{phase:'FAULT',permission:false,armed:false,connected:true,fault_reason:'RESPONSE_TOO_SLOW'}));
+  assertLampSignal(e,'FAULT',/等灯中断/);
+ }
+ {
+  const e=setup();await flush();await replaceStatus(e,s=>{s.readiness.start_light.enabled=false});assertLampSignal(e,'DISABLED',/未启用/);
+ }
+ {
+  const e=setup();await flush();await replaceStatus(e,s=>Object.assign(s.readiness.start_light,{phase:'WAIT_OFF',permission:false,armed:true,connected:false}));
+  assertLampSignal(e,'UNKNOWN',/未知|中断|离线/);
+ }
+ {
+  const e=setup();await flush();await replaceStatus(e,s=>{s.active=true;Object.assign(s.readiness.start_light,{phase:'RUNNING',permission:true,connected:false})});
+  assertLampSignal(e,'START',/出发/);
+  e.delay(1000);e.context.syncControls();assertLampSignal(e,'UNKNOWN',/状态未知/);
+  loadedESP(e);assertLampSignal(e,'UNKNOWN',/状态未知/,'a fresh image alone cannot freshen Maix signal telemetry');
+ }
+ {
+  const e=setup();await flush();await replaceStatus(e,s=>{s.age_ms=1000;Object.assign(s.readiness.start_light,{phase:'RUNNING',permission:true,connected:true})});
+  assertLampSignal(e,'UNKNOWN',/状态未知/);
+ }
+ {
+  const e=setup();await flush();await replaceStatus(e,s=>Object.assign(s.readiness.start_light,{phase:'WAIT_OFF',armed:true,target_locked:true,target_roi:[139,51,63,61]}));
+  e.fetcher=async()=>{throw Error('network unavailable')};await e.context.updateStatus();assertLampSignal(e,'UNKNOWN',/状态未知/);assertStopUsable(e);
+ }
+ {
+  const e=setup();await flush();await replaceStatus(e,s=>{s.active=true;Object.assign(s.readiness.start_light,{phase:'RUNNING',permission:true,connected:false})});
+  assertLampSignal(e,'START',/出发/);let release;
+  e.fetcher=async(url,options)=>url==='/control'&&JSON.parse(options.body).action==='stop'?new Promise(resolve=>release=resolve):e.defaultData();
+  const stopping=e.click('stop');await flush();assertLampSignal(e,'UNKNOWN',/状态未知/);
+  release(e.response({message:'停车请求已接收'},200));await stopping;assertLampSignal(e,'LOCATING',/定位中/);
+ }
+ console.log('lamp signal progress, independent lock state, permission and stale-state scenarios passed');
+}
+
 async function main(){
  {
   const e=setup();await flush();const image=e.elements['esp-video'];assert.ok(image.hasAttribute('src'));image.onload();
@@ -566,6 +678,7 @@ async function main(){
   assert.doesNotMatch(e.elements['crosswalk-status'].textContent,/上次横道|合法停位与停留已验证/);
  }
  await fieldScenarios();
+ await lampSignalScenarios();
  console.log('13 preview connection scenarios passed');
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

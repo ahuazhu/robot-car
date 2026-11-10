@@ -29,6 +29,12 @@ h1{margin:0;font-size:25px;letter-spacing:.02em}
 .camera-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
 .camera-card{border:1px solid var(--line);border-radius:16px;background:var(--panel);overflow:hidden;min-width:0}
 .card-header{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px 16px;min-height:66px}
+.signal-header-status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:100%}
+.signal-state{font-size:14px;font-weight:700;padding:6px 12px}
+.signal-state[data-state="LOCKED"]{color:#afd0ff;border-color:#365d92;background:#183252}
+.signal-state[data-state="ON"]{color:#ffe19b;border-color:#806734;background:#3a2d17}
+.signal-state[data-state="OFF"]{color:#cad7e7;border-color:#53647c;background:#263346}
+.signal-state[data-state="START"]{color:#94f0c6;border-color:#328363;background:#123d2e}
 .camera-title{display:flex;align-items:center;gap:9px;font-size:16px;font-weight:650;margin:0}
 .step{display:grid;place-items:center;width:25px;height:25px;border-radius:8px;font-size:12px;background:#293b57;color:#b5cfff}
 .view-controls{display:flex;gap:2px;background:#0c1525;padding:3px;border:1px solid var(--line);border-radius:8px}
@@ -138,7 +144,7 @@ h1{font-size:21px}
 <div id="video-window" class="video-window" data-view="annotated"><img id="video" alt="Maix 巡线实时画面"></div><div class="labels" id="labels" hidden><span>原图</span><span>巡线</span><span>地面投影</span></div>
 <div class="camera-foot"><div class="health"><span id="road-state" class="pill">等待道路</span><span id="motor-state" class="pill">等待电机</span></div><p id="road-hint">将车摆正，确认中线沿道路延伸。</p></div></section>
 
-<section class="camera-card" aria-label="ESP32 发车灯画面"><div class="card-header"><h2 class="camera-title"><span class="step">2</span>发车信号灯</h2><span id="esp-state" class="pill">连接中</span></div>
+<section class="camera-card" aria-label="ESP32 发车灯画面"><div class="card-header"><h2 class="camera-title"><span class="step">2</span>发车信号灯</h2><div class="signal-header-status"><span id="lamp-signal-state" class="pill signal-state" role="status" aria-live="polite" data-state="UNKNOWN">状态未知</span><span id="esp-state" class="pill">连接中</span></div></div>
 <div class="esp-window"><img id="esp-video" alt="ESP32 发车灯实时画面" hidden><div id="esp-roi" class="esp-roi" hidden></div><div id="esp-target" class="esp-roi" aria-label="已保存或锁定的灯面" hidden></div>
 <svg id="roi-layer" class="roi-layer" viewBox="0 0 320 240" aria-label="拖动四条黄线框住灯面" hidden>
 <rect id="roi-shade" fill="#f9ce55" fill-opacity=".08"></rect>
@@ -263,10 +269,31 @@ function renderLampConfiguration(lamp){
   roiDraft=box.slice();
  }
  const mode=document.getElementById('lamp-mode');
- mode.textContent=lockedROI?'灯面位置已固定':roiDirty?'手动框灯 · ARM 时保存':lampConfiguration?(lampConfiguration.manual?'手动灯面':'自动定位灯面'):'等待读取灯面设置';
- mode.dataset.tone=lockedROI?'good':roiDirty?'warn':lampConfiguration?'good':'';
+ const frameFixed=!!lockedROI||preparationPending||!!lamp.target_locked||((serverArmed||serverActive)&&lampConfiguration?.manual===true);
+ mode.textContent=frameFixed?'已锁定':roiDirty?'手动框灯 · ARM 时保存':lampConfiguration?(lampConfiguration.manual?'手动灯面':'自动定位灯面'):'等待读取灯面设置';
+ mode.dataset.tone=frameFixed?'good':roiDirty?'warn':lampConfiguration?'good':'';
  document.getElementById('roi-status').textContent=roiScanBusy?'正在自动找灯…':preparationPending?'正在保存灯面并准备等灯…':preparationError?'准备未完成：'+preparationError:roiScanError?roiScanError:serverActive?'已发车，信号灯不再影响本轮行驶。':serverArmed?'已准备等灯，灯面已固定。':lockedROI?'灯面位置已固定；可重试 ARM，或 STOP 后调整。':roiDirty?'范围已调整，点击“ARM 准备等灯”一起保存。':!lampConfiguration?'等待 ESP32 灯面设置。':!lampConfiguration.manual&&!candidateLampBox(lamp)?'未找到灯面，请直接拖动黄线手工框选。':'直接拖动黄线框住灯面，ARM 时一起保存。';
  drawROI();
+}
+function renderLampSignalState(lamp=espLamp){
+ let state='LOCATING',label='定位中',detail='拖动黄线框住灯面，按 ARM 保存并锁定',tone='';
+ if(Date.now()>=statusExpiresAt){state='UNKNOWN';label='状态未知';detail='等待 Maix 最新状态';tone='warn';}
+ else if(lamp.permission===true){state='START';label='出发';detail=serverActive?'出发信号已确认，本轮独立巡线':'出发信号已确认，等待道路和电机就绪';tone='good';}
+ else if(lamp.enabled===false){state='DISABLED';label='未启用';detail='当前未使用发车灯';}
+ else if(lamp.phase==='FAULT'){state='FAULT';label='等灯中断';detail='请检查信号状态后重新 ARM';tone='bad';}
+ else if(!lamp.connected||lamp.error){state='UNKNOWN';label='状态未知';detail='ESP32 信号暂不可达';tone='warn';}
+ else if(lamp.phase==='RUNNING'){state='MANUAL';label='未等灯';detail='本轮未由信号灯授予出发许可';tone='warn';}
+ else if(lamp.phase==='TARGET_UNCERTAIN'){state='UNKNOWN';label='待确认';detail='光照或画面不稳定，尚未确认灯态';tone='warn';}
+ else if(['SIGNAL_READY','PERMITTED'].includes(lamp.phase)){state='UNKNOWN';label='待确认';detail='尚未收到有效出发许可';tone='warn';}
+ else if(lamp.armed&&lamp.phase==='WAIT_OFF'){state='ON';label='灯 ON';detail='亮灯已确认，等待熄灯';tone='warn';}
+ else if(lamp.armed&&lamp.phase==='CONFIRM_OFF'){state='OFF';label='灯 OFF · 确认中';detail='正在确认熄灯，尚未授予出发许可';}
+ else if(lamp.armed&&['WAIT_TARGET','LOCK_TARGET'].includes(lamp.phase)){detail='正在确认灯面和亮灯稳定性';}
+ else if(lockedROI||preparationPending||((lamp.armed||lamp.phase==='ARMING')&&lamp.lamp_configuration?.manual===true)){
+  state='LOCKED';label='已锁定';detail=lamp.phase==='WAIT_ON'?'灯框已固定，等待裁判亮灯':preparationPending?'灯框已固定，正在保存并准备等灯':'灯框位置已固定';
+ }
+ const badge=document.getElementById('lamp-signal-state');
+ badge.textContent=label;badge.dataset.state=state;badge.dataset.tone=tone;
+ badge.setAttribute('title',detail);badge.setAttribute('aria-label',label+'：'+detail);
 }
 function updateFieldSummary(s,fresh){
  const d=s.readiness||{},lamp=d.start_light||{},laps=d.laps||{},blockers=d.blocked_by||[];
@@ -308,7 +335,7 @@ function syncControls(){
  directButton.disabled=!fresh||!canDirect||busy||roiDirty||!!lockedROI||roiScanBusy||preparationPending||roiRemotePending;
  startButton.disabled=!fresh||!canStart||busy||preparationPending||roiRemotePending||!canPrepareLamp();
  lapsInput.disabled=!fresh||busy||serverActive||serverArmed||preparationPending||roiScanBusy;
- syncROIControls();
+ syncROIControls();renderLampSignalState();
  if(!fresh){
   document.getElementById('connection-state').textContent='连接待确认';document.getElementById('connection-state').dataset.tone='bad';
   document.getElementById('mission-state').textContent=busy?'正在发送准备请求':'连接待确认 · 状态未知';
@@ -395,7 +422,7 @@ async function updateStatus(){
     document.getElementById('crosswalk-status').textContent=[`横道：${mode}`,phases[crossing.phase]||crossing.phase,range,['HOLD','RECOVERY_HOLD'].includes(crossing.phase)?`已停 ${crossing.hold_elapsed_s.toFixed(1)}/${(crossing.required_hold_s??3.2).toFixed(1)}秒`:'',crossing.failure||crossing.recovery_reason||'',yieldResult].filter(Boolean).join(' · ');
    }
 
-   renderLampConfiguration(lamp);
+   renderLampConfiguration(lamp);renderLampSignalState(lamp);
    updateFieldSummary(s,fresh);syncControls();
    const labels={LAMP_CONFIGURATION_PENDING:'灯面配置正在保存',LAP_START_NOT_READY:'请在计圈白线前摆正，等待龙门架与白线确认',PREVIEW_ONLY:'当前仅预览',UNO_DISCONNECTED:'UNO未连接',VISION_TOO_SLOW:'视觉处理超时',PATH_CONFIRMING:'正在确认中线',ROAD_NO_TARGET:'暂无有效追踪点',ROAD_UNOBSERVED:'等待有效道路观测',ROAD_WEAK:'道路置信度不足',ROAD_STABILIZING:'等待道路稳定',CROSSWALK_STOP_UNVERIFIED:'横道停车位置尚未确认',UNO_STATUS_UNAVAILABLE:'等待UNO状态',UNO_WORKER_STOPPED:'电机通信进程已停止',UNO_STATUS_STALE:'UNO状态已过期',UNO_STATUS_INVALID:'UNO状态数据无效',UNO_EMERGENCY_STOP:'UNO急停尚未解除',UNO_LINK_ERROR:'UNO串口通信异常',UNO_NOT_STOPPED:'UNO未确认零输出与解除布防'};
    const blockerLabel=k=>failures[k]||labels[k]||(k.startsWith('UNO_FAULT_')?'UNO故障，代码'+k.slice(10):k);
@@ -474,7 +501,7 @@ function espMessage(message,state){
  espPlaceholder.hidden=false;espPlaceholder.textContent=message;espState.textContent=state;
 }
 function espLabel(){
- espState.textContent=espSignalFresh?(espLamp.target_locked?'灯面已锁定':espLamp.armed?'定位灯面':'已连接'):'画面在线 · 信号状态未知';
+ espState.textContent=espSignalFresh?'已连接':'画面在线 · 信号状态未知';
 }
 function markESPUnknown(message){
  espSignalFresh=false;espTarget.hidden=true;espROI.hidden=true;document.getElementById('roi-layer').setAttribute('hidden','');
