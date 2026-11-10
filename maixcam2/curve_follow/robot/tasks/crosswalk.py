@@ -862,6 +862,10 @@ class CrosswalkTask:
             braking_buffer_m=p.stop_clearance_m,
         )
 
+    def allows_road_search(self):
+        """Task ownership shared by path search and its restart-envelope logic."""
+        return self.track is None or (self.phase == "PASSING" and self.pending_track is None)
+
     def supervision_command(self, road_command, processing_ms, budget_ms):
         # A planned zero-speed dwell needs fresh vision, but no steering target.
         # This exception cannot feed a stale frame or authorize nonzero motion.

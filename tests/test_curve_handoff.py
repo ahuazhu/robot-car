@@ -111,6 +111,40 @@ class HandoffModelTests(unittest.TestCase):
             else:
                 self.assertEqual(e["required"], m.policy.stopped_confirmation_frames)
 
+    def test_confirmed_boundary_and_strict_handoff_do_not_confirm_the_same_road_twice(self):
+        m = self.model()
+        new = path(0.22, 0.65)
+        e = m.update(measurement(new), 0.1, allow_handoff=True, boundary_confirmed=True)
+        self.assertTrue(e["observed"])
+        self.assertTrue(e["reacquired"])
+        self.assertEqual(e["association_kind"], "CONFIRMED_BOUNDARY_HANDOFF")
+        self.assertIsNotNone(e["handoff_evidence"])
+        self.assertEqual(m.pending_count, 0)
+        np.testing.assert_array_equal(m.path, new)
+        self.assertTrue(np.all(m.seen == 0.1))
+
+    def test_boundary_confirmation_cannot_authorize_disconnected_or_conflicting_handoff(self):
+        for new in (path(0.35, 0.65), path(0.22, 0.65, 0.2), path(0.22, 0.65)[::-1]):
+            m = self.model()
+            e = m.update(measurement(new), 0.1, allow_handoff=True, boundary_confirmed=True)
+            self.assertFalse(e["observed"])
+        m = self.model()
+        e = m.update(measurement(path(0.22, 0.65)), 0.1, boundary_confirmed=True)
+        self.assertFalse(e["observed"], "unmeasured motion cannot reuse the handoff proof")
+
+    def test_recorded_20261110_handoff_reuses_boundary_confirmation(self):
+        r = json.loads((ROOT / "tests/fixtures/confirmed_handoff_20261110.json").read_text())
+        m = LocalRoadModel()
+        m.initialize(r["prior_path_m"], 0.0, 0.8, "ONE RIGHT")
+        m.variance[:] = r["prior_sigma_m"] ** 2
+        m.travel[:] = r["prior_blind_distance_m"]
+        e = m.update(
+            measurement(np.array(r["candidate_path_m"]), r["candidate_confidence"]),
+            r["prior_age_s"], allow_handoff=True, boundary_confirmed=True,
+        )
+        self.assertTrue(e["observed"])
+        self.assertEqual(e["association_kind"], "CONFIRMED_BOUNDARY_HANDOFF")
+
     def test_true_geometric_conflict_is_still_confirmed_while_stopped(self):
         m = self.model()
         e = m.update(measurement(path(0.12, 0.65, 0.20)), 0.1, allow_handoff=True)

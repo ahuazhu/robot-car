@@ -282,6 +282,13 @@ class DrivingSession:
             and abs(motion["speed_m_s"]) <= p.stationary_speed_m_s
             and abs(motion["yaw_rad_s"]) <= p.stationary_yaw_rad_s
         )
+        speed = float(motion.get("speed_m_s") or 0.0)
+        rolling = bool(
+            motion.get("valid")
+            and speed > p.stationary_speed_m_s
+            and speed * float(motion.get("interval_s") or 0.0)
+            > 2 * float(motion.get("sigma_m") or 0.0)
+        )
         failure = self.recovery.update(
             frame.result,
             self.crosswalk.supervision_command(
@@ -298,13 +305,6 @@ class DrivingSession:
             search_pending=self.search.snapshot().get("search_pending", False),
         )
         if frame.command is None:
-            speed = float(motion.get("speed_m_s") or 0.0)
-            rolling = bool(
-                motion.get("valid")
-                and speed > p.stationary_speed_m_s
-                and speed * float(motion.get("interval_s") or 0.0)
-                > 2 * float(motion.get("sigma_m") or 0.0)
-            )
             self.pwm = self.ramp.pause(now, rolling=rolling)
             self.reason = {"VISION_WAIT": "VISION WAIT", "ROAD_SEARCH": "ROAD SEARCH"}.get(
                 self.recovery.phase, "REACQUIRING ROAD"
@@ -325,13 +325,21 @@ class DrivingSession:
         if failure == "ROAD NOT FOUND":
             command = (0, 0)
             self.reason = "ROAD NOT FOUND"
-        self.pwm = (
-            command
-            if self.search.is_turning() and command is not None
-            else self.ramp.apply(command, now)
-            if command is not None
-            else (0, 0)
-        )
+        search_state = self.search.snapshot()
+        if self.search.is_turning() and command is not None:
+            self.pwm = command
+        elif (
+            command == (0, 0) and frame.follow_command is None and failure is None
+            and search_state.get("search_pending") and search_state.get("phase") == "SETTLING"
+            and self.crosswalk.allows_road_search()
+        ):
+            # A search-generated zero is still published immediately. While
+            # measured forward motion remains, decay the restart envelope just
+            # as for a missing follow command instead of pretending rest. A
+            # stopped/uncertain chassis or long command gap still resets it.
+            self.pwm = self.ramp.pause(now, rolling=rolling)
+        else:
+            self.pwm = self.ramp.apply(command, now) if command is not None else (0, 0)
         if self.search.is_turning():
             self.ramp.reset()
         lease = None

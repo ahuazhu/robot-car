@@ -397,6 +397,54 @@ class DrivingSessionTests(unittest.TestCase):
         self.assertTrue(any(s.pwm))
         self.assertEqual(sum(c[0] == 1 for c in s.link.calls), 1)
 
+    def test_rolling_search_zero_does_not_restart_acceleration_from_rest(self):
+        s = self.session()
+        self.start(s)
+        for _ in range(8):
+            self.clock.now += 0.1
+            s.update(self.frame(s, command=(80, 120), follow_command=(80, 120)))
+        before = s.ramp.previous
+        self.assertEqual(before, (80.0, 120.0))
+        lost = dict(valid=False, observed=False, confidence=0.0, state="LOST",
+                    mode="LOST", road_evidence="ABSENT")
+        moving = dict(valid=True, speed_m_s=0.2, yaw_rad_s=0.0, interval_s=0.1, sigma_m=0.001)
+        self.clock.now += 0.1
+        zero = s.search.command(lost, None, moving, self.clock.now, active=True, stopped=False)
+        self.assertEqual(zero, (0, 0))
+        s.update(self.frame(s, result=lost, command=zero, follow_command=None,
+                            details={"ground_motion": moving}))
+        self.assertEqual(s.pwm, (0, 0))
+        self.assertEqual(s.link.calls[-1][1:3], (0, 0), "zero must actually be published")
+        self.assertTrue(0 < max(s.ramp.previous) < max(before))
+        self.clock.now += 0.1
+        frame = self.frame(s, command=(80, 120), follow_command=(80, 120),
+                           details={"ground_motion": moving})
+        frame.result.update(reacquired=True, pending_frames=0)
+        frame.command = s.search.command(frame.result, frame.command, moving, self.clock.now,
+                                        active=True, stopped=False)
+        s.update(frame)
+        self.assertEqual(s.pwm, (80, 120))
+
+    def test_search_zero_resets_restart_effort_when_rest_uncertainty_or_gap_requires_it(self):
+        for valid, speed, sigma, gap in ((True, 0, 0.001, .1), (False, .2, .001, .1),
+                                         (True, .2, .02, .1), (True, .2, .001, .31)):
+            with self.subTest(valid=valid, speed=speed, sigma=sigma, gap=gap):
+                s = self.session()
+                self.start(s)
+                for _ in range(8):
+                    self.clock.now += .1
+                    s.update(self.frame(s, command=(80, 120), follow_command=(80, 120)))
+                lost = dict(valid=False, observed=False, confidence=0.0, state="LOST",
+                            mode="LOST", road_evidence="ABSENT")
+                moving = dict(valid=valid, speed_m_s=speed, yaw_rad_s=0.0,
+                              interval_s=.1, sigma_m=sigma)
+                self.clock.now += gap
+                zero = s.search.command(lost, None, moving, self.clock.now, active=True)
+                s.update(self.frame(s, result=lost, command=zero, follow_command=None,
+                                    details={"ground_motion": moving}))
+                self.assertEqual(s.pwm, (0, 0))
+                self.assertEqual(s.ramp.previous, (0.0, 0.0))
+
     def test_missing_road_can_scan_and_exhaustion_waits_at_zero_without_rearming(self):
         s = self.session()
         self.start(s)

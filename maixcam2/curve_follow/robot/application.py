@@ -225,9 +225,7 @@ def main(app_dir):
             else:
                 search.observe_hint(result)
             follow_command = command
-            search_allowed = crosswalk_task.track is None or (
-                crosswalk_task.phase == "PASSING" and crosswalk_task.pending_track is None
-            )
+            search_allowed = crosswalk_task.allows_road_search()
             command = search.command(
                 result,
                 command,

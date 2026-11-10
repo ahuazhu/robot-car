@@ -333,6 +333,20 @@ class LocalRoadModel:
                 handoff is not None or history_continuity is not None
             )
             event["continuation_allowed"] = moving_handoff
+            if moving_handoff and handoff is not None and boundary_confirmed:
+                # The current selected boundary already has independent
+                # repeated-observation proof. With a strict ordered endpoint
+                # handoff, confirming that same candidate again only forces a
+                # stop while the old short support expires. Adopt only the
+                # observed candidate; never stitch across an unobserved gap.
+                self.initialize(candidate, now, measurement["confidence"], measurement["mode"])
+                self.reset_pending()
+                event.update(
+                    observed=True, reacquired=True, reject=None,
+                    association_kind="CONFIRMED_BOUNDARY_HANDOFF",
+                    continuation_allowed=False,
+                )
+                return event
             event["confirmation_alignment"], required = self.confirm(measurement)
             plausible = moving_handoff or (
                 agreement is not None
