@@ -20,10 +20,10 @@ REPO_ROOT = APP_ROOT.parents[1]
 sys.path.insert(0, str(APP_ROOT))
 sys.path.insert(0, str(REPO_ROOT))
 
-import numpy as np
 from robot.core.geometry import arc, describe_curve
 from robot.core.road_policy import RoadPolicy
 from robot.navigation.speed_profile import SpeedLimits, plan_speed_profile
+from robot.navigation.speed_observer import supported_segment
 from maixcam2.curve_follow.tools.drive_reference import DriveReference
 
 
@@ -39,37 +39,6 @@ def load_frames(path):
     if not rows or not all(isinstance(row, dict) for row in rows):
         raise ValueError("Expected telemetry JSON array or CONTROL log lines: " + str(path))
     return rows
-
-
-def supported_segment(target):
-    """Use only the first contiguous, currently observed forward segment.
-
-    Its first point is NOT the vehicle origin. No road is invented between
-    the car and that point; replay results describe speed at that segment's
-    entry and cannot grant a present motor command.
-    """
-    if (not target.get("valid") or not target.get("observed")
-            or target.get("state") != "OBSERVED" or target.get("transition_pending")):
-        return None, "NOT_CURRENT_OBSERVATION"
-    raw_mask = target.get("path_observed_mask", [])
-    if not isinstance(raw_mask, list) or any(type(v) is not bool for v in raw_mask):
-        return None, "INVALID_PATH_OR_MASK"
-    try:
-        path = np.asarray(target.get("control_path_m", []), dtype=float)
-    except (ValueError, TypeError):
-        return None, "INVALID_PATH_OR_MASK"
-    mask = np.asarray(raw_mask, dtype=bool)
-    if (path.ndim != 2 or path.shape[1:] != (2,) or not np.isfinite(path).all()
-            or mask.shape != (len(path),)):
-        return None, "INVALID_PATH_OR_MASK"
-    start = next((i for i, point in enumerate(path) if point[0] > 0), len(path))
-    end = start
-    while end < len(path) and mask[end]:
-        if end > start and np.hypot(*(path[end] - path[end - 1])) > 0.05:
-            break  # Never bridge separated samples.
-        end += 1
-    segment = path[start:end]
-    return (segment, "") if len(segment) >= 5 else (None, "NO_CONTIGUOUS_SUPPORT")
 
 
 def distribution(values):

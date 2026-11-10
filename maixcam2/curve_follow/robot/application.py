@@ -14,6 +14,7 @@ from robot.control.session import DrivingSession, FrameDecision
 from robot.config import RuntimeSettings
 from robot.interface.preview_transport import LiveStream
 from robot.navigation.steering_control import SteeringControl
+from robot.navigation.speed_observer import SpeedObserver
 from robot.navigation.road_recovery import RoadSearch
 from robot.tasks.start_signal import StartSignal
 from robot.tasks.lap_counter import LapMarkerDetector, LapCounter
@@ -69,6 +70,7 @@ def main(app_dir):
         crosswalk_policy.speed_response_s,
         allow_visual_scan=runtime.get("road_search", {}).get("allow_visual_scan", False),
     )
+    speed_observer = SpeedObserver(settings)
     backend = native_fit_status()
     print("GEOMETRY_BACKEND", json.dumps(backend), flush=True)
     cv2.setNumThreads(1)
@@ -239,6 +241,11 @@ def main(app_dir):
             profile_ms.update(result["timings_ms"])
             profile_ms["crosswalk"] = round(crosswalk_ms, 2)
             profile_ms["steering"] = round((steering_done - steering_tick) * 1000, 2)
+            shadow_tick = time.monotonic()
+            speed_shadow = speed_observer.update(result, frames, shadow_tick - captured)
+            profile_ms["speed_profile_shadow"] = round(
+                (time.monotonic() - shadow_tick) * 1000, 2
+            )
             detection_ms = (time.monotonic() - captured) * 1000
             lamp_start = start_light.update(captured, active=active, timely=detection_ms <= vision_budget_ms)
             profile_ms["control_pipeline"] = round(detection_ms, 2)
@@ -307,6 +314,7 @@ def main(app_dir):
                 start_light=light_state,
                 steering=steering_state,
                 crosswalk=crossing_view,
+                speed_profile_shadow=speed_shadow,
             )
             metrics = dict(
                 device_screen=device_screen.snapshot(),
@@ -331,6 +339,7 @@ def main(app_dir):
                     road_path_m=[[round(x, 4), round(y, 4)] for x, y in result.get("path", [])],
                 ),
                 steering=steering_state,
+                speed_profile_shadow=speed_shadow,
             )
             profile_ms["supervision_motor_telemetry"] = round(
                 (time.monotonic() - supervisor_tick) * 1000, 2
@@ -429,6 +438,7 @@ def main(app_dir):
                             "start_light": light_state,
                             "laps": lap_state,
                             "steering": steering_state,
+                            "speed_profile_shadow": speed_shadow,
                             "profile_ms": profile_ms,
                         }
                     ),

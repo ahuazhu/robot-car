@@ -7,8 +7,11 @@ from pathlib import Path
 import random
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from tests.support import ROOT
+from robot.config import RuntimeSettings
+from robot.navigation.speed_observer import SpeedObserver
 from robot.navigation.speed_profile import SpeedLimits, plan_speed_profile
 from maixcam2.curve_follow.tools.drive_reference import DriveReference
 from maixcam2.curve_follow.tools.replay_speed_profile import load_frames, replay, supported_segment
@@ -138,6 +141,46 @@ class DriveReferenceTests(unittest.TestCase):
             self.assertIsNone(self.reference.speed_for_pwm(pwm))
         for speed in (0, 0.1, 0.4, math.nan):
             self.assertIsNone(self.reference.pwm_for_speed(speed))
+
+
+class SpeedObserverTests(unittest.TestCase):
+    def setUp(self):
+        self.observer = SpeedObserver(RuntimeSettings.load(ROOT / "maixcam2/curve_follow", {}))
+        self.target = dict(
+            valid=True, observed=True, state="OBSERVED", reference_sigma_m=0.005,
+            control_path_m=[[0.01 + i * 0.015, 0.0] for i in range(50)],
+            path_observed_mask=[True] * 50,
+        )
+
+    def test_valid_analysis_is_read_only_and_explicitly_not_current_command(self):
+        before = json.dumps(self.target)
+        status = self.observer.update(self.target, frame=123, age_s=0.1)
+        self.assertTrue(status["valid"])
+        self.assertEqual(status["source_frame"], 123)
+        self.assertEqual(status["mode"], "SHADOW")
+        self.assertFalse(status["controls_motor"])
+        self.assertGreater(status["path_first_point_m"][0], 0)
+        self.assertTrue(0 < status["entry_limit_m_s"] <= 0.30)
+        self.assertEqual(json.dumps(self.target), before)
+        json.dumps(status, allow_nan=False)
+
+    def test_missing_or_stale_road_never_reuses_previous_success(self):
+        self.assertTrue(self.observer.update(self.target, 1, 0.1)["valid"])
+        for state in ("PREDICTED", "CONFIRMING"):
+            status = self.observer.update(dict(self.target, state=state), 2, 0.1)
+            self.assertFalse(status["valid"])
+            self.assertNotIn("entry_limit_m_s", status)
+        stale = self.observer.update(self.target, 3, 0.36)
+        self.assertFalse(stale["valid"])
+        self.assertEqual(stale["reason"], "OBSERVATION_STALE")
+
+    def test_observer_failure_is_reported_without_escaping_into_control(self):
+        with patch("robot.navigation.speed_observer.plan_speed_profile", side_effect=RuntimeError):
+            status = self.observer.update(self.target, 1, 0.1)
+        self.assertFalse(status["valid"])
+        self.assertEqual(status["reason"], "ANALYSIS_ERROR")
+        self.assertNotIn("entry_limit_m_s", status)
+        self.assertTrue(self.observer.update(self.target, 2, 0.1)["valid"])
 
 
 class ReplayTests(unittest.TestCase):

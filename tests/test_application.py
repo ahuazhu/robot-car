@@ -243,8 +243,12 @@ class ApplicationBoundaryTests(unittest.TestCase):
             self.assertIn("frame_processing", published["profile_ms"])
             self.assertIn("logging", published["profile_ms"])
             readiness = published["readiness"]
-            for key in ("start_light", "crosswalk", "laps", "steering"):
+            for key in ("start_light", "crosswalk", "laps", "steering", "speed_profile_shadow"):
                 self.assertEqual(published[key], readiness[key])
+            shadow = published["speed_profile_shadow"]
+            self.assertEqual(shadow["source_frame"], published["frame"])
+            self.assertFalse(shadow["controls_motor"])
+            self.assertIn("speed_profile_shadow", published["profile_ms"])
         self.assertEqual(run.stream.publications[-1], json.loads(json.dumps(run.stream.metrics)))
 
     def test_control_and_touch_update_every_frame_while_both_previews_are_throttled(self):
@@ -276,6 +280,16 @@ class ApplicationBoundaryTests(unittest.TestCase):
         self.assertIn(2, run.stops)
         self.assertEqual(run.controls, [1, 2, 3, 4])
         self.assertFalse(run.stream.control.status()["active"])
+
+    def test_shadow_failure_does_not_change_control_or_stop_handling(self):
+        options = dict(frames=4, preview=False, touch_actions={2: "start", 4: "stop"})
+        ordinary = self.run_application(**options)
+        with patch("robot.navigation.speed_observer.supported_segment", side_effect=RuntimeError):
+            failed = self.run_application(**options)
+        self.assertEqual(ordinary.events, failed.events)
+        self.assertEqual(ordinary.controls, failed.controls)
+        self.assertEqual(ordinary.stops, failed.stops)
+        self.assertEqual(failed.stream.metrics["speed_profile_shadow"]["reason"], "ANALYSIS_ERROR")
 
     def test_arm_and_stop_refresh_screen_immediately_between_display_deadlines(self):
         run = self.run_application(4, preview=False, touch_actions={2: "start", 4: "stop"})

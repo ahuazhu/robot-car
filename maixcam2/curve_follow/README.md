@@ -34,6 +34,8 @@ curve_follow/
 
 核心几何的Python实现是原生库缺失时的回退，也是数值等价验证的参考，不属于无用代码。构建不再删除导入或拼接全局命名空间。
 
+v0.6.86增加 `navigation.speed_observer.SpeedObserver`：只读当前连续可见路段，调用统一速度包络计算，并在 `/vision`、`/status` 的readiness与 `CONTROL` 日志发布同帧 `speed_profile_shadow`。`mode=SHADOW`、`controls_motor=false`；`source_frame`对应原始帧，`entry_limit_m_s`表示可见路段入口的分析上限，不是当前车速命令。道路不满足条件时明确标记无结果，不沿用旧结果。分析异常不向控制链抛出；耗时计入 `profile_ms.speed_profile_shadow` 及视觉预算。旧的巡线、横道、计圈、发车与看门狗逻辑保持，详见[在线对照记录](../../docs/统一速度规划回放-20261110.md)。
+
 ## 现场设置圈数
 
 网页控制台底部的“目标圈数”接受1–100的整数，默认取 `runtime.json` 的 `race.laps`（当前为2）。填写后点击ARM或直接启动，圈数随本次启动请求一起生效；ARM等待期间及行驶中锁定目标。需要修改时先STOP，再输入新值。设置仅保存在当前应用进程，应用重启后使用配置默认值。
