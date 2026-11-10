@@ -81,6 +81,7 @@ def main(app_dir):
     next_log = next_stream = next_display = 0.0
     last_display_state = None
     last_tracking_state = previous_captured = None
+    last_crosswalk_log_state = None
     began = time.monotonic()
     frames = observed_frames = 0
     saved, stats = set(), {}
@@ -409,10 +410,15 @@ def main(app_dir):
                     profile_ms["stream_publish"] = round((time.monotonic() - stream_tick) * 1000, 2)
             now = time.monotonic()
             log_tick = time.monotonic()
+            crosswalk_log_state = (
+                (crossing_view.get("event_id"), crossing_view["phase"],
+                 crossing_view.get("legal_stop_acquired")) if active else None
+            )
             if (
                 now >= next_log
                 or result["state"] == "CONFIRMING"
                 or result["state"] != last_tracking_state
+                or crosswalk_log_state != last_crosswalk_log_state
             ):
                 print(
                     "CONTROL",
@@ -448,6 +454,7 @@ def main(app_dir):
             metrics["profile_ms"] = profile_ms
             stream.metrics = metrics
             last_tracking_state = result["state"]
+            last_crosswalk_log_state = crosswalk_log_state
             for second in debug_seconds:
                 folder = os.path.join(os.environ["MAIXPY_SKILL_RUN_DIR"], "artifacts")
                 os.makedirs(folder, exist_ok=True)

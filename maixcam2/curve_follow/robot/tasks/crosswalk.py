@@ -37,6 +37,7 @@ class CrosswalkPolicy:
     geometry_verified: bool = False
     brake_lamp_verified: bool = False
     brake_deceleration_m_s2: object = None
+    approach_deceleration_m_s2: object = None
     hold_s: float = 3.2
     maximum_hold_s: float = 4.8
     stop_clearance_m: float = 0.14
@@ -94,11 +95,19 @@ class CrosswalkPolicy:
             raise ValueError("Stop clearance must be below 20cm")
         if not 0 < p.brake_entry_m < CROSSWALK_STOP_LIMIT_M:
             raise ValueError("Brake entry must be below 20cm")
+        if (p.approach_deceleration_m_s2 is not None and p.brake_deceleration_m_s2 is not None
+                and p.approach_deceleration_m_s2 > p.brake_deceleration_m_s2):
+            raise ValueError("Approach deceleration cannot exceed zero-command braking")
         if not isinstance(p.confirmation_frames, int) or p.confirmation_frames < 2:
             raise ValueError("Need multiple observations")
         if not isinstance(p.minimum_bars, int) or not 4 <= p.minimum_bars <= 7:
             raise ValueError("Invalid zebra bar count")
         return p
+
+    @property
+    def approach_deceleration(self):
+        """Smooth speed planning may be gentler than zero-command braking."""
+        return self.approach_deceleration_m_s2 or self.brake_deceleration_m_s2
 
     def blockers(self):
         missing = []
@@ -931,6 +940,8 @@ class CrosswalkTask:
             approach_wait_reason=self.approach_wait_reason,
             scene_speed_m_s=self.last_visual_speed,
             predicted_stopping_distance_m=self.predicted_stopping_distance,
+            brake_deceleration_m_s2=p.brake_deceleration_m_s2,
+            approach_deceleration_m_s2=p.approach_deceleration,
             legal_stop_acquired=self.legal_stop_acquired,
             legal_stop_window_m=[0.0, CROSSWALK_STOP_LIMIT_M],
             braking_buffer_m=p.stop_clearance_m,
@@ -987,7 +998,7 @@ class CrosswalkTask:
                 or self.last_update - approach["observed_at"] > p.observation_max_age_s):
             return (0, 0)
         available = max(0.0, clearance - approach["sigma_m"] - p.stop_clearance_m)
-        decel = float(p.brake_deceleration_m_s2)
+        decel = float(p.approach_deceleration)
         # Speed feedback takes time to settle. Plan the next speed early
         # enough that this response cannot repeatedly hit the emergency-stop
         # boundary while the crossing is still outside the legal window.

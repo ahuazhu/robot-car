@@ -12,7 +12,8 @@
     "body_half_width_m": 0.085,
     "geometry_verified": true,
     "brake_lamp_verified": true,
-    "brake_deceleration_m_s2": 0.08,
+    "brake_deceleration_m_s2": 0.2,
+    "approach_deceleration_m_s2": 0.08,
     "stop_clearance_m": 0.02,
     "approach_speed_m_s": 0.06,
     "speed_per_pwm_m_s": 0.006705385281385282,
@@ -22,7 +23,7 @@
   },
   "crosswalk_calibration": {
     "body_source": "Latest user measurements: axle spacing11cm; lens at front axle; lens to front2cm; overall length18cm; optical lateral offset6/11cm yields17cm width. Calibrated lateral axis uses body/lane centre; longitudinal reference unchanged.",
-    "braking_source": ".maixpy/crosswalk-review/enable-yield/calibration-basis.json",
+    "braking_source": "2026-11-10 field stop at 19cm: zero-output frame926 at22.785cm, resting estimate18.25cm, geometric upper travel bound9.07cm; at observed scene speed0.1578m/s, 0.20m/s2 plus unchanged0.35s latency predicts11.75cm. Historical stops in .maixpy/crosswalk-review/enable-yield/calibration-basis.json provide additional response samples. Approach planning retains0.08m/s2; new physical-stop model still needs repeat field validation.",
     "controlled_stopping_validation_pending": true
   },
   "control_frame": {

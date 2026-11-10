@@ -98,7 +98,7 @@ class SingleCrosswalkDwellTests(unittest.TestCase):
     def test_far_reapproach_cannot_serve_dwell_before_reaching_the_stop_window(self):
         task = self.task()
         for now in (0., .1, .2):
-            state = self.update(task, now, .30, speed=.24)
+            state = self.update(task, now, .30, speed=.30)
         self.assertEqual(task.phase, 'STOPPING')
         for step in range(36):
             now = .3 + step * .1

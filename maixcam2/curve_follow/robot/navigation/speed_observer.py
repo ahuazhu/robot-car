@@ -52,7 +52,7 @@ class SpeedObserver:
         crossing = settings.crosswalk_policy
         self.limits = SpeedLimits(
             0.30, 0.15, 0.15,
-            float(crossing.brake_deceleration_m_s2 or 0.08),
+            float(crossing.approach_deceleration or 0.08),
             settings.road_policy.missing_command_s + crossing.speed_response_s,
             settings.turn_lever,
         )
