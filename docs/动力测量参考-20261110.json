@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-10",
+  "surface": "wood floor",
+  "motor_supply": "8V battery (user report; no simultaneous loaded-voltage measurement)",
+  "actual_uno_pwm_limit": 200,
+  "production_configuration_applied": false,
+  "race_surface_validated": false,
+  "measurements": [
+    {
+      "duty": 90,
+      "powered_s": 1.5072188760004792,
+      "measured_forward_m": 0.3,
+      "estimated_steady_speed_m_s": 0.18632158965451112,
+      "physical_to_flow_ratio": 1.0976967639385296,
+      "scaled_speed_reference_m_s": 0.20452460601563946,
+      "post_stop_request_forward_m": 0.04719409337245206,
+      "scaled_post_stop_forward_reference_m": 0.05180480357195343,
+      "terminal_speed_relative_change": 0.0023827153337840756,
+      "steady_window_check": true,
+      "flow_forward_m": 0.2732995211934503
+    },
+    {
+      "duty": 120,
+      "powered_s": 1.2109691720006595,
+      "measured_forward_m": 0.3,
+      "estimated_steady_speed_m_s": 0.2261280179513033,
+      "physical_to_flow_ratio": 1.082765421712883,
+      "scaled_speed_reference_m_s": 0.2448435987181413,
+      "post_stop_request_forward_m": 0.05595493481511166,
+      "scaled_post_stop_forward_reference_m": 0.06058606859200125,
+      "terminal_speed_relative_change": 0.039396140288170026,
+      "steady_window_check": true,
+      "flow_forward_m": 0.27706832337277115
+    },
+    {
+      "duty": 150,
+      "powered_s": 1.017674697000075,
+      "measured_forward_m": 0.285,
+      "estimated_steady_speed_m_s": 0.25209585756664893,
+      "physical_to_flow_ratio": 1.094324807466772,
+      "scaled_speed_reference_m_s": 0.27587475079479384,
+      "post_stop_request_forward_m": 0.057508621337972854,
+      "scaled_post_stop_forward_reference_m": 0.06293311097335663,
+      "terminal_speed_relative_change": 0.08653590953545254,
+      "steady_window_check": true,
+      "flow_forward_m": 0.26043456024700756
+    },
+    {
+      "duty": 180,
+      "powered_s": 1.0240629889995034,
+      "measured_forward_m": 0.305,
+      "estimated_steady_speed_m_s": 0.25659062574243136,
+      "physical_to_flow_ratio": 1.0674072945183817,
+      "scaled_speed_reference_m_s": 0.2738867056225073,
+      "post_stop_request_forward_m": 0.07553210746310701,
+      "scaled_post_stop_forward_reference_m": 0.08062352247646672,
+      "terminal_speed_relative_change": 0.04500531151844209,
+      "steady_window_check": true,
+      "flow_forward_m": 0.2857391003099873
+    },
+    {
+      "duty": 200,
+      "powered_s": 1.007076732999849,
+      "measured_forward_m": 0.319,
+      "estimated_steady_speed_m_s": 0.27704872419542603,
+      "physical_to_flow_ratio": 1.100716912027993,
+      "scaled_speed_reference_m_s": 0.3049522161776844,
+      "post_stop_request_forward_m": 0.07114188267889565,
+      "scaled_post_stop_forward_reference_m": 0.07830707341817178,
+      "terminal_speed_relative_change": 0.09762325115762695,
+      "steady_window_check": true,
+      "flow_forward_m": 0.2898111190208435
+    }
+  ],
+  "offline_monotone_reference_blocks": [
+    {
+      "pwms": [
+        90
+      ],
+      "speed_reference_m_s": 0.20452460601563946
+    },
+    {
+      "pwms": [
+        120
+      ],
+      "speed_reference_m_s": 0.2448435987181413
+    },
+    {
+      "pwms": [
+        150,
+        180
+      ],
+      "speed_reference_m_s": 0.27488072820865056
+    },
+    {
+      "pwms": [
+        200
+      ],
+      "speed_reference_m_s": 0.3049522161776844
+    }
+  ],
+  "five_total_distance_fit": {
+    "physical_to_flow_ratio": 1.0883590133510856,
+    "residuals_m": [
+      -0.002552002764572292,
+      0.001549807056828778,
+      -0.001553698967042938,
+      0.005986725289204631,
+      -0.0035814564443007457
+    ]
+  },
+  "excluded_initial_pwm180": {
+    "measured_forward_m": 0.148,
+    "flow_forward_m": 0.1330944392864163,
+    "request_duration_s": 0.43576470100015285,
+    "reason": "Single-frame yaw-rate guard; aborted, excluded from steady-speed model"
+  },
+  "notes": [
+    "Speed references use terminal optical-flow position regression, scaled by each run total physical distance; pointwise speed is not independently verified.",
+    "Post-stop travel includes command transport, execution and coasting, not pure braking distance.",
+    "Each duty has one accepted longer trial; low-duty deadzone and race-surface braking are not calibrated.",
+    "150 and180 are within1% in this experiment; the offline monotone table pools their two references and preserves raw observations.",
+    "No test above PWM200; no camera homography or production coefficient changes."
+  ]
+}
