@@ -205,16 +205,24 @@ class DrivingSession:
             target_locked = bool(
                 self.start_light.armed and target is not None and target != self.laps.total
             )
+            mode_locked = bool(
+                arm_request and not direct_request
+                and (self.start_light.armed or getattr(self.start_light, "permission", False))
+                and arm_request.initial_lamp_state != getattr(self.start_light, "initial_lamp_state", "OFF")
+            )
+            if mode_locked:
+                print("START REFUSED", "已ARM，修改准备灯态请先STOP", flush=True)
             if (
                 arm_request
                 and not direct_request
+                and not mode_locked
                 and self.start_light.enabled
                 and not self.active
                 and not s.preview_only
                 and not self.start_light.armed
             ):
                 self.laps.prepare(target)
-                accepted = self.start_light.arm()
+                accepted = self.start_light.arm(initial_lamp_state=arm_request.initial_lamp_state)
                 frame.light_start = False
                 self.reason = "WAIT START LIGHT" if accepted is not False else "ESP32 NOT READY"
                 print(

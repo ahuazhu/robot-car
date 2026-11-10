@@ -26,7 +26,8 @@ class WebControl:
         self.generation = 0
         self.pending = None
         self.preparing = None
-        self.preparation = dict(pending=False, phase="IDLE", error=None, request_id=None, generation=None)
+        self.preparation = dict(pending=False, phase="IDLE", error=None, request_id=None,
+                                generation=None, initial_lamp_state="OFF")
         self.updated = 0
         self.state = dict(active=False, ready=False, reason="INITIALIZING", left=0, right=0)
 
@@ -52,7 +53,8 @@ class WebControl:
         self.preparing = None
         self.preparation = dict(self.preparation, pending=phase == "ARM_QUEUED", phase=phase, error=error)
 
-    def submit(self, action, generation=None, *, laps=None, lamp_configuration=None):
+    def submit(self, action, generation=None, *, laps=None, lamp_configuration=None,
+               initial_lamp_state="OFF"):
         with self.lock:
             if action == "stop":
                 self.generation += 1
@@ -61,7 +63,7 @@ class WebControl:
                 self.pending = (ControlRequest("stop"), time.monotonic())
                 return True, "停车请求已接收"
             try:
-                request = ControlRequest(action, laps)
+                request = ControlRequest(action, laps, initial_lamp_state)
             except ValueError as exc:
                 return False, str(exc)
             if generation != self.generation:
@@ -73,6 +75,10 @@ class WebControl:
             if lamp_configuration is not None and request.action != "start":
                 return False, "灯面配置请通过ARM准备操作提交"
             readiness = self.state.get("readiness", {})
+            light = readiness.get("start_light", {})
+            if (action == "start" and light.get("armed")
+                    and initial_lamp_state != light.get("initial_lamp_state", "OFF")):
+                return False, "已ARM，修改准备灯态请先STOP"
             if (readiness.get("start_light", {}).get("armed") and laps is not None
                     and laps != readiness.get("laps", {}).get("total_laps")):
                 return False, "已ARM，修改圈数请先STOP"
@@ -88,14 +94,15 @@ class WebControl:
                     target = request.laps if request.laps is not None else readiness.get("laps", {}).get("total_laps")
                     if target is None:
                         return False, "目标圈数尚未就绪"
-                    request = ControlRequest("start", target)
+                    request = ControlRequest("start", target, request.initial_lamp_state)
                     desired = self.lamp_signal.normalize_configuration(lamp_configuration)
                     request_id = self.lamp_signal.queue_configuration(desired)
                 except (RuntimeError, ValueError) as exc:
                     return False, "当前不能准备发车：" + str(exc)
                 self.preparing = dict(request=request, created=time.monotonic(), generation=self.generation,
                                       request_id=request_id, configuration=desired)
-                self.preparation = dict(pending=True, phase="SAVING", error=None, request_id=request_id, generation=self.generation)
+                self.preparation = dict(pending=True, phase="SAVING", error=None, request_id=request_id,
+                                        generation=self.generation, initial_lamp_state=request.initial_lamp_state)
                 return True, "正在保存灯面，完成后进入等灯状态"
             self.pending = (request, time.monotonic())
             return True, "启动请求已接收"
@@ -274,8 +281,10 @@ class LiveStream:
                 ok, message = owner.control.submit(
                     data.get("action"), data.get("generation"), laps=data.get("laps"),
                     lamp_configuration=data.get("lamp_configuration"),
+                    initial_lamp_state=data.get("initial_lamp_state", "OFF"),
                 )
-                self.send_json(202 if ok else 409, dict(message=message))
+                self.send_json(202 if ok else 400 if message == "invalid_initial_lamp_state" else 409,
+                               dict(message=message))
 
             def do_GET(self):
                 path = self.path.split("?", 1)[0]

@@ -66,7 +66,7 @@ function makeDOM(markup){
 function setup(options={}){
  let now=1000000,nextId=0;const timers=new Map(),docEvents={},windowEvents={};
  const dom=makeDOM(html),elements=dom.elements;
- const data=()=>({generation:0,age_ms:0,active:false,ready:true,reason:'TEST',left:0,right:0,preparation:{pending:false,phase:'IDLE',error:null,request_id:0},readiness:{arm_start_light_ready:true,direct_start_ready:true,laps:{enabled:false,total_laps:2},start_light:{enabled:true,armed:false,connected:true,phase:'DISARMED',peer_url:'http://10.0.0.2/',search_roi:[96,8,128,112],target_locked:false,required_frames:4,lamp_configuration:{manual:true,roi:[139,51,63,61]},configuration_update:{pending:false,state:'IDLE',error:'',request_id:0}}}});
+ const data=()=>({generation:0,age_ms:0,active:false,ready:true,reason:'TEST',left:0,right:0,preparation:{pending:false,phase:'IDLE',error:null,request_id:0},readiness:{arm_start_light_ready:true,direct_start_ready:true,laps:{enabled:false,total_laps:2},start_light:{enabled:true,armed:false,connected:true,phase:'DISARMED',initial_lamp_state:'OFF',peer_url:'http://10.0.0.2/',search_roi:[96,8,128,112],target_locked:false,required_frames:4,lamp_configuration:{manual:true,roi:[139,51,63,61]},configuration_update:{pending:false,state:'IDLE',error:'',request_id:0}}}});
  const env={elements,dom,requests:[],fetcher:async()=>data(),storage:new Map(Object.entries(options.storage||{}))};
  const document={hidden:false,getElementById:id=>{assert.ok(elements[id],id);return elements[id]},querySelectorAll:selector=>dom.all.filter(e=>dom.matches(e,selector)),querySelector:selector=>dom.all.find(e=>dom.matches(e,selector))??null,createElement:tag=>dom.node(tag,{}),addEventListener:(k,fn)=>docEvents[k]=fn};
  const window={addEventListener:(k,fn)=>windowEvents[k]=fn};
@@ -81,6 +81,7 @@ function setup(options={}){
  env.inline=(id,event)=>{const element=elements[id],handler=element.getAttribute('on'+event);if(!handler)return;context.__inlineTarget=element;return vm.runInContext('(function(){return '+handler+'}).call(__inlineTarget)',context)};
  env.click=id=>elements[id].disabled?undefined:env.inline(id,'click');
  env.input=(id,value)=>{elements[id].value=String(value);return env.inline(id,'input')};
+ env.change=(id,value)=>{elements[id].value=String(value);return elements[id].events.change?.({target:elements[id]})};
  env.advance=ms=>{const until=now+ms;for(let i=0;i<100;i++){let chosen;for(const [id,t] of timers)if(t.at<=until&&(!chosen||t.at<chosen[1].at))chosen=[id,t];if(!chosen)break;now=chosen[1].at;timers.delete(chosen[0]);chosen[1].fn();}now=until};
  env.delay=ms=>now+=ms;return env;
 }
@@ -270,7 +271,7 @@ async function fieldScenarios(){
   const server=e.defaultData();server.preparation={pending:true,phase:'SAVING',error:null,request_id:8};
   e.fetcher=async url=>url==='/control'?e.response({message:'准备中',request_id:8},202):server;
   await e.click('start');
-  assert.deepEqual(e.posts('/control').map(request=>request.body),[{action:'start',generation:0,laps:4,lamp_configuration:{manual:true,roi:[140,51,62,61]}}]);
+  assert.deepEqual(e.posts('/control').map(request=>request.body),[{action:'start',generation:0,laps:4,initial_lamp_state:'OFF',lamp_configuration:{manual:true,roi:[140,51,62,61]}}]);
   assert.equal(e.posts('/lamp-config').length,0,'ARM has no separate or implicit second save request');
   assert.equal(e.elements.start.disabled,true);assertStopUsable(e);
   // An unrelated old configuration acknowledgement cannot complete preparation.
@@ -326,7 +327,7 @@ async function fieldScenarios(){
  }
  {
   const e=setup();await flush();loadedESP(e);await e.click('start');
-  assert.deepEqual(e.posts('/control').map(request=>request.body),[{action:'start',generation:0,laps:2,lamp_configuration:{manual:true,roi:[139,51,63,61]}}]);
+  assert.deepEqual(e.posts('/control').map(request=>request.body),[{action:'start',generation:0,laps:2,initial_lamp_state:'OFF',lamp_configuration:{manual:true,roi:[139,51,63,61]}}]);
   assert.equal(e.posts('/lamp-config').length,0,'confirmed manual face also uses the atomic preparation request');
  }
  {
@@ -440,7 +441,7 @@ async function fieldScenarios(){
  for(const [name,mutate] of Object.entries(lockedStates)){
   const e=setup();await flush();loadedESP(e);dragBound(e,'left',140);const before=bounds(e);
   await replaceStatus(e,mutate);
-  for(const id of ['roi-auto','roi-cancel','start','direct-start'])assert.equal(e.elements[id].disabled,true,name+': '+id);
+  for(const id of ['roi-auto','roi-cancel','start','direct-start','initial-lamp-state'])assert.equal(e.elements[id].disabled,true,name+': '+id);
   dragBound(e,'left',141);keyBound(e,'left','ArrowRight');assert.deepEqual(bounds(e),before,name+': no forbidden image or keyboard edit');
   for(const edge of roiEdges){assert.equal(e.elements['roi-hit-'+edge].getAttribute('tabindex'),'-1');assert.equal(e.elements['roi-hit-'+edge].getAttribute('aria-disabled'),'true')}
   await e.context.control('start');assert.equal(e.posts().length,0,name+': no forbidden request');assertStopUsable(e);
@@ -600,6 +601,87 @@ async function lampSignalScenarios(){
  console.log('lamp signal progress, independent lock state, permission and stale-state scenarios passed');
 }
 
+
+async function initialLampStateScenarios(){
+ const id='initial-lamp-state';
+ {
+  const e=setup();await flush();const input=e.elements[id];
+  assert.equal(input.tagName,'SELECT');assert.equal(input.value,'OFF');assert.equal(input.disabled,false);
+  assert.equal(input.closest('details'),null);assert.equal(input.closest('.run-setting'),e.elements.start.closest('.run-setting'));
+  assert.ok(e.dom.all.indexOf(e.elements['target-laps'])<e.dom.all.indexOf(input));assert.ok(e.dom.all.indexOf(input)<e.dom.all.indexOf(e.elements.start));
+  assert.deepEqual(input.children.filter(c=>c.tagName==='OPTION').map(c=>c.value),['OFF','ON']);
+  assert.match(input.children.find(c=>c.value==='ON').textContent,/已亮/,'ON is an explicit initial condition chosen by the operator');
+  e.change(id,'ON');await e.context.updateStatus();assert.equal(input.value,'ON','idle polling preserves an unsubmitted selection');
+  e.change(id,'bad');assert.equal(input.value,'ON','the UI only accepts the two declared modes');
+  e.change(id,'OFF');loadedESP(e);await e.click('start');assert.equal(e.posts('/control')[0].body.initial_lamp_state,'OFF');
+  assert.equal(e.posts('/lamp-config').length,0);
+ }
+ {
+  const e=setup();await flush();loadedESP(e);e.change(id,'ON');e.elements['target-laps'].value='7';dragBound(e,'left',140);
+  const server=e.defaultData();server.preparation={pending:true,phase:'SAVING',error:null,request_id:9,generation:0,initial_lamp_state:'ON'};let release;
+  e.fetcher=async(url,options)=>url==='/control'&&JSON.parse(options.body).action==='start'?new Promise(resolve=>release=resolve):server;
+  const starting=e.click('start');await flush();assert.equal(e.elements[id].disabled,true);assert.equal(e.elements[id].value,'ON');
+  e.change(id,'OFF');assert.equal(e.elements[id].value,'ON','mode locks before the preparation HTTP response returns');
+  assert.deepEqual(e.posts('/control')[0].body,{action:'start',generation:0,laps:7,lamp_configuration:{manual:true,roi:[140,51,62,61]},initial_lamp_state:'ON'});
+  assert.equal(e.posts('/lamp-config').length,0,'mode, laps and frame have one atomic ARM request');
+  release(e.response({message:'准备请求已接收'},202));await starting;assert.equal(e.elements[id].value,'ON');assert.equal(e.elements[id].disabled,true);
+  Object.assign(server.readiness.start_light,{armed:true,phase:'WAIT_OFF',initial_lamp_state:'ON',lamp_configuration:{manual:true,roi:[140,51,62,61]}});
+  server.preparation={...server.preparation,pending:false,phase:'ARMED'};await e.context.updateStatus();assert.equal(e.elements[id].disabled,true);assert.equal(e.elements[id].value,'ON');
+  server.active=true;server.reason='FOLLOW';server.readiness.start_light.armed=false;await e.context.updateStatus();assert.equal(e.elements[id].disabled,true);
+  e.context.navigator.onLine=false;e.windowEvents.offline();e.change(id,'OFF');assert.equal(e.elements[id].disabled,true);assert.equal(e.elements[id].value,'ON');
+  e.context.navigator.onLine=true;e.windowEvents.online();await flush();loadedESP(e);assert.equal(e.elements[id].value,'ON');
+  server.active=false;server.reason='STOPPED';server.generation=1;server.preparation={...server.preparation,pending:false,phase:'CANCELLED'};
+  await e.click('stop');assert.equal(e.elements[id].disabled,false);e.change(id,'OFF');assert.equal(e.elements[id].value,'OFF');
+  assert.equal(e.posts('/control').filter(r=>r.body.action==='start').length,1);
+ }
+ {
+  const e=setup();await flush();await replaceStatus(e,s=>{s.readiness.start_light.initial_lamp_state='ON'});
+  assert.equal(e.elements[id].value,'OFF','a completed or idle peer mode is not a persisted preference');assert.equal(e.elements[id].disabled,false);
+ }
+ {
+  const e=setup();await flush();await replaceStatus(e,s=>Object.assign(s.readiness.start_light,{armed:true,phase:'WAIT_OFF',initial_lamp_state:'ON'}));
+  assert.match(e.elements['lamp-signal-state'].getAttribute('title'),/稳定基准.*请确保/);
+  assert.doesNotMatch(e.elements['lamp-signal-state'].getAttribute('title'),/亮灯已确认/,'ON is an operator assertion, not automatic evidence of the initial physical lamp state');
+  assert.match(e.elements['mission-state'].textContent,/基准稳定/);assert.doesNotMatch(e.elements['mission-state'].textContent,/已见亮灯/);
+ }
+ for(const phase of ['SAVING','ARM_QUEUED','ERROR']){
+  const e=setup();await flush();await replaceStatus(e,s=>{s.preparation={pending:phase!=='ERROR',phase,error:phase==='ERROR'?'configuration_offline':null,request_id:9,generation:0,initial_lamp_state:'ON'}});
+  assert.equal(e.elements[id].value,'ON',phase+': restore captured preparation mode');assert.equal(e.elements[id].disabled,true,phase+': captured mode stays locked');
+ }
+ for(const active of [false,true]){
+  const e=setup();await flush();await replaceStatus(e,s=>{s.active=active;Object.assign(s.readiness.start_light,{armed:!active,phase:active?'RUNNING':'WAIT_OFF',initial_lamp_state:'ON'})});
+  assert.equal(e.elements[id].value,'ON','a fresh page reflects the actual accepted mission mode');assert.equal(e.elements[id].disabled,true);
+ }
+ {
+  const e=setup();await flush();e.change(id,'ON');await replaceStatus(e,s=>{s.age_ms=1000;s.preparation={pending:true,phase:'SAVING',generation:0,initial_lamp_state:'OFF'}});
+  assert.equal(e.elements[id].disabled,true);assert.equal(e.elements[id].value,'ON','stale metadata cannot overwrite the local choice');
+ }
+ {
+  const e=setup();await flush();loadedESP(e);e.change(id,'ON');const server=e.defaultData();
+  e.fetcher=async url=>url==='/control'?e.response({message:'暂不可达'},409):server;
+  await e.click('start');assert.equal(e.elements[id].disabled,true);assert.equal(e.elements[id].value,'ON','a rejected request does not unlock the operator-confirmed mode');
+  await e.click('start');assert.deepEqual(e.posts('/control').map(r=>r.body.initial_lamp_state),['ON','ON']);
+  server.generation=1;await e.click('stop');assert.equal(e.elements[id].disabled,false);
+ }
+ {
+  const e=setup();await flush();loadedESP(e);e.change(id,'ON');let release;const server=e.defaultData();
+  e.fetcher=async(url,options)=>url==='/control'&&JSON.parse(options.body).action==='start'?new Promise(resolve=>release=resolve):server;
+  const starting=e.click('start');await flush();server.generation=1;await e.click('stop');assert.equal(e.elements[id].disabled,false);e.change(id,'OFF');
+  release(e.response({message:'旧准备请求'},202));await starting;await e.context.updateStatus();assert.equal(e.elements[id].value,'OFF');assert.equal(e.elements[id].disabled,false,'a late ARM result cannot relock a stopped selection');
+ }
+ {
+  const e=setup();await flush();loadedESP(e);e.change(id,'ON');const server=e.defaultData();
+  e.fetcher=async()=>server;await e.click('start');server.generation=1;server.reason='LAPS COMPLETE';
+  server.preparation={pending:false,phase:'ARMED',generation:0,initial_lamp_state:'ON'};await e.context.updateStatus();
+  assert.equal(e.elements[id].disabled,false,'verified mission completion releases the mode');e.change(id,'OFF');assert.equal(e.elements[id].value,'OFF');
+ }
+ {
+  const e=setup();await flush();loadedESP(e);e.change(id,'ON');await e.click('direct-start');
+  assert.deepEqual(e.posts('/control')[0].body,{action:'start_now',generation:0,laps:2},'manual testing does not submit an initial-lamp assertion');
+ }
+ console.log('initial lamp state default, atomic submission, mode locks and restored mission state passed');
+}
+
 async function main(){
  {
   const e=setup();await flush();const image=e.elements['esp-video'];assert.ok(image.hasAttribute('src'));image.onload();
@@ -679,6 +761,7 @@ async function main(){
  }
  await fieldScenarios();
  await lampSignalScenarios();
+ await initialLampStateScenarios();
  console.log('13 preview connection scenarios passed');
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

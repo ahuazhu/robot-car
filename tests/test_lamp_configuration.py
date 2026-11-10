@@ -361,6 +361,10 @@ class LampConfigurationTests(unittest.TestCase):
             handler.do_POST()
             return returned[0]
         body=dict(generation=0,configuration=self.manual())
+        for mode in (None, True, 1, 'on', '', {}):
+            invalid = post(dict(action='start', generation=0, initial_lamp_state=mode), path='/control')
+            self.assertEqual(invalid[0], 400)
+            self.assertEqual(invalid[1]['message'], 'invalid_initial_lamp_state')
         self.assertEqual(post(body,**{'X-Control-Token':'bad'})[0],403)
         self.assertEqual(post(body,Origin='http://other:8000')[0],403)
         self.assertEqual(post(dict(generation=0,configuration=dict(manual=True,roi=[0,0,8,8])))[0],400)

@@ -51,6 +51,7 @@ class StartSignal:
         self.stopping = threading.Event()
         self.thread = None
         self.armed = self.fired = self.permission = False
+        self.initial_lamp_state = "OFF"
         self.phase = "DISARMED"
         self.error = "PAIRING_REQUIRED" if not self.key else "CONNECTING"
         self.session = self.boot = ""
@@ -217,19 +218,29 @@ class StartSignal:
                 return not self.armed
             return self._fresh() and not self.error and self.peer.get("paired") is True and not self.peer.get("armed") and not self.cancel_queue and not self.reset_remote_pending
 
-    def arm(self):
+    @staticmethod
+    def normalize_initial_lamp_state(value):
+        if type(value) is not str or value not in ("OFF", "ON"):
+            raise ValueError("invalid_initial_lamp_state")
+        return value
+
+    def arm(self, initial_lamp_state="OFF"):
+        initial_lamp_state = self.normalize_initial_lamp_state(initial_lamp_state)
         with self.lock:
             if self.configuration_request is not None:
                 return False
             if self.armed:
-                return True
+                return initial_lamp_state == self.initial_lamp_state
             if self.permission:
+                if initial_lamp_state != self.initial_lamp_state:
+                    return False
                 self.armed, self.fired, self.phase = True, False, "SIGNAL_READY"
                 return True
             if not self.enabled or not self._fresh() or self.error or self.peer.get("armed") or not self.key or self.peer.get("paired") is not True or self.cancel_queue or self.reset_remote_pending:
                 return False
             self.session = os.urandom(16).hex()
             self.boot = self.peer["boot"]
+            self.initial_lamp_state = initial_lamp_state
             self.armed, self.fired, self.acknowledged = True, False, False
             self.phase = "ARMING"
             self.confirmation = {}
@@ -286,7 +297,7 @@ class StartSignal:
                 self.phase = "WAIT_CONNECTION"
             return False
 
-    def _http(self, op, session, boot, *, configuration=None):
+    def _http(self, op, session, boot, *, configuration=None, initial_lamp_state="OFF"):
         opener = build_opener(ProxyHandler({}))
         # Resolve only once per healthy connection. Some mDNS stacks retry AAAA
         # for several seconds per request; IPv4 pinning also keeps UI video fast.
@@ -297,6 +308,8 @@ class StartSignal:
             request = Request(self.endpoint+"/status")
         else:
             payload = dict(op=op, session=session, boot=boot)
+            if op == "arm":
+                payload["initial_lamp_state"] = self.normalize_initial_lamp_state(initial_lamp_state)
             if op == "configure":
                 payload = dict(op=op, boot=boot, configuration=configuration)
             body = json.dumps(payload).encode()
@@ -370,11 +383,16 @@ class StartSignal:
         with self.lock:
             cancel = self.cancel_queue.pop(0) if self.cancel_queue else None
             session, boot = self.session, self.boot
+            initial_lamp_state = self.initial_lamp_state
             op = "cancel" if cancel else "poll" if session and self.acknowledged else "arm" if session else "status"
         target_session, target_boot = cancel or (session, boot)
         began = self.clock()
         try:
-            peer = self.transport(op, target_session, target_boot)
+            # Keep existing OFF-only transport adapters compatible. Explicit
+            # ON requires the new request and a matching device acknowledgement.
+            peer = (self.transport(op, target_session, target_boot, initial_lamp_state=initial_lamp_state)
+                    if op == "arm" and initial_lamp_state == "ON"
+                    else self.transport(op, target_session, target_boot))
             self.last_request_ms = round((self.clock()-began)*1000,1)
             if self.clock()-began > .6:
                 raise ValueError("RESPONSE_TOO_SLOW")
@@ -394,6 +412,8 @@ class StartSignal:
                         raise ValueError("DEVICE_REBOOTED")
                     if peer.get("session") != session or peer["armed"] is not True:
                         raise ValueError("SESSION_CHANGED")
+                    if peer.get("initial_lamp_state", "OFF") != initial_lamp_state:
+                        raise ValueError("INITIAL_LAMP_STATE_MISMATCH")
                     if self.acknowledged and peer["sequence"] < self.peer.get("sequence",0):
                         raise ValueError("FRAME_SEQUENCE_REGRESSED")
                     self.acknowledged = True
@@ -420,7 +440,7 @@ class StartSignal:
                 self.last_request_ms = round((self.clock()-began)*1000,1)
                 self.last_error_kind = type(exc).__name__
                 self.last_endpoint = self.endpoint
-                codes = ("RESPONSE_TOO_SLOW","CAMERA_FRAME_STALE","INVALID_SIGNAL_RESPONSE","DEVICE_REBOOTED","SESSION_CHANGED","FRAME_SEQUENCE_REGRESSED","CAMERA_SEQUENCE_STALLED")
+                codes = ("RESPONSE_TOO_SLOW","CAMERA_FRAME_STALE","INVALID_SIGNAL_RESPONSE","DEVICE_REBOOTED","SESSION_CHANGED","INITIAL_LAMP_STATE_MISMATCH","FRAME_SEQUENCE_REGRESSED","CAMERA_SEQUENCE_STALLED")
                 self.last_error_reason = str(exc) if str(exc) in codes else type(exc).__name__
                 if isinstance(exc,OSError):
                     self.endpoint = None
@@ -467,6 +487,7 @@ class StartSignal:
             p = self.confirmation if self.permission else self.peer
             evidence = self.permission or self.armed and self.acknowledged
             return dict(enabled=self.enabled, source="ESP32", armed=self.armed, fired=self.fired,
+                        initial_lamp_state=self.initial_lamp_state,
                         permission=self.permission, phase=self.phase, connected=self._fresh() and not self.error,
                         error=self.error, error_kind=self.last_error_kind, error_reason=self.last_error_reason,
                         fault_reason=self.fault_reason, fault_kind=self.fault_kind,

@@ -3,6 +3,8 @@
 static SemaphoreHandle_t signalLock, jpegLock;
 static start_signal::Detector signalDetector;
 static String signalKey,signalSession,lastSignalSession;
+static bool signalInitialLampOn=false;
+static const char *signalInitialLampState(){return signalInitialLampOn?"ON":"OFF";}
 static char signalBoot[17];
 // Caller holds signalLock; never emit the key in status or errors.
 static bool signalKeyMatches(const char *key){
@@ -69,7 +71,6 @@ static void configureLampROI(const char *data){
   Serial.println("ROI OK "+state);
 }
 static void applyModelHint(start_signal::Detector &detector,uint32_t now){
-  detector.requireOffOnOff(true);
   detector.setManualROI(manualLampROI[0],manualLampROI[1],manualLampROI[2],manualLampROI[3],manualLampEnabled);
   if(manualLampEnabled){detector.requireModelLocator(false);return;}
   auto s=lampnet::snapshot();detector.requireModelLocator(true);
@@ -122,6 +123,7 @@ static String signalJSON(){
   uint32_t age=signalDetector.sequence?uint32_t(millis()-signalFrameAt):UINT32_MAX;
   String data="{\"boot\":\""+String(signalBoot)+"\",\"paired\":"+(signalKey.length()==64?"true":"false")+",\"session\":\""+signalSession+"\",\"armed\":"+(signalDetector.armed?"true":"false")+",\"confirmed\":"+(signalDetector.confirmed?"true":"false");
   data+=",\"sequence\":"+String(signalDetector.sequence)+",\"frame_age_ms\":"+String(age)+",\"confirmation_frames\":"+String(signalDetector.hits)+",\"confirmed_ms\":"+String(signalDetector.elapsed);
+  data+=",\"initial_lamp_state\":\""+String(signalInitialLampState())+"\"";
   data+=",\"phase\":\""+String(signalDetector.phaseName())+"\",\"direction\":\"DARKER\",\"trigger_direction\":\"DARKER\",\"protocol\":2,\"control_port\":81,\"roi\":["+String(start_signal::Detector::X)+","+String(start_signal::Detector::Y)+","+String(start_signal::Detector::RW)+","+String(start_signal::Detector::RH)+"],\"required_frames\":3,\"required_ms\":400";
   data+=",\"target_locked\":"+String(signalDetector.baseline?"true":"false")+",\"target_roi\":["+String(start_signal::Detector::X+signalDetector.target.x*start_signal::Detector::STEP)+","+String(start_signal::Detector::Y+signalDetector.target.y*start_signal::Detector::STEP)+","+String(signalDetector.target.w*start_signal::Detector::STEP)+","+String(signalDetector.target.h*start_signal::Detector::STEP)+"]";
   data+=",\"contrast\":"+String(signalDetector.contrast,1)+",\"baseline_contrast\":"+String(signalDetector.baselineContrast,1)+",\"noise\":"+String(signalDetector.noise,1);
@@ -141,20 +143,20 @@ static String signalJSON(){
   data+=",\"event_age_ms\":"+String(signalDetector.eventAge(millis()))+",\"maximum_event_age_ms\":0,\"holds_confirmed_until_cancel\":true,\"preview_url\":\""+(WiFi.status()==WL_CONNECTED?String("http://")+WiFi.localIP().toString()+"/":String(""))+"\"}";
   xSemaphoreGive(signalLock);return data;
 }
-static bool applySignalCommand(const char *op,const char *session,const char *boot){
+static bool applySignalCommand(const char *op,const char *session,const char *boot,const char *initialLampState="OFF"){
+  bool validInitial=initialLampState&&(strcmp(initialLampState,"OFF")==0||strcmp(initialLampState,"ON")==0);
   bool valid=op&&hexString(session,32)&&boot&&strcmp(boot,signalBoot)==0;
   bool accepted=false;
   if(valid){
     xSemaphoreTake(signalLock,portMAX_DELAY);
-    if(strcmp(op,"arm")==0){
+    if(strcmp(op,"arm")==0&&validInitial){
 #ifdef ROBOT_LAMPNET_FACE
       if(modelTestEnabled){modelTestEnabled=false;if(modelTestDetector)modelTestDetector->cancel();}
 #endif
-      if(signalSession==session && signalDetector.armed)accepted=true;
+      bool initialOn=strcmp(initialLampState,"ON")==0;
+      if(signalSession==session && signalDetector.armed)accepted=initialOn==signalInitialLampOn;
       else if(!signalDetector.armed && lastSignalSession!=session){signalSession=session;
-#ifdef ROBOT_LAMPNET_FACE
-      signalDetector.requireOffOnOff(true);
-#endif
+      signalInitialLampOn=initialOn;signalDetector.requireOffOnOff(!initialOn);
       signalDetector.arm();accepted=true;}
     }else if(strcmp(op,"poll")==0)accepted=signalSession==session&&signalDetector.armed;
     else if(strcmp(op,"cancel")==0){
@@ -194,8 +196,13 @@ static esp_err_t signalControl(httpd_req_t *r){
   }
 #endif
   memset(key,0,sizeof(key));
+  const cJSON *initial=root?cJSON_GetObjectItemCaseSensitive(root,"initial_lamp_state"):nullptr;
+  const char *initialState=initial&&cJSON_IsString(initial)?initial->valuestring:initial?nullptr:"OFF";
+  if(cJSON_IsString(op)&&strcmp(op->valuestring,"arm")==0&&(!initialState||(strcmp(initialState,"OFF")!=0&&strcmp(initialState,"ON")!=0))){
+    if(root)cJSON_Delete(root);return signalError(r,"400 Bad Request","invalid_initial_lamp_state");
+  }
   bool valid=cJSON_IsString(op)&&cJSON_IsString(session)&&hexString(session->valuestring,32)&&cJSON_IsString(boot)&&strcmp(boot->valuestring,signalBoot)==0;
-  bool accepted=valid && applySignalCommand(op->valuestring,session->valuestring,boot->valuestring);
+  bool accepted=valid && applySignalCommand(op->valuestring,session->valuestring,boot->valuestring,initialState);
   if(root)cJSON_Delete(root);
   if(!accepted){httpd_resp_set_status(r,"409 Conflict");return httpd_resp_sendstr(r,"Session mismatch; rearm required");}
   String data=signalJSON();httpd_resp_set_type(r,"application/json");httpd_resp_set_hdr(r,"Cache-Control","no-store");return httpd_resp_send(r,data.c_str(),data.length());

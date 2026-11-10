@@ -91,7 +91,7 @@ static httpd_req_t lastRequest;static std::string scratch;
 extern "C" {
 void reset(int armed,int confirmed,int diagnostic,int failure,int race){
   signalDetector.cancel();signalDetector.armed=armed;signalDetector.confirmed=confirmed;signalDetector.sequence=20;
-  signalKey=std::string(64,'a');strcpy(signalBoot,"0123456789abcdef");signalSession="";lastSignalSession="";signalLease=99;
+  signalKey=std::string(64,'a');strcpy(signalBoot,"0123456789abcdef");signalSession="";lastSignalSession="";signalLease=99;signalInitialLampOn=false;
   manualLampEnabled=true;int roi[4]={139,51,63,61};memcpy(manualLampROI,roi,sizeof(roi));
   if(modelTestDetector)delete modelTestDetector;modelTestDetector=new start_signal::Detector();modelTestDetector->arm();modelTestEnabled=diagnostic;
   int initial[5]={1,139,51,63,61};savedBytes.assign((uint8_t*)initial,(uint8_t*)initial+sizeof(initial));
@@ -107,6 +107,21 @@ const char*serialMessage(){return Serial.last.c_str();}
 void hint(int valid,int x,int y,int w,int h,unsigned source,int selftest){auto&s=lampnet::testStats;s.valid=valid;s.x=x;s.y=y;s.w=w;s.h=h;s.sourceAt=source;s.selfTestOK=selftest;}
 int writes(){return writeCalls;}int lockedWrite(){return writeWasLocked&&lockDepth==0;}int diagnosticEnabled(){return modelTestEnabled;}
 int diagnosticArmed(){return modelTestDetector->armed;}int lease(){return signalLease;}int nativeArmed(){return signalDetector.armed;}
+void processManual(unsigned now,int value){
+  std::vector<uint8_t> frame(320*240*2);unsigned packed=((value>>3)<<11)|((value>>2)<<5)|(value>>3);
+  for(size_t i=0;i<frame.size();i+=2){frame[i]=packed>>8;frame[i+1]=packed;}
+  applyModelHint(signalDetector,now);signalDetector.process(frame.data(),now);
+}
+void processLamp(unsigned now,int value){
+  std::vector<uint8_t> frame(320*240*2);
+  for(int y=0;y<240;++y)for(int x=0;x<320;++x){
+    unsigned v=x>=139&&x<202&&y>=51&&y<112?value:100;
+    unsigned packed=((v>>3)<<11)|((v>>2)<<5)|(v>>3);size_t i=(y*320+x)*2;
+    frame[i]=packed>>8;frame[i+1]=packed;
+  }
+  applyModelHint(signalDetector,now);signalDetector.process(frame.data(),now);
+}
+int diagnosticOffBaseline(){return modelTestDetector->offBaselineReady;}
 }
 '''
 
@@ -134,6 +149,8 @@ class LampConfigurationHTTPTests(unittest.TestCase):
         cls.lib.request.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p]
         cls.lib.usb.argtypes = [ctypes.c_void_p]
         cls.lib.hint.argtypes = [ctypes.c_int]*5+[ctypes.c_uint, ctypes.c_int]
+        cls.lib.processManual.argtypes = [ctypes.c_uint, ctypes.c_int]
+        cls.lib.processLamp.argtypes = [ctypes.c_uint, ctypes.c_int]
         for name in ('response', 'status', 'serialMessage'):
             getattr(cls.lib, name).restype = ctypes.c_char_p
 
@@ -288,6 +305,91 @@ class LampConfigurationHTTPTests(unittest.TestCase):
             self.assertEqual(code, 200)
             self.assertEqual(result['armed'], operation != 'cancel')
         self.assertEqual(self.lib.writes(), 0)
+
+    def test_initial_lamp_mode_is_per_session_not_persisted_or_changed_by_poll(self):
+        session = '1'*32
+        envelope = dict(session=session, boot='0123456789abcdef')
+        code, result = self.request(dict(op='arm', initial_lamp_state='ON', **envelope))
+        self.assertEqual(code, 200)
+        self.assertEqual((result['initial_lamp_state'], result['phase']), ('ON', 'WAIT_TARGET'))
+        self.assertFalse(self.lib.diagnosticEnabled())
+        self.assertEqual(self.request(dict(op='arm', initial_lamp_state='ON', **envelope))[0], 200)
+        self.assertEqual(self.request(dict(op='arm', initial_lamp_state='OFF', **envelope))[0], 409)
+        self.assertEqual(self.request(dict(op='arm', **envelope))[0], 409)
+        self.assertEqual(self.status()['initial_lamp_state'], 'ON')
+        self.assertEqual(self.request(dict(op='poll', **envelope))[0], 200)
+        self.assertEqual(self.status()['initial_lamp_state'], 'ON')
+        self.assertEqual(self.request(dict(op='cancel', **envelope))[0], 200)
+        code, result = self.request(dict(op='arm', session='2'*32, boot='0123456789abcdef'))
+        self.assertEqual((code, result['initial_lamp_state'], result['phase']), (200, 'OFF', 'WAIT_ON'))
+        self.assertEqual(self.lib.writes(), 0)
+
+    def test_invalid_initial_lamp_mode_never_arms(self):
+        for mode in ('on', 'off', '', None, 0, True, [], {}):
+            with self.subTest(mode=mode):
+                code, result = self.request(dict(op='arm', session='1'*32, boot='0123456789abcdef',
+                                                initial_lamp_state=mode))
+                self.assertEqual((code, result), (400, {'error':'invalid_initial_lamp_state'}))
+                self.assertFalse(self.status()['armed'])
+                self.assertEqual(self.lib.writes(), 0)
+
+    def test_formal_on_mode_survives_model_hint_and_has_no_off_shortcut(self):
+        envelope = dict(session='1'*32, boot='0123456789abcdef')
+        self.assertEqual(self.request(dict(op='arm', initial_lamp_state='ON', **envelope))[0], 200)
+        for now in (0, 100, 200, 300):
+            self.lib.processManual(now, 100)
+        # Uniform/grey does not establish a physical ON classification, but
+        # an operator-declared ON reference still requires a later change.
+        self.assertTrue(self.status()['target_locked'])
+        for now in (400, 600, 800, 1000):
+            self.lib.processManual(now, 100)
+            self.assertFalse(self.status()['confirmed'])
+        self.assertEqual(self.status()['initial_lamp_state'], 'ON')
+
+    def test_http_modes_reach_real_detector_with_original_confirmation_guards(self):
+        for mode in ('OFF', 'ON'):
+            with self.subTest(mode=mode):
+                self.lib.reset(0, 0, 0, 0, 0)
+                code, result = self.request(dict(op='arm', session='1'*32, boot='0123456789abcdef',
+                                                initial_lamp_state=mode))
+                self.assertEqual(code, 200)
+                if mode == 'OFF':
+                    for now in (0, 100, 200, 300): self.lib.processLamp(now, 40)
+                    self.assertEqual(self.status()['phase'], 'WAIT_ON')
+                    self.assertFalse(self.status()['target_locked'])
+                start = 400 if mode == 'OFF' else 0
+                for now in (start, start+100, start+200, start+300): self.lib.processLamp(now, 190)
+                self.assertEqual(self.status()['phase'], 'WAIT_OFF')
+                self.assertTrue(self.status()['target_locked'])
+                for now in (start+400, start+600):
+                    self.lib.processLamp(now, 40)
+                    self.assertFalse(self.status()['confirmed'])
+                self.lib.processLamp(start+800, 40)
+                final = self.status()
+                self.assertTrue(final['confirmed'])
+                self.assertEqual((final['confirmation_frames'], final['confirmed_ms']), (3, 400))
+                self.assertEqual(final['initial_lamp_state'], mode)
+                self.assertEqual(self.lib.writes(), 0)
+
+    def test_on_mode_gap_or_cancel_never_reuses_old_bright_reference(self):
+        envelope = dict(session='1'*32, boot='0123456789abcdef')
+        self.assertEqual(self.request(dict(op='arm', initial_lamp_state='ON', **envelope))[0], 200)
+        for now in (0, 100, 200, 300): self.lib.processLamp(now, 190)
+        self.lib.processLamp(400, 40)
+        self.assertEqual(self.status()['confirmation_frames'], 1)
+        self.lib.processLamp(1300, 40)
+        self.assertFalse(self.status()['target_locked'])
+        self.assertEqual(self.status()['confirmation_frames'], 0)
+        for now in (1400, 1500, 1600, 1700, 1800):
+            self.lib.processLamp(now, 40)
+            self.assertFalse(self.status()['confirmed'])
+        self.assertEqual(self.request(dict(op='cancel', **envelope))[0], 200)
+        self.assertEqual(self.request(dict(op='arm', initial_lamp_state='ON',
+                                         session='2'*32, boot='0123456789abcdef'))[0], 200)
+        self.assertFalse(self.status()['target_locked'])
+        for now in (2000, 2100, 2200, 2300, 2500, 2700):
+            self.lib.processLamp(now, 40)
+            self.assertFalse(self.status()['confirmed'])
 
 
 if __name__ == '__main__':

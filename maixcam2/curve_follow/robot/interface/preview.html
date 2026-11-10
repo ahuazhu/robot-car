@@ -8,10 +8,10 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"PingFang SC",sans-serif;padding:24px 28px 164px}
 main{max-width:1360px;margin:auto}
-button,input{font:inherit}
+button,input,select{font:inherit}
 button{border:1px solid var(--line);border-radius:9px;background:#22324a;color:var(--text);padding:10px 16px;cursor:pointer;font-weight:600;min-height:44px;touch-action:manipulation}
 button:hover:not(:disabled){filter:brightness(1.13)}
-button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid #8bb4ff;outline-offset:3px}
+button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #8bb4ff;outline-offset:3px}
 button:disabled{opacity:.4;cursor:not-allowed}
 p{margin:8px 0}
 small,.muted{color:var(--muted)}
@@ -89,11 +89,12 @@ details[open] summary{border-bottom:1px solid var(--line)}
 .mission-inner>div:first-child{min-width:0;overflow-wrap:anywhere}
 .mission-state{font-size:18px;font-weight:650;margin:0}
 .mission-detail{font-size:12px;color:var(--muted);margin:3px 0 0}
-.run-setting{display:flex;align-items:center;gap:12px}
-.lap-setting{display:flex;align-items:center;gap:10px;font-size:13px;white-space:nowrap}
+.run-setting{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.lap-setting,.initial-lamp-setting{display:flex;flex-direction:column;align-items:flex-start;gap:4px;font-size:13px;white-space:nowrap}
 .lap-setting input{width:70px;min-height:50px;padding:8px 10px;background:#17263c;color:white;border:1px solid #4b607c;border-radius:9px;font-size:20px;font-weight:650}
 .lap-setting input[aria-invalid="true"]{border-color:#fa8c91}
-.lap-setting input:disabled{opacity:.55}
+.lap-setting input:disabled,.initial-lamp-setting select:disabled{opacity:.55}
+.initial-lamp-setting select{width:116px;min-height:50px;padding:8px 10px;background:#17263c;color:white;border:1px solid #4b607c;border-radius:9px;font-size:16px;font-weight:650}
 #start{background:var(--blue);border-color:var(--blue);height:56px;min-height:56px;min-width:170px}
 #stop{background:#df3344;border-color:#ee4a5a;height:56px;min-height:56px;min-width:180px;color:white;font-size:18px;font-weight:750}
 #notice{max-width:1360px;margin:6px auto 0;color:#ffd484;font-size:12px}
@@ -111,7 +112,7 @@ details[open] summary{border-bottom:1px solid var(--line)}
 .mission-bar{padding:12px 18px max(12px,env(safe-area-inset-bottom))}
 .mission-state{font-size:16px}
 }
-@media(max-width:620px){body{padding:14px 12px 220px}
+@media(max-width:620px){body{padding:14px 12px 260px}
 .page-header{align-items:flex-start;margin-bottom:16px}
 h1{font-size:21px}
 .brand{gap:8px;flex-wrap:wrap}
@@ -126,8 +127,9 @@ h1{font-size:21px}
 .support-grid{grid-template-columns:1fr;gap:10px;margin-top:12px}
 .mission-inner{gap:10px;grid-template-columns:minmax(0,1fr) 128px}
 .run-setting{gap:10px;flex-wrap:wrap}
-.lap-setting{font-size:12px}
-.lap-setting input{min-height:44px;width:58px;font-size:18px}
+.lap-setting,.initial-lamp-setting{font-size:12px}
+.lap-setting input{min-height:44px;width:54px;font-size:18px}
+.initial-lamp-setting select{min-height:44px;width:90px;padding:6px;font-size:13px}
 #start{height:48px;min-height:48px;min-width:144px;font-size:14px}
 #stop{min-width:0;width:128px;height:48px;min-height:48px;font-size:18px}
 .mission-detail{max-width:34em}
@@ -156,15 +158,16 @@ h1{font-size:21px}
 <p id="roi-status" class="roi-status">直接拖动黄线框住灯面，ARM 时一起保存。</p></section>
 </div>
 <div class="support-grid"><details id="diagnostics-panel"><summary>状态与诊断</summary><div class="details-body"><p id="status">正在连接…</p><p id="lap-status"></p><p id="start-light-status"></p><p id="crosswalk-status"></p><p id="diagnostics"></p></div></details>
-<details id="advanced-panel"><summary>调试与说明</summary><div class="details-body"><p>灯灭时摆好车、确认灯面，设置圈数后按“准备等灯”。裁判亮灯后再次熄灯，小车自动出发。</p><div class="debug-actions"><button id="direct-start" disabled onclick="control('start_now')">手动测试启动</button><button onclick="connectMaixPreview()">重连巡线画面</button></div><p>手动测试启动会跳过信号灯，请确认场地允许。</p><p class="legend"><b class="yellow">黄：左边界</b> · <b class="blue">蓝：右边界</b> · <b class="green">绿：中线</b> · <b class="orange">橙：预测</b> · 红十字：追踪点</p><p>横道停稳亮红灯满3.2秒后通行。计满圈数后继续巡线40cm再停车；道路与通信异常仍会触发保护。</p></div></details></div>
+<details id="advanced-panel"><summary>调试与说明</summary><div class="details-body"><p>选择准备时灯态，框好灯面并设置圈数后按“准备等灯”。OFF：等待亮灯后再熄灭；ON：仅在已确认当前灯亮时选择，建立基准后等待熄灭。识别到熄灯信号后自动出发。</p><div class="debug-actions"><button id="direct-start" disabled onclick="control('start_now')">手动测试启动</button><button onclick="connectMaixPreview()">重连巡线画面</button></div><p>手动测试启动会跳过信号灯，请确认场地允许。</p><p class="legend"><b class="yellow">黄：左边界</b> · <b class="blue">蓝：右边界</b> · <b class="green">绿：中线</b> · <b class="orange">橙：预测</b> · 红十字：追踪点</p><p>横道停稳亮红灯满3.2秒后通行。计满圈数后继续巡线40cm再停车；道路与通信异常仍会触发保护。</p></div></details></div>
 
 </main>
-<footer class="mission-bar" aria-label="比赛操作"><div class="mission-inner"><div><p id="mission-state" class="mission-state" role="status" aria-live="polite">正在连接小车</p><p id="mission-detail" class="mission-detail">连接后可设置圈数和准备等灯。</p></div><div class="run-setting"><label class="lap-setting" for="target-laps">目标圈数<input id="target-laps" type="number" min="1" max="100" step="1" value="2" inputmode="numeric" aria-describedby="laps-help" disabled></label><small id="laps-help" hidden>1–100圈，准备等灯后锁定</small><button id="start" disabled onclick="control('start')">ARM 准备等灯</button></div><div class="stop-wrap"><button id="stop" onclick="control('stop')">STOP 停车</button></div></div><p id="notice" role="status" aria-live="polite"></p></footer>
+<footer class="mission-bar" aria-label="比赛操作"><div class="mission-inner"><div><p id="mission-state" class="mission-state" role="status" aria-live="polite">正在连接小车</p><p id="mission-detail" class="mission-detail">连接后可设置圈数和准备等灯。</p></div><div class="run-setting"><label class="lap-setting" for="target-laps">目标圈数<input id="target-laps" type="number" min="1" max="100" step="1" value="2" inputmode="numeric" aria-describedby="laps-help" disabled></label><small id="laps-help" hidden>1–100圈，准备等灯后锁定</small><label class="initial-lamp-setting" for="initial-lamp-state">准备时灯态<select id="initial-lamp-state" aria-describedby="initial-lamp-help" disabled><option value="OFF" selected>OFF · 灭</option><option value="ON">ON · 已亮</option></select></label><small id="initial-lamp-help" hidden>OFF：等待亮灯后熄灭；ON：仅在确认当前灯已亮时选择，建立基准后熄灭。ARM 后锁定，STOP 后可修改。</small><button id="start" disabled onclick="control('start')">ARM 准备等灯</button></div><div class="stop-wrap"><button id="stop" onclick="control('stop')">STOP 停车</button></div></div><p id="notice" role="status" aria-live="polite"></p></footer>
 <script>
 
 const token="__CONTROL_TOKEN__";
 let generation=0,canStart=false,canDirect=false,busy=false,statusBusy=false;
 let lapsInitialized=false,serverActive=false,serverArmed=false,lastServerLocked=false,statusExpiresAt=0,controlRevision=0;
+let initialLampState="OFF",lockedInitialLampState=null,initialLampGeneration=null;
 let lampConfiguration=null,roiDraft=[100,40,100,80],roiDirty=false,roiDrag=null;
 let roiRemotePending=false,preparationPending=false,preparationError='',roiSubmitted=null,lastPreparation={};
 let lockedROI=null,lockedGeneration=null,roiScanBusy=false,roiScanRequest=null,roiScanError='';
@@ -181,6 +184,22 @@ function canEditLamp(){return lampFrameReady()&&!lockedROI&&!serverActive&&!serv
 function canPrepareLamp(){
  if(!lampConfiguration)return espLamp.enabled===false;
  return lampFrameReady()&&validLampBox(lockedROI||roiDraft)&&!roiScanBusy&&!!(lockedROI||roiDirty||lampConfiguration.manual||candidateLampBox(espLamp));
+}
+function validInitialLampState(value){return value==='OFF'||value==='ON';}
+function releaseInitialLampState(){
+ if(lockedInitialLampState!==null)initialLampState=lockedInitialLampState;
+ lockedInitialLampState=null;initialLampGeneration=null;
+}
+function syncInitialLampState(s,fresh){
+ if(!fresh)return;
+ if(lockedInitialLampState!==null&&generation!==initialLampGeneration&&!serverActive&&!serverArmed)releaseInitialLampState();
+ const preparation=s.preparation||{},pending=!!preparation.pending||preparation.phase==='ARM_QUEUED';
+ const captured=preparation.generation===generation&&['SAVING','ARM_QUEUED','ARMED','ERROR'].includes(preparation.phase);
+ const accepted=pending?preparation.initial_lamp_state:(serverArmed||serverActive)?s.readiness?.start_light?.initial_lamp_state:captured?preparation.initial_lamp_state:null;
+ if(validInitialLampState(accepted)){
+  initialLampState=lockedInitialLampState=accepted;
+  initialLampGeneration=pending&&Number.isInteger(preparation.generation)?preparation.generation:generation;
+ }
 }
 function releaseROI(preserveDraft){
  if(lockedROI)roiDraft=lockedROI.slice();
@@ -285,7 +304,7 @@ function renderLampSignalState(lamp=espLamp){
  else if(lamp.phase==='RUNNING'){state='MANUAL';label='未等灯';detail='本轮未由信号灯授予出发许可';tone='warn';}
  else if(lamp.phase==='TARGET_UNCERTAIN'){state='UNKNOWN';label='待确认';detail='光照或画面不稳定，尚未确认灯态';tone='warn';}
  else if(['SIGNAL_READY','PERMITTED'].includes(lamp.phase)){state='UNKNOWN';label='待确认';detail='尚未收到有效出发许可';tone='warn';}
- else if(lamp.armed&&lamp.phase==='WAIT_OFF'){state='ON';label='灯 ON';detail='亮灯已确认，等待熄灯';tone='warn';}
+ else if(lamp.armed&&lamp.phase==='WAIT_OFF'){state='ON';label='灯 ON';detail=(lamp.initial_lamp_state||lockedInitialLampState||initialLampState)==='ON'?'已记录稳定基准，等待熄灯；请确保准备时灯已亮':'亮灯已确认，等待熄灯';tone='warn';}
  else if(lamp.armed&&lamp.phase==='CONFIRM_OFF'){state='OFF';label='灯 OFF · 确认中';detail='正在确认熄灯，尚未授予出发许可';}
  else if(lamp.armed&&['WAIT_TARGET','LOCK_TARGET'].includes(lamp.phase)){detail='正在确认灯面和亮灯稳定性';}
  else if(lockedROI||preparationPending||((lamp.armed||lamp.phase==='ARMING')&&lamp.lamp_configuration?.manual===true)){
@@ -304,7 +323,7 @@ function updateFieldSummary(s,fresh){
  road.textContent=!fresh?'道路状态未知':roadBlocked?'道路待确认':'道路就绪';road.dataset.tone=!fresh?'':roadBlocked?'warn':'good';
  motor.textContent=!fresh?'电机状态未知':motorBlocked?'电机待检查':'电机就绪';motor.dataset.tone=!fresh?'':motorBlocked?'warn':'good';
  const stopFailures={'CROSSWALK STOP UNVERIFIED':'横道停位未确认','CROSSWALK POSITION UNCERTAIN':'横道距离不确定','CROSSWALK STOP WINDOW MISSED':'横道停车窗口已错过','UNO NOT CONNECTED':'电机通信异常','CONTROL STALE':'控制更新超时','MOTOR LINK STOP':'电机连接保护停车','CROSSWALK SETUP REQUIRED':'横道停车设置未就绪','CALIBRATION REQUIRED':'需要重新标定','PREVIEW ONLY':'当前为仅预览模式','ESP32 NOT READY':'发车灯尚未就绪','ESP32 PERMISSION REQUIRED':'尚未取得发车许可'};
- let title='待准备',detail='灯灭时摆好车，确认灯面后准备等灯。';
+ let title='待准备',detail=(lockedInitialLampState||initialLampState)==='ON'?'灯亮时摆好车，确认灯面后准备等灯。':'灯灭时摆好车，确认灯面后准备等灯。';
  if(!fresh){title='状态更新中断';detail='请检查小车与电脑的网络连接。';}
  else if(!s.active&&stopFailures[s.reason]){title='已停车 · '+stopFailures[s.reason];detail='请检查小车位置与状态，确认后重新准备。';}
  else if(s.reason==='LAPS COMPLETE'){title='已完赛 · 停车';detail=`完成 ${laps.completed_laps??laps.total_laps??0} / ${laps.total_laps??2} 圈`;}
@@ -316,7 +335,7 @@ function updateFieldSummary(s,fresh){
   if(laps.enabled)detail=`圈数 ${laps.completed_laps??0} / ${laps.total_laps??2}`+(s.reason==='FINISH DISTANCE'?` · 还需约 ${Math.ceil((laps.finish_remaining_m??0)*100)}cm`:'');
   if(['HOLD','RECOVERY_HOLD'].includes(c.phase))detail=`停稳亮红灯 ${Number(c.hold_elapsed_s||0).toFixed(1)} / ${Number(c.required_hold_s||3.2).toFixed(1)} 秒`+(c.phase==='RECOVERY_HOLD'?' · 停位未核实':'');
  }
- else if(lamp.armed){title=lamp.permission?'已收到发车信号':lamp.phase==='WAIT_ON'?'已准备 · 等待亮灯':['WAIT_OFF','CONFIRM_OFF'].includes(lamp.phase)?'已见亮灯 · 等待熄灯':'正在准备等灯';detail=lamp.permission?'等待道路和电机就绪后自动出发。':'准备后请保持车子和相机固定。';}
+ else if(lamp.armed){title=lamp.permission?'已收到发车信号':lamp.phase==='WAIT_ON'?'已准备 · 等待亮灯':['WAIT_OFF','CONFIRM_OFF'].includes(lamp.phase)?((lamp.initial_lamp_state||lockedInitialLampState||initialLampState)==='ON'?'基准稳定 · 等待熄灯':'已见亮灯 · 等待熄灯'):'正在准备等灯';detail=lamp.permission?'等待道路和电机就绪后自动出发。':'准备后请保持车子和相机固定。';}
  else if(lamp.phase==='FAULT'){title='等灯已取消';detail='查看灯面与连接状态，重新准备等灯。';}
  else if(motorBlocked){title='电机待检查';detail='检查 UNO 供电与串口连接，详情见状态与诊断。';}
  else if(preparationPending){title='正在准备等灯';detail='先保存灯面，确认生效后进入等灯状态。';}
@@ -330,11 +349,19 @@ function updateFieldSummary(s,fresh){
 
 const directButton=document.getElementById('direct-start'),startButton=document.getElementById('start'),statusBox=document.getElementById('status'),notice=document.getElementById('notice');
 const lapsInput=document.getElementById('target-laps'),lapsError='请输入1–100之间的整数圈数。';
+const initialLampInput=document.getElementById('initial-lamp-state');
+initialLampInput.value=initialLampState;
+initialLampInput.addEventListener('change',()=>{
+ if(!initialLampInput.disabled&&validInitialLampState(initialLampInput.value))initialLampState=initialLampInput.value;
+ initialLampInput.value=lockedInitialLampState||initialLampState;
+});
 function syncControls(){
  const fresh=Date.now()<statusExpiresAt;
  directButton.disabled=!fresh||!canDirect||busy||roiDirty||!!lockedROI||roiScanBusy||preparationPending||roiRemotePending;
  startButton.disabled=!fresh||!canStart||busy||preparationPending||roiRemotePending||!canPrepareLamp();
  lapsInput.disabled=!fresh||busy||serverActive||serverArmed||preparationPending||roiScanBusy;
+ initialLampInput.disabled=!fresh||busy||serverActive||serverArmed||preparationPending||roiScanBusy||roiRemotePending||lockedInitialLampState!==null;
+ initialLampInput.value=lockedInitialLampState||initialLampState;
  syncROIControls();renderLampSignalState();
  if(!fresh){
   document.getElementById('connection-state').textContent='连接待确认';document.getElementById('connection-state').dataset.tone='bad';
@@ -368,6 +395,7 @@ async function updateStatus(){
   if(fresh&&lockedROI&&generation!==lockedGeneration&&!serverActive&&!serverArmed)releaseROI(s.reason!=='LAPS COMPLETE');
   lastPreparation=s.preparation||{};
   preparationPending=!!s.preparation?.pending||s.preparation?.phase==='ARM_QUEUED';
+  syncInitialLampState(s,fresh);
   const prepErrors={stopped:'',state_changed:'车辆状态已变化，请重新准备',preparation_expired:'保存或准备超时，请检查连接后重新 ARM',status_stale:'控制状态已过期，请检查小车连接',start_in_progress:'上一轮准备尚未完成',stop_first:'请先停车并取消等灯',configuration_result_changed:'保存回执已变化，请重新准备',configuration_failed:'灯面保存失败，请重试',configuration_mismatch:'灯面设置未能核实，请重试',signal_not_ready:'发车灯尚未就绪，请检查连接后重新 ARM',arm_not_accepted:'本轮等灯未就绪，请重新 ARM',not_ready:'等待 ESP32 连接稳定',configuration_offline:'ESP32 暂不可达，请检查连接',configuration_response_invalid:'灯面保存回执无效',storage_failed:'ESP32 保存失败，请重试',boot_changed:'ESP32 已重启，请重新准备',native_armed_stop_first:'请先停车并取消等灯'};
   const prepError=s.preparation?.phase==='CANCELLED'?'':s.preparation?.error;
   preparationError=prepError?(prepErrors[prepError]||prepError):'';
@@ -400,7 +428,7 @@ async function updateStatus(){
    if(fresh&&maixNeedsReconnect)connectMaixPreview();
    if(fresh)syncESP(lamp);else markESPUnknown('Maix 状态已过期');
    startButton.textContent=preparationPending?'正在保存并准备…':lamp.armed?'已准备 · 等待信号':lamp.enabled?'ARM 准备等灯':'START 开始';
-   const lampPhases={ARMING:'正在准备等灯',FAULT:'本轮等灯已取消，请重新 ARM',WAIT_CONNECTION:'等待 ESP32 恢复，尚无出发许可',PERMITTED:'出发许可已锁存',WAIT_ON:'已准备，等待裁判亮灯',WAIT_TARGET:'等待灯面定位',LOCK_TARGET:'正在确认灯面稳定',WAIT_OFF:'灯面已锁定，等待熄灯',CONFIRM_OFF:'正在确认熄灯',TARGET_UNCERTAIN:'光照或画面不稳定，请检查灯面',SIGNAL_READY:'出发许可已锁存，等待道路和电机就绪',RUNNING:'本次已启动',DISARMED:'灯灭时框好灯面并按 ARM'};
+   const lampPhases={ARMING:'正在准备等灯',FAULT:'本轮等灯已取消，请重新 ARM',WAIT_CONNECTION:'等待 ESP32 恢复，尚无出发许可',PERMITTED:'出发许可已锁存',WAIT_ON:'已准备，等待裁判亮灯',WAIT_TARGET:'等待灯面定位',LOCK_TARGET:'正在确认灯面稳定',WAIT_OFF:'灯面已锁定，等待熄灯',CONFIRM_OFF:'正在确认熄灯',TARGET_UNCERTAIN:'光照或画面不稳定，请检查灯面',SIGNAL_READY:'出发许可已锁存，等待道路和电机就绪',RUNNING:'本次已启动',DISARMED:'选择准备时灯态，框好灯面后按 ARM'};
    const signalErrors={ESP32_WAITING_FOR_RECOVERY:'等待 ESP32 恢复，尚无出发许可',ESP32_OFFLINE:'ESP32 暂不可达',ESP32_OFFLINE_REARM_REQUIRED:'本轮等灯因通信异常取消，请重新 ARM',ESP32_STALE_REARM_REQUIRED:'发车状态过期，请重新 ARM',PAIRING_REQUIRED:'ESP32 尚未配对',CONNECTING:'正在连接 ESP32'};
    const faultReasons={STATUS_STALE:'状态超时',RESPONSE_TOO_SLOW:'响应超时',CAMERA_FRAME_STALE:'相机帧过期',INVALID_SIGNAL_RESPONSE:'发车数据校验失败',DEVICE_REBOOTED:'ESP32 已重启',SESSION_CHANGED:'发车会话已变化',FRAME_SEQUENCE_REGRESSED:'相机帧序号回退',TimeoutError:'请求超时',URLError:'网络请求失败',OSError:'网络请求失败',HTTPError:'发车请求被拒绝'};
    let lampText=signalErrors[lamp.error]||lamp.error||lampPhases[lamp.phase]||lamp.phase;
@@ -408,7 +436,7 @@ async function updateStatus(){
    if(lamp.permission)lampText=s.active?'出发许可已锁存，ESP32后续状态不影响本轮行驶':lamp.armed?'出发许可已锁存，等待道路和电机就绪':'出发许可已锁存';
    const lampRequired=Math.max(3,Number(lamp.required_frames)||3);
    document.getElementById('start-light-status').textContent=lamp.enabled?`ESP32 发车信号：${lampText} · 熄灯确认 ${Math.min(lamp.confirmation_frames||0,lampRequired)}/${lampRequired}帧`:'';
-   if(fresh&&s.reason==='WAIT START LIGHT')statusBox.textContent=lamp.permission?'出发许可已锁存，等待道路和电机就绪 · L=0 R=0':'等待亮灯后再次熄灯 · L=0 R=0';
+   if(fresh&&s.reason==='WAIT START LIGHT')statusBox.textContent=lamp.permission?'出发许可已锁存，等待道路和电机就绪 · L=0 R=0':((lamp.initial_lamp_state||lockedInitialLampState||initialLampState)==='ON'?'等待当前亮灯稳定并熄灯 · L=0 R=0':'等待亮灯后再次熄灯 · L=0 R=0');
    const crossing=d.crosswalk;
    if(crossing){
     const phases={SEARCH:'搜索横道',APPROACH:'接近横道',STOPPING:'确认停稳',HOLD:'停车礼让',RECOVERY_HOLD:'停车礼让（位置未核实）',PASSING:'通过横道',FAULT:'任务故障'};
@@ -448,15 +476,19 @@ async function control(action){
   }
   payload.laps=laps;
   if(action==='start'){
+   const initialMode=lockedInitialLampState||initialLampState;
+   if(!validInitialLampState(initialMode))return;
    const configuration=selectedLampConfiguration();
    if(configuration){
     if(configuration.manual&&!validLampBox(configuration.roi))return;
     lockedROI=configuration.roi.slice();lockedGeneration=generation;
     payload.lamp_configuration=configuration;roiSubmitted={configuration,generation};
    }
+   payload.initial_lamp_state=initialMode;
+   lockedInitialLampState=initialMode;initialLampGeneration=generation;
   }
   busy=true;roiDrag=null;
- }else if(action==='stop'){releaseROI(true);busy=false;roiSubmitted=null;roiDrag=null;roiScanBusy=false;roiScanRequest=null;}
+ }else if(action==='stop'){releaseInitialLampState();releaseROI(true);busy=false;roiSubmitted=null;roiDrag=null;roiScanBusy=false;roiScanRequest=null;}
  // STOP or a later operation invalidates old polls and late control responses.
  const revision=++controlRevision;statusExpiresAt=0;syncControls();
  notice.textContent=action==='stop'?'正在发送停车请求…':payload.lamp_configuration?'正在保存灯面并准备等灯…':'正在发送启动请求…';

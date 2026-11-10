@@ -26,11 +26,13 @@ class StartLight:
     def __init__(self, config):
         self.enabled = config["enabled"]
         self.armed = self.fired = False
+        self.initial_lamp_state = "OFF"
         self.reference = None
         self.baseline_observations = 0
 
-    def arm(self):
+    def arm(self, initial_lamp_state="OFF"):
         if not self.armed:
+            self.initial_lamp_state = initial_lamp_state
             self.armed = True
             self.reference = object()
             self.baseline_observations = 1
