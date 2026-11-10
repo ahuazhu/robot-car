@@ -82,7 +82,7 @@ class Detector {
   bool manualValid=false;Region manualBox;float referenceGray=0,referenceValue=0,referenceSaturation=0;
   bool modelRequired=false,hintValid=false;int hintX=0,hintY=0,hintRight=0,hintBottom=0;
   uint32_t last=0,lockSince=0,offSince=0;bool haveLast=false;
-  float minContrast=0,maxContrast=0,meanContrast=0;
+  float minContrast=0,maxContrast=0,meanContrast=0,acquisitionM2=0;
   uint16_t exposureHistogram[16][256];
   bool contextValid=false;Region contextBox;
   struct Exposure {
@@ -239,16 +239,31 @@ class Detector {
     if(count){gray/=count;value/=count;saturation/=count;}
   }
   void colourBaseline(){colourEvidence(referenceGray,referenceValue,referenceSaturation);grayDrop=valueDrop=saturationChange=0;}
+  void beginAcquisition(float level,uint32_t now){
+    targetHits=1;lockSince=now;minContrast=maxContrast=meanContrast=level;acquisitionM2=0;noise=0;
+  }
+  void addAcquisition(float level){
+    ++targetHits;minContrast=fminf(minContrast,level);maxContrast=fmaxf(maxContrast,level);
+    float delta=level-meanContrast;meanContrast+=delta/targetHits;acquisitionM2+=delta*(level-meanContrast);
+  }
+  bool acquisitionStable(float lastLevel){
+    // Keep the existing peak-to-peak acquisition gate. The 3-sigma OFF
+    // threshold needs a standard deviation, not that entire brightness range.
+    noise=sqrtf(fmaxf(0.f,acquisitionM2/targetHits));
+    // The stored reference is the final frame. A brief bright flash there
+    // must not turn its return to normal ON brightness into an OFF event.
+    return maxContrast-minContrast<=maximum(8,int(meanContrast*.25f))&&
+      fabsf(lastLevel-meanContrast)<=fmaxf(8.f,noise*3.f);
+  }
   void acquireManual(uint32_t now){
     target=manualBox;memset(lamp,0,N);maskPixels=0;
     for(int y=target.y+1;y<target.y+target.h-1;++y)for(int x=target.x+1;x<target.x+target.w-1;++x){lamp[y*W+x]=1;++maskPixels;}
     context(target);float level=mean(current,lamp);
     if(!maskPixels||level<24){targetHits=0;phase=SEARCH;rejectionReason="MANUAL_WAIT_BRIGHT_BASELINE";return;}
-    if(!targetHits){targetHits=1;lockSince=now;minContrast=maxContrast=meanContrast=level;phase=ACQUIRE;rejectionReason="ACQUIRING_MANUAL_BASELINE";return;}
-    ++targetHits;minContrast=fminf(minContrast,level);maxContrast=fmaxf(maxContrast,level);meanContrast+=(level-meanContrast)/targetHits;
+    if(!targetHits){beginAcquisition(level,now);phase=ACQUIRE;rejectionReason="ACQUIRING_MANUAL_BASELINE";return;}
+    addAcquisition(level);
     if(targetHits<LOCK_FRAMES||uint32_t(now-lockSince)<LOCK_MS){phase=ACQUIRE;rejectionReason="ACQUIRING_MANUAL_BASELINE";return;}
-    noise=maxContrast-minContrast;
-    if(noise>maximum(8,int(meanContrast*.25f))){targetHits=0;phase=UNCERTAIN;rejectionReason="UNSTABLE_BRIGHT_BASELINE";return;}
+    if(!acquisitionStable(level)){targetHits=0;phase=UNCERTAIN;rejectionReason="UNSTABLE_BRIGHT_BASELINE";return;}
     memcpy(reference,current,N);baselineContrast=mean(current,lamp)-mean(current,ring);contrast=baselineContrast;colourBaseline();baseline=true;hits=elapsed=0;phase=ON;rejectionReason="WAIT_OFF";
   }
   void acquire(uint32_t now){
@@ -256,11 +271,10 @@ class Detector {
     Region found=locate();
     if(!found.count){target=Region();maskPixels=0;targetHits=0;phase=SEARCH;rejectionReason="NO_LAMP_CANDIDATE";return;}
     float c=found.strength;
-    if(!targetHits||overlap(target,found)<.65f){target=found;targetHits=1;lockSince=now;minContrast=maxContrast=meanContrast=c;phase=ACQUIRE;rejectionReason="ACQUIRING_LAMP";return;}
-    ++targetHits;minContrast=fminf(minContrast,c);maxContrast=fmaxf(maxContrast,c);meanContrast+=(c-meanContrast)/targetHits;
+    if(!targetHits||overlap(target,found)<.65f){target=found;beginAcquisition(c,now);phase=ACQUIRE;rejectionReason="ACQUIRING_LAMP";return;}
+    addAcquisition(c);
     if(targetHits<LOCK_FRAMES||uint32_t(now-lockSince)<LOCK_MS){phase=ACQUIRE;rejectionReason="ACQUIRING_LAMP";return;}
-    noise=maxContrast-minContrast;
-    if(noise>maximum(8,int(meanContrast*.25f))){targetHits=0;phase=UNCERTAIN;rejectionReason="UNSTABLE_BRIGHT_BASELINE";return;}
+    if(!acquisitionStable(c)){targetHits=0;phase=UNCERTAIN;rejectionReason="UNSTABLE_BRIGHT_BASELINE";return;}
     target=found;masks(target);memcpy(reference,current,N);baselineContrast=mean(current,lamp)-mean(current,ring);
     contrast=baselineContrast;colourBaseline();baseline=true;hits=elapsed=0;phase=ON;rejectionReason="WAIT_OFF";
   }
