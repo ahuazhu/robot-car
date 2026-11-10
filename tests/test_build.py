@@ -4,6 +4,7 @@ import ast
 import io
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -97,10 +98,64 @@ class BuildTests(unittest.TestCase):
             (root.parent / "app.info").write_text(
                 "[robot_curve_follow]\nexec=main.py\n[robot_lane_follow]\nexec=main.py\n"
             )
+            (root.parent / "gen_app_info.py").write_text(
+                "high_priority_apps = ['app_store', 'settings']\n"
+            )
             with patch.object(installer.subprocess, "run") as run:
                 installer.register_app(root)
             run.assert_called_once()
             self.assertIn("[robot_lane_follow]", (root.parent / "app.info").read_text())
+
+    def test_priority_survives_independent_sdk_regeneration_and_repeat_install(self):
+        # Model the SDK contract: system priorities, then app ID order; display
+        # names never decide the position. Rebuild outside our installer too.
+        with tempfile.TemporaryDirectory() as folder:
+            apps = Path(folder)
+            for name in (installer.APP_ID, "app_store", "settings", "benchmark", "robot_lane_follow"):
+                (apps / name).mkdir()
+            generator = apps / "gen_app_info.py"
+            generator.write_text('''import configparser
+from pathlib import Path
+import sys
+high_priority_apps = ['app_store', 'settings']
+root = Path(sys.argv[1])
+ids = sorted(p.name for p in root.iterdir() if p.is_dir())
+registry = configparser.ConfigParser()
+registry['basic'] = {'version': '1'}
+for app_id in high_priority_apps + [item for item in ids if item not in high_priority_apps]:
+    if app_id in ids:
+        registry[app_id] = {'name': 'AAA' if app_id == 'robot_curve_follow' else app_id, 'exec': 'main.py'}
+with (root/'app.info').open('w') as output:
+    registry.write(output)
+''')
+            original = generator.read_bytes()
+            run = installer.subprocess.run
+            def run_on_host(command, **kwargs):
+                return run([sys.executable, *command[1:]], **kwargs)
+            with patch.object(installer.subprocess, "run", side_effect=run_on_host):
+                installer.register_app(apps / installer.APP_ID)
+            pinned = generator.read_bytes()
+            self.assertNotEqual(pinned, original)
+            run([sys.executable, str(generator), str(apps)], check=True)
+            registered = installer.configparser.ConfigParser()
+            registered.read(apps / "app.info")
+            self.assertEqual(registered.sections(), ["basic", installer.APP_ID, "app_store",
+                                                     "settings", "benchmark", "robot_lane_follow"])
+            self.assertEqual(registered["robot_lane_follow"]["exec"], "main.py")
+            with patch.object(installer.subprocess, "run", side_effect=run_on_host):
+                installer.register_app(apps / installer.APP_ID)
+            self.assertEqual(generator.read_bytes(), pinned)
+            self.assertEqual(len(list(apps.glob("gen_app_info.py.before-robot-first-*.bak"))), 1)
+
+    def test_unknown_launcher_generator_is_not_rewritten(self):
+        with tempfile.TemporaryDirectory() as folder:
+            generator = Path(folder) / "gen_app_info.py"
+            original = b"priorities = ['app_store', 'settings']\n"
+            generator.write_bytes(original)
+            with self.assertRaisesRegex(RuntimeError, "Unsupported launcher"):
+                installer.prioritize_launcher_app(generator)
+            self.assertEqual(generator.read_bytes(), original)
+            self.assertEqual(list(Path(folder).iterdir()), [generator])
 
     def test_failure_restores_previous_package_registry_and_retains_backup(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -111,11 +166,15 @@ class BuildTests(unittest.TestCase):
             (root / "keep.txt").write_text("unmanaged")
             registry = root.parent / "app.info"
             registry.write_text("old registry")
+            generator = root.parent / "gen_app_info.py"
+            original_generator = b"high_priority_apps = ['app_store', 'settings']\n"
+            generator.write_bytes(original_generator)
 
             def compile_fake(staging):
                 (staging / "curve_fit_kernel.so").write_bytes(b"test kernel")
 
             def register_fake(app_root):
+                installer.prioritize_launcher_app(generator)
                 registry.write_text("new registry")
 
             with (
@@ -133,6 +192,7 @@ class BuildTests(unittest.TestCase):
             self.assertFalse((root / "robot" / "application.py").exists())
             self.assertFalse((root / "curve_fit_kernel.so").exists())
             self.assertEqual(registry.read_text(), "old registry")
+            self.assertEqual(generator.read_bytes(), original_generator)
             self.assertEqual((root / "keep.txt").read_text(), "unmanaged")
             backups = list((root / "backups").iterdir())
             self.assertEqual(len(backups), 1)

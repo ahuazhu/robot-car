@@ -5,6 +5,7 @@ application first. Only this application's managed files are replaced. A failed
 registration or startup restores the saved files and leaves the car stopped.
 """
 
+import ast
 import configparser
 import ctypes
 import hashlib
@@ -175,7 +176,49 @@ class AppFiles:
                 restore_path(self.backup / change["name"], target)
 
 
+def prioritize_launcher_app(generator):
+    """Pin the stable app ID in the SDK generator, including later rebuilds."""
+    generator = Path(generator)
+    original = generator.read_bytes()
+    tree = ast.parse(original, filename=str(generator))
+    matches = [node.value for node in tree.body if isinstance(node, ast.Assign)
+               and any(isinstance(target, ast.Name) and target.id == "high_priority_apps"
+                       for target in node.targets)]
+    if len(matches) != 1:
+        raise RuntimeError("Unsupported launcher priority configuration")
+    node = matches[0]
+    priorities = ast.literal_eval(node)
+    if not isinstance(priorities, list) or any(type(value) is not str for value in priorities):
+        raise RuntimeError("Launcher priorities must be a literal app ID list")
+    desired = [APP_ID] + [value for value in priorities if value != APP_ID]
+    if priorities == desired:
+        return False
+    lines = original.splitlines(keepends=True)
+    start = sum(map(len, lines[:node.lineno - 1])) + node.col_offset
+    end = sum(map(len, lines[:node.end_lineno - 1])) + node.end_col_offset
+    literal = "[\n" + "".join("    " + repr(value) + ",\n" for value in desired) + "]"
+    updated = original[:start] + literal.encode("utf-8") + original[end:]
+    compile(updated, str(generator), "exec")
+    backup = generator.with_name(generator.name + ".before-robot-first-" +
+                                 hashlib.sha256(original).hexdigest()[:12] + ".bak")
+    if not backup.exists():
+        backup.write_bytes(original)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=generator.parent, prefix=".launcher-priority-",
+                                         delete=False) as output:
+            temporary = Path(output.name)
+            output.write(updated)
+        temporary.chmod(stat.S_IMODE(generator.stat().st_mode))
+        temporary.replace(generator)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    return True
+
+
 def register_app(root):
+    prioritize_launcher_app(root.parent / "gen_app_info.py")
     subprocess.run(
         ["/usr/bin/python3", str(root.parent / "gen_app_info.py"), str(root.parent)], check=True
     )
@@ -183,6 +226,9 @@ def register_app(root):
     registered.read(root.parent / "app.info")
     if registered.get(APP_ID, "exec", fallback=None) != "main.py":
         raise RuntimeError("Launcher does not select the current application entry")
+    apps = [section for section in registered.sections() if section != "basic"]
+    if not apps or apps[0] != APP_ID:
+        raise RuntimeError("Launcher does not place the robot application first")
     print("LAUNCHER_REGISTERED", APP_ID, flush=True)
 
 
@@ -296,6 +342,8 @@ def install_app(payload, *, force_preview=True, root=APP_ROOT):
     )
     registry = root.parent / "app.info"
     previous_registry = registry.read_bytes() if registry.exists() else None
+    generator = root.parent / "gen_app_info.py"
+    previous_generator = generator.read_bytes() if generator.exists() else None
     with tempfile.TemporaryDirectory(prefix=".install-", dir=str(root)) as work:
         staging = Path(work)
         unpack_bundle(payload, staging)
@@ -304,6 +352,8 @@ def install_app(payload, *, force_preview=True, root=APP_ROOT):
         backup.mkdir(parents=True)
         if previous_registry is not None:
             (backup / "app.info").write_bytes(previous_registry)
+        if previous_generator is not None:
+            (backup / "gen_app_info.py").write_bytes(previous_generator)
         files = AppFiles(root, backup)
         registry_touched = False
         try:
@@ -318,6 +368,8 @@ def install_app(payload, *, force_preview=True, root=APP_ROOT):
                     registry.unlink(missing_ok=True)
                 else:
                     registry.write_bytes(previous_registry)
+                if previous_generator is not None:
+                    generator.write_bytes(previous_generator)
             print("INSTALL_FAILED_RESTORED", str(backup), flush=True)
             raise
     print(
