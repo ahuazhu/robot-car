@@ -772,6 +772,13 @@ async function main(){
   assert.match(e.elements.diagnostics.textContent,/UNO急停尚未解除/);
  }
  {
+  const e=setup();await flush();e.fetcher=async()=>{const s=e.defaultData();s.active=true;s.readiness.crosswalk={mode:'yield',phase:'RECOVERY_HOLD',distance_to_body_m:.38,hold_elapsed_s:5,yield_completed:false,yield_verified:false};return s};await e.context.updateStatus();
+  assert.equal(e.elements['mission-state'].textContent,'横道停位待核实');
+  assert.match(e.elements['mission-detail'].textContent,/不能算完成礼让/);
+  assert.match(e.elements['crosswalk-status'].textContent,/尚未完成礼让/);
+  assert.doesNotMatch(e.elements['mission-detail'].textContent,/3\.2/);
+ }
+ {
   const e=setup();await flush();e.fetcher=async()=>{const s=e.defaultData();s.readiness.crosswalk={mode:'yield',phase:'PASSING',distance_to_body_m:.24,hold_elapsed_s:3.2,yield_completed:true,yield_verified:false};return s};await e.context.updateStatus();
   assert.match(e.elements['crosswalk-status'].textContent,/异常通行：停位未验证/);
   assert.doesNotMatch(e.elements['crosswalk-status'].textContent,/礼让已完成|合法停位与停留已验证/);

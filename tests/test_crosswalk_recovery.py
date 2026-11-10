@@ -19,14 +19,14 @@ class CrosswalkRecoveryTests(unittest.TestCase):
         self.assertIsNone(s["failure"])
         self.assertIsNone(t.limit_command(None, s, motion()))
 
-    def test_missed_window_is_recorded_but_only_real_dwell_can_complete_recovery(self):
+    def test_missed_window_never_turns_elapsed_rest_into_permission_to_pass(self):
         t = CrosswalkTask(configured())
         for now in np.arange(0, 5.2, 0.1):
             s = t.update(
                 observation(float(now), near=0.125), motion(), float(now), True, True, True, True
             )
-        self.assertEqual(s["phase"], "PASSING")
-        self.assertTrue(s["yield_completed"])
+        self.assertEqual(s["phase"], "RECOVERY_HOLD")
+        self.assertFalse(s["yield_completed"])
         self.assertFalse(s["yield_verified"])
         self.assertIn("CROSSWALK STOP WINDOW MISSED", s["issues"])
         self.assertIsNone(s["failure"])

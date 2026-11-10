@@ -126,7 +126,7 @@ class CrosswalkRuleTests(unittest.TestCase):
             task.update(observation(now, 0.6), motion(), now, True, False, False, True)
         for now in (0.4, 0.6, 0.8):
             s = task.update(None, motion(valid=False), now, True)
-        self.assertEqual(s["phase"], "STOPPING")
+        self.assertEqual(s["phase"], "APPROACH")
         self.assertIsNone(s["failure"])
         self.assertFalse(s["stop_verified"])
         self.assertIn("CROSSWALK POSITION UNCERTAIN", s["issues"])
@@ -192,9 +192,9 @@ class CrosswalkRuleTests(unittest.TestCase):
             task.update(observation(now, 0.5), motion(0.24), now, True)
         self.assertEqual(task.phase, "STOPPING")
         state = task.update(observation(0.4, 0.5), motion(), 0.4, True, True, True, True)
-        self.assertEqual(state["phase"], "STOPPING")
-        self.assertEqual(state["position_outcome"], "TOO_FAR")
-        self.assertEqual(task.limit_command((60, 60), state, motion()), (0, 0))
+        self.assertEqual(state["phase"], "APPROACH")
+        self.assertFalse(state["yield_completed"])
+        self.assertNotEqual(task.limit_command((60, 60), state, motion()), (0, 0))
         self.assertEqual(state["hold_elapsed_s"], 0)
 
     def test_prestart_observation_expires_but_latched_fault_does_not(self):
@@ -265,6 +265,7 @@ class CrosswalkRuleTests(unittest.TestCase):
         self.assertIsNone(task.failure)
         self.assertIn("CROSSWALK SPEED UNVERIFIED", task.issues)
         task.last_update = 1.7
+        state = task.update(observation(1.7, 0.6), motion(0.02), 1.7, True)
         self.assertNotEqual(task.limit_command((50, 60), state, motion(0.02)), (0, 0))
 
     def test_closed_loop_with_coasting_and_motor_deadzone(self):

@@ -50,24 +50,18 @@ class CrosswalkApproachBoundaryTests(unittest.TestCase):
                     self.assertEqual(command, (0, 0))
                     self.assertFalse(state["yield_verified"])
 
-    def test_far_stop_serves_one_dwell_without_reapproach_or_claiming_legality(self):
+    def test_precisely_reobserved_far_stop_resumes_approach_without_serving_dwell(self):
         task = self.make_task()
         self.brake(task, 0.26)
         for step in range(24):
             now = 0.45 + step * 0.15
             state, command = self.observe(task, now, (0.25, 0.24, 0.26)[step % 3], sigma=0.01)
-            self.assertNotEqual(state["phase"], "APPROACH")
-            self.assertEqual(state["position_outcome"], "TOO_FAR")
             self.assertFalse(state["yield_verified"])
-            if state["phase"] == "PASSING":
-                break
-            self.assertEqual(command, (0, 0))
             self.assertFalse(state["yield_completed"])
-        self.assertEqual(state["phase"], "PASSING")
-        self.assertTrue(state["yield_completed"])
-        self.assertFalse(state["yield_verified"])
-        self.assertGreaterEqual(state["hold_elapsed_s"], task.policy.hold_s)
-        self.assertLess(now - 0.45, task.policy.hold_s + 0.15)
+            if state["phase"] != "APPROACH":
+                self.assertEqual(command, (0, 0))
+        self.assertEqual(state["phase"], "APPROACH")
+        self.assertEqual(state["hold_elapsed_s"], 0)
         self.assertNotEqual(command, (0, 0))
 
     def test_fresh_legal_position_confirms_and_completes_normal_dwell(self):
@@ -96,7 +90,8 @@ class CrosswalkApproachBoundaryTests(unittest.TestCase):
             if state["yield_completed"]:
                 break
             self.assertEqual(command, (0, 0))
-        self.assertTrue(state["yield_completed"])
+        self.assertFalse(state["yield_completed"])
+        self.assertEqual(state["phase"], "RECOVERY_HOLD")
         self.assertFalse(state["yield_verified"])
         self.assertIn("CROSSWALK STOP UNVERIFIED", state["issues"])
         self.assertGreaterEqual(state["hold_elapsed_s"], task.policy.hold_s)

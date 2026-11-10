@@ -48,13 +48,23 @@ class StaleCrosswalkResumeTests(unittest.TestCase):
         self.assertEqual(s["phase"], "STOPPING")
         self.assertEqual(t.limit_command((60, 80), s, motion()), (0, 0))
 
-    def test_current_precise_far_observation_does_not_restart_approach(self):
+    def test_repeated_expired_observation_cannot_authorize_reapproach(self):
+        t = self.task()
+        obs = observation(0.0, 0.60)
+        for i in range(5):
+            s = t.update(obs, motion(), 95.1 + .1 * i, True, True, True, True)
+            self.assertNotEqual(s['phase'], 'APPROACH')
+            self.assertFalse(s['yield_completed'])
+            self.assertEqual(t.limit_command((60, 80), s, motion()), (0, 0))
+
+    def test_current_precise_far_observation_can_resume_an_unserved_approach(self):
         t = self.task()
         obs = observation(95.1, 0.60)
         s = t.update(obs, motion(), 95.1, True, True, True, True)
-        self.assertEqual(s["phase"], "STOPPING")
-        self.assertEqual(s["position_outcome"], "TOO_FAR")
-        self.assertEqual(t.limit_command((60, 80), s, motion()), (0, 0))
+        self.assertEqual(s["phase"], "APPROACH")
+        self.assertFalse(s["yield_completed"])
+        self.assertEqual(s["hold_elapsed_s"], 0)
+        self.assertNotEqual(t.limit_command((60, 80), s, motion()), (0, 0))
 
     def test_coarse_legal_rest_still_earns_dwell_without_creeping(self):
         t = self.task()

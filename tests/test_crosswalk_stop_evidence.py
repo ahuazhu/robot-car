@@ -57,13 +57,13 @@ class StopEvidenceTests(unittest.TestCase):
         self.assertIn("CROSSWALK STOP UNVERIFIED", state["issues"])
         self.assertFalse(state["stop_verified"])
         self.assertFalse(state["yield_verified"])
-        self.assertEqual(state["phase"], "PASSING")
+        self.assertEqual(state["phase"], "RECOVERY_HOLD")
         self.assertIn("STOP_POSITION_UNCERTAIN", state["stop_blockers"])
         for now in np.arange(3.7, 5.11, 0.1):
             state = task.update(None, motion(), float(now), True, True, True, True)
-        self.assertTrue(state["yield_completed"])
+        self.assertFalse(state["yield_completed"])
         self.assertFalse(state["yield_verified"])
-        self.assertEqual(state["phase"], "PASSING")
+        self.assertEqual(state["phase"], "RECOVERY_HOLD")
         self.assertIsNone(state["failure"])
 
     def test_stationary_drift_bound_includes_rotation_and_cannot_cross_stop_window(self):

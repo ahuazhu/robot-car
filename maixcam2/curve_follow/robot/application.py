@@ -371,7 +371,7 @@ def main(app_dir):
                     bgr, display_result, details, cal,
                     inverse=overlay_inverse, include_bird=stream_due,
                 )
-                draw_crosswalk_overlay(out, crossing_state, cal)
+                draw_crosswalk_overlay(out, crossing_state, cal, active=active)
                 lap_detector.draw(out)
                 if laps.enabled:
                     cv2.putText(

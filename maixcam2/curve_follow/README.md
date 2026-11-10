@@ -36,6 +36,8 @@ curve_follow/
 
 v0.6.86增加 `navigation.speed_observer.SpeedObserver`：只读当前连续可见路段，调用统一速度包络计算，并在 `/vision`、`/status` 的readiness与 `CONTROL` 日志发布同帧 `speed_profile_shadow`。`mode=SHADOW`、`controls_motor=false`；`source_frame`对应原始帧，`entry_limit_m_s`表示可见路段入口的分析上限，不是当前车速命令。道路不满足条件时明确标记无结果，不沿用旧结果。分析异常不向控制链抛出；耗时计入 `profile_ms.speed_profile_shadow` 及视觉预算。旧的巡线、横道、计圈、发车与看门狗逻辑保持，详见[在线对照记录](../../docs/统一速度规划回放-20261110.md)。
 
+v0.6.88横道停车改用整车到横道的距离缩短速率，区分横向运动与实际接近。感知暂停不再进入已完成礼让流程；新鲜精确证据确认仍停在20cm外时恢复正常接近，只有合法停位与3.2秒实际停留均已验证才放行。取得合法停位后不因估计波动重新挪车。未启动的叠加显示 `PREVIEW`，感知暂停显示 `WAIT POSITION` / `WAIT MOTION`。定位、运动和停位回归见[修复记录](../../docs/横道远停与错误放行修复-20261110.md)。
+
 ## 现场设置圈数
 
 网页控制台底部的“目标圈数”接受1–100的整数，默认取 `runtime.json` 的 `race.laps`（当前为2）。填写后点击ARM或直接启动，圈数随本次启动请求一起生效；ARM等待期间及行驶中锁定目标。需要修改时先STOP，再输入新值。设置仅保存在当前应用进程，应用重启后使用配置默认值。

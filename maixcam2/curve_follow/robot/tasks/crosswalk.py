@@ -119,6 +119,38 @@ def crosswalk_body_support(normal, policy):
     ) * float(policy.body_half_width_m)
 
 
+def crosswalk_closing_speed(normal, motion, policy):
+    """Rate of whole-body clearance loss, not total camera translation speed.
+
+    The scene transform is OLD -> CURRENT. Back-projecting the current line
+    normal gives its previous body support, so turning corners are included
+    and motion parallel to the crossing contributes no approach speed.
+    Ports without timed transforms retain a conservative scalar speed bound.
+    """
+    if not motion or not motion.get("valid"):
+        return None, "NO_MEASURED_MOTION"
+    dt = motion.get("interval_s")
+    if dt is None:
+        speed, yaw = motion.get("speed_m_s"), motion.get("yaw_rad_s")
+        if speed is None or yaw is None or not all(math.isfinite(x) for x in (speed, yaw)):
+            return None, "NO_MEASURED_SPEED"
+        radius = math.hypot(max(policy.body_front_m, policy.body_rear_m), policy.body_half_width_m)
+        return abs(speed) + radius * abs(yaw), "SCENE_SPEED_BOUND"
+    if not math.isfinite(dt) or dt <= 0:
+        return None, "INVALID_MOTION_INTERVAL"
+    n = np.asarray(normal, float)
+    rotation = np.asarray(motion.get("rotation"), float)
+    translation = np.asarray(motion.get("translation"), float)
+    if (n.shape != (2,) or rotation.shape != (2, 2) or translation.shape != (2,)
+            or not np.isfinite(n).all() or not np.isfinite(rotation).all()
+            or not np.isfinite(translation).all()):
+        return None, "INVALID_MOTION_GEOMETRY"
+    previous_normal = rotation.T @ n
+    closed = (-float(n @ translation) + crosswalk_body_support(n, policy)
+              - crosswalk_body_support(previous_normal, policy))
+    return max(0.0, closed / dt), "BODY_CLEARANCE_RATE"
+
+
 class CrosswalkDetector:
     def __init__(self, pixels, policy):
         self.pixels = pixels
@@ -357,6 +389,11 @@ class CrosswalkTask:
         self.speed_ceiling = None
         self.last_visual_speed = 0.0
         self.speed_missing_since = None
+        self.approach_speed = None
+        self.approach_speed_source = "NO_MEASURED_MOTION"
+        self.approach_wait_reason = None
+        self.predicted_stopping_distance = None
+        self.legal_stop_acquired = False
         self.rest = StationaryEvidence(
             self.policy.stationary_speed_m_s, self.policy.stationary_yaw_rad_s,
             self.policy.stationary_confirm_s, self.policy.confirmation_gap_s,
@@ -378,6 +415,10 @@ class CrosswalkTask:
         self.stop_evidence = None
         self.stop_blockers = []
         self.speed_pwm = self.speed_update = self.speed_ceiling = self.speed_missing_since = None
+        self.approach_speed = self.predicted_stopping_distance = None
+        self.approach_speed_source = "NO_MEASURED_MOTION"
+        self.approach_wait_reason = None
+        self.legal_stop_acquired = False
 
     def _pending_crossing(self, observation, now):
         """Confirm fresh geometry independently of an unlocalized served event.
@@ -526,6 +567,7 @@ class CrosswalkTask:
             self.stationary_since = self.hold_since = None
             self.phase = "STOPPING"
             return
+        self.legal_stop_acquired = True
         if now - self.stationary_since >= p.stationary_confirm_s:
             if self.hold_since is None:
                 self.hold_since = now
@@ -696,9 +738,16 @@ class CrosswalkTask:
             and position_available
             and legal_stop_interval([clearance - sigma, clearance + sigma])
         )
+        self.approach_speed, self.approach_speed_source = crosswalk_closing_speed(
+            self.track["normal"], motion, p
+        )
+        self.approach_wait_reason = None
         if self.phase == "APPROACH" and confirmed and not known and not legal_rest:
-            self._issue("CROSSWALK POSITION UNCERTAIN")
-            self._request_stop(now)
+            # A temporary sensing pause is not a completed parking attempt.
+            self.approach_wait_reason = "CROSSWALK POSITION UNCERTAIN"
+            self._issue(self.approach_wait_reason)
+        elif self.recovery_reason in ("CROSSWALK POSITION UNCERTAIN", "CROSSWALK SPEED UNVERIFIED"):
+            self.recovery_reason = None
         # After yielding, the old crossing is retained solely to prove passage
         # and suppress duplicate events. Age alone cannot cause repeated stops.
         if self.phase == "PASSING":
@@ -708,7 +757,7 @@ class CrosswalkTask:
             # Missing flow expands that interval; neither PWM nor elapsed time
             # can prove passage. Lane/motion safety supervision stays separate.
             known = valid_motion and math.isfinite(sigma)
-        if self.phase == "APPROACH" and confirmed:
+        if self.phase == "APPROACH" and confirmed and not self.approach_wait_reason:
             n = self.track["normal"]
             clearance = self.track["near_m"] - crosswalk_body_support(n, p)
             if legal_rest and zero_ack and lamp_on:
@@ -717,10 +766,14 @@ class CrosswalkTask:
                 self._issue("CROSSWALK STOP WINDOW MISSED")
                 self._request_stop(now)
             else:
-                speed = max(0.0, self.last_visual_speed)
+                speed = self.approach_speed
+                if speed is None:
+                    self.approach_wait_reason = "CROSSWALK SPEED UNVERIFIED"
+                    return self.snapshot(now)
                 stopping_distance = speed * p.command_latency_s + speed * speed / (
                     2 * float(p.brake_deceleration_m_s2)
                 )
+                self.predicted_stopping_distance = stopping_distance
                 # Brake as soon as every possible resting position lies in
                 # the legal window. Braking distance bounds forward coasting;
                 # it is not an exact offset to subtract from the 20 cm limit.
@@ -734,21 +787,40 @@ class CrosswalkTask:
                     self._request_stop(now)
         if self.phase in ("STOPPING", "HOLD", "RECOVERY_HOLD"):
             verified_rest = stationary and zero_ack and lamp_on
+            if (
+                verified_rest and known and matched and road_ready
+                and age <= p.observation_max_age_s
+                and not self.legal_stop_acquired
+                and clearance - sigma >= CROSSWALK_STOP_LIMIT_M
+                and not legal_stop_interval([clearance - sigma, clearance + sigma])
+            ):
+                # A precisely re-observed early stop has not served the yield.
+                # Resume ordinary approach; never creep after a legal stop or
+                # advance using a stale/coarse pose. Clear the preliminary
+                # physical-rest clock so it cannot count toward the final hold.
+                self.phase = "APPROACH"
+                self.stationary_since = self.hold_since = self.stopping_since = None
+                self.stop_deadline = self.physical_rest_since = None
+                self.stop_evidence = None
+                self.stop_blockers = []
+                self.hold_completed_s = 0.0
+                self.speed_pwm = self.speed_update = self.speed_ceiling = None
+                self.recovery_reason = self.approach_wait_reason = None
+                self.rest.reset()
+                return self.snapshot(now)
             if verified_rest and self.physical_rest_since is None:
                 self.physical_rest_since = now
             elif not verified_rest:
                 self.physical_rest_since = None
             clearance = self.track["near_m"] - crosswalk_body_support(self.track["normal"], p)
-            # One stop request owns this event through the complete dwell.
-            # A fresh estimate saying the car stopped too far is an exception,
-            # not permission to alternate zero output and another approach.
+            # Once a legal stop is acquired, this event owns zero output
+            # through its dwell; later measurement noise cannot request nudges.
             self._verify_stop(
                 now, stationary, zero_ack, lamp_on, position_available,
                 clearance, sigma, fresh_position=matched,
             )
-            # One physical dwell clock serves both a legally located stop and
-            # a recorded position exception. Position verification never adds
-            # a second full hold, and ordinary flow jitter cannot restart it.
+            # Position refinement never adds a second full hold to a continuous
+            # physical stop, but unverified positions cannot earn passage.
             rest_elapsed = (0.0 if self.physical_rest_since is None
                             else now-self.physical_rest_since)
             if verified_rest and rest_elapsed >= p.stationary_confirm_s:
@@ -757,7 +829,7 @@ class CrosswalkTask:
                 self.hold_since = self.physical_rest_since
                 if not located:
                     self._issue("CROSSWALK STOP UNVERIFIED")
-                if rest_elapsed >= p.hold_s:
+                if rest_elapsed >= p.hold_s and located:
                     self.hold_completed_s = rest_elapsed
                     self.yield_completed = True
                     self.yield_verified = located
@@ -785,11 +857,7 @@ class CrosswalkTask:
         return self.snapshot(now)
 
     def _position_outcome(self, now):
-        """Describe the stop proof using existing evidence and retained blockers.
-
-        After an exceptional dwell, blockers preserve the stopped position's
-        outcome while the car advances through the crossing.
-        """
+        """Describe the stop proof using existing evidence and retained blockers."""
         if self.yield_verified or (
             self.phase in ("STOPPING", "HOLD", "RECOVERY_HOLD")
             and legal_stop_interval(self._stop_interval(now))
@@ -858,6 +926,12 @@ class CrosswalkTask:
             brake_entry_m=p.brake_entry_m,
             speed_ceiling_m_s=self.speed_ceiling,
             regulated_pwm=self.speed_pwm,
+            approach_speed_m_s=self.approach_speed,
+            approach_speed_source=self.approach_speed_source,
+            approach_wait_reason=self.approach_wait_reason,
+            scene_speed_m_s=self.last_visual_speed,
+            predicted_stopping_distance_m=self.predicted_stopping_distance,
+            legal_stop_acquired=self.legal_stop_acquired,
             legal_stop_window_m=[0.0, CROSSWALK_STOP_LIMIT_M],
             braking_buffer_m=p.stop_clearance_m,
         )
@@ -893,7 +967,8 @@ class CrosswalkTask:
             return command
         approach = self.pending_track if self.phase == "PASSING" else self.track
         clearance = approach["near_m"] - crosswalk_body_support(approach["normal"], p)
-        speed = motion.get("speed_m_s") if motion and motion.get("valid") else None
+        speed, source = crosswalk_closing_speed(approach["normal"], motion, p)
+        self.approach_speed, self.approach_speed_source = speed, source
         if speed is None:
             # No blind nonzero command. A missing speed observation first
             # requests a measured recovery while stopped, rather than latching
@@ -907,6 +982,10 @@ class CrosswalkTask:
         self.speed_missing_since = None
         if self.recovery_reason == "CROSSWALK SPEED UNVERIFIED":
             self.recovery_reason = None
+        if (self.approach_wait_reason or approach["sigma_m"] > p.maximum_position_error_m
+                or self.last_update is None
+                or self.last_update - approach["observed_at"] > p.observation_max_age_s):
+            return (0, 0)
         available = max(0.0, clearance - approach["sigma_m"] - p.stop_clearance_m)
         decel = float(p.brake_deceleration_m_s2)
         # Speed feedback takes time to settle. Plan the next speed early
@@ -951,7 +1030,7 @@ class CrosswalkTask:
         return tuple(round(value * scale) for value in command)
 
 
-def draw_crosswalk_overlay(out, snapshot, calibration):
+def draw_crosswalk_overlay(out, snapshot, calibration, active=None):
     t = snapshot.get("observation")
     if t:
         corners = np.asarray(t.get("corners", []), float)
@@ -965,7 +1044,14 @@ def draw_crosswalk_overlay(out, snapshot, calibration):
             for box in uv.reshape(-1, 4, 2):
                 cv2.polylines(out, [box], True, (255, 0, 255), 1)
     distance = snapshot.get("distance_to_body_m")
-    label = "ZEBRA %s %s" % (snapshot["mode"].upper(), snapshot["phase"])
+    phase = snapshot["phase"]
+    if active is False:
+        phase = "PREVIEW"
+    elif snapshot.get("approach_wait_reason"):
+        phase = "WAIT MOTION" if snapshot["approach_wait_reason"] == "CROSSWALK SPEED UNVERIFIED" else "WAIT POSITION"
+    elif phase == "RECOVERY_HOLD":
+        phase = "WAIT POSITION"
+    label = "ZEBRA %s %s" % (snapshot["mode"].upper(), phase)
     if distance is not None:
         label += " %.0fcm" % (distance * 100)
     cv2.putText(out, label, (4, 190), 0, 0.37, (255, 0, 255), 1)
