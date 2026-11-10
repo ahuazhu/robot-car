@@ -706,9 +706,40 @@
     "crop_first_320_columns": true
   },
   "deployment": {
-    "status": "not_deployed",
-    "reason": "device_unreachable",
-    "status_owner": "Deployment coordinator; this report performs no device I/O"
+    "status": "deployed",
+    "maix_version": "0.6.85",
+    "esp_firmware": "0.4.17-strong-rgb-or",
+    "source_commit": "a36ba14d724a2f1eab6be12fb74ebcf47d087646",
+    "code_resources_verified": 38,
+    "native_backend_checks_enabled": 9,
+    "esp_app0_verified": true,
+    "boot_partition_nvs_ota_prefix_preserved": true,
+    "numeric_golden_cases_bit_exact": 6,
+    "rgb_workspace_available": true,
+    "onsite_settings_preserved": true,
+    "manual_roi": [
+      100,
+      101,
+      49,
+      53
+    ],
+    "active": false,
+    "permission": false,
+    "armed": false,
+    "pwm": [
+      0,
+      0
+    ],
+    "uno_error": "UNO acknowledgement timeout",
+    "physical_light_cycle_tested": false,
+    "motor_command_sent": false,
+    "browser_visual_verification": false,
+    "tests": {
+      "run": 849,
+      "passed": 826,
+      "skipped_optional_host_native": 23,
+      "javascript": "passed"
+    }
   },
   "selected_candidate": {
     "name": "strong_rgb_or_v2_neutral",
