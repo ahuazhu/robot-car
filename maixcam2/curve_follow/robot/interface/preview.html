@@ -166,7 +166,7 @@ h1{font-size:21px}
 
 const token="__CONTROL_TOKEN__";
 let generation=0,canStart=false,canDirect=false,busy=false,statusBusy=false;
-let lapsInitialized=false,serverActive=false,serverArmed=false,lastServerLocked=false,statusExpiresAt=0,controlRevision=0;
+let lapsInitialized=false,serverActive=false,serverArmed=false,serverLapsEnabled=true,lastServerLocked=false,statusExpiresAt=0,controlRevision=0;
 let initialLampState="OFF",lockedInitialLampState=null,initialLampGeneration=null;
 let lampConfiguration=null,roiDraft=[100,40,100,80],roiDirty=false,roiDrag=null;
 let roiRemotePending=false,preparationPending=false,preparationError='',roiSubmitted=null,lastPreparation={};
@@ -370,7 +370,7 @@ function syncControls(){
  const fresh=Date.now()<statusExpiresAt;
  directButton.disabled=!fresh||!canDirect||busy||roiDirty||!!lockedROI||roiScanBusy||preparationPending||roiRemotePending;
  startButton.disabled=!fresh||!canStart||busy||preparationPending||roiRemotePending||!canPrepareLamp();
- lapsInput.disabled=!fresh||busy||serverActive||serverArmed||preparationPending||roiScanBusy;
+ lapsInput.disabled=!fresh||!serverLapsEnabled||busy||serverActive||serverArmed||preparationPending||roiScanBusy;
  initialLampInput.disabled=!fresh||busy||serverActive||serverArmed||preparationPending||roiScanBusy||roiRemotePending||lockedInitialLampState!==null;
  initialLampInput.value=lockedInitialLampState||initialLampState;
  syncROIControls();renderLampSignalState();
@@ -403,6 +403,7 @@ async function updateStatus(){
   const fresh=Number.isFinite(age)&&s.age_ms>=0&&age>=0&&age<1000;
   statusExpiresAt=fresh?Date.now()+1000-age:0;
   serverActive=!!s.active;serverArmed=!!s.readiness?.start_light?.armed;
+  serverLapsEnabled=s.readiness?.laps?.enabled!==false;
   if(fresh&&lockedROI&&generation!==lockedGeneration&&!serverActive&&!serverArmed)releaseROI(s.reason!=='LAPS COMPLETE');
   lastPreparation=s.preparation||{};
   preparationPending=!!s.preparation?.pending||s.preparation?.phase==='ARM_QUEUED';
@@ -429,7 +430,7 @@ async function updateStatus(){
     lapsInitialized=true;
    }
    if(fresh)lastServerLocked=locked;
-   document.getElementById('lap-status').textContent=laps.enabled?`圈数：${laps.completed_laps}/${laps.total_laps}圈 · ${laps.complete?`已完成${laps.total_laps}圈，已停车`:laps.phase==='FINISH_DISTANCE'?'已越计圈白线，继续行驶40cm后停车':laps.phase==='SEEK_DEPARTURE'?'等待首次白线：30秒内忽略，超过30秒计圈':laps.phase==='DEPARTURE'?'首次白线在30秒内，本次越线不计圈':laps.phase==='WAIT_START'||laps.phase==='STOPPED'?'等待新一轮启动':'比赛进行中'}${laps.unverified_crossings?' · 有越线未能确认，请核对':''}`:'';
+   document.getElementById('lap-status').textContent=laps.enabled?`圈数：${laps.completed_laps}/${laps.total_laps}圈 · ${laps.complete?`已完成${laps.total_laps}圈，已停车`:laps.phase==='FINISH_DISTANCE'?'已越计圈白线，继续行驶40cm后停车':laps.phase==='SEEK_DEPARTURE'?'等待首次白线：30秒内忽略，超过30秒计圈':laps.phase==='DEPARTURE'?'首次白线在30秒内，本次越线不计圈':laps.phase==='WAIT_START'||laps.phase==='STOPPED'?'等待新一轮启动':'比赛进行中'}${laps.unverified_crossings?' · 有越线未能确认，请核对':''}`:laps.enabled===false?'计圈已暂停 · 调试运行，请用 STOP 停车':'';
    if(laps.phase==='FINISH_DISTANCE')document.getElementById('lap-status').textContent+=` · 剩余约${Math.ceil((laps.finish_remaining_m??0)*100)}cm`;
    const lineMarker=laps.detector||{};
    if(laps.enabled)document.getElementById('lap-status').textContent+=lineMarker.confirmed?' · 计圈白线已确认':lineMarker.marker_visible?' · 计圈白线确认中':' · 未看到计圈白线';
