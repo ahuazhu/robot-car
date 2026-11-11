@@ -19,7 +19,7 @@ APP_ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(APP_ROOT))
 sys.path.insert(0,str(APP_ROOT.parents[1]))
 from robot.config import RuntimeSettings
-from robot.control.controller import CommandRamp, compensate_pwm
+from robot.control.controller import CommandRamp, compensate_pwm, MAX_MOTOR_PWM
 from robot.navigation.profile_speed_control import ProfileSpeedControl
 from robot.navigation.steering_control import SteeringControl
 from maixcam2.curve_follow.tools.replay_speed_profile import load_frames, distribution
@@ -96,7 +96,7 @@ def compare(paths):
                 if command is None:command=(0,0)
                 applied=ramps[mode].apply(command,now+age)
                 control.applied(now+age,applied)
-                assert max(abs(x) for x in compensate_pwm(applied))<=200
+                assert max(abs(x) for x in compensate_pwm(applied))<=MAX_MOTOR_PWM
                 details[mode]=dict(selected=selected,reason=plan.get('reason'),
                     reference_m_s=plan.get('target_speed_m_s'),wheels=list(applied),
                     dwpp=plan.get('dwpp'))

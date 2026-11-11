@@ -505,6 +505,7 @@ class SteeringControl:
                 eligible=(speed_profile_allowed and (self.speed_control.controller == 'DWPP' or
                           (target_scale == 1. and self.status.get('motion_measured',False)
                            and (resolved_forward_motion or measured_standstill)))),
+                motion_valid=bool(self.status.get('motion_measured',False)),
                 motion_feedback=bool(self.status.get('motion_measured',False)
                                      and (resolved_forward_motion or measured_standstill)),
                 task_limit_m_s=task_limit_m_s,

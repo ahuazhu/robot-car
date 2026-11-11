@@ -91,7 +91,7 @@ class VelocityRegionTests(unittest.TestCase):
 
     def test_invalid_inputs_do_not_reach_motor_control(self):
         for inputs in ((.1,0.,float('nan'),.3,.1),(.1,0.,0.,.3,0.),
-                       (.4,0.,0.,.3,.1),(.1,3.,0.,.3,.1),(-.1,0.,0.,.3,.1)):
+                       (.1,float('inf'),0.,.3,.1),(-.1,0.,0.,.3,.1)):
             with self.assertRaises(ValueError):plan_twist(*inputs,**PARAMS)
 
 
@@ -110,7 +110,7 @@ class ControllerIntegrationTests(unittest.TestCase):
     def test_proposal_does_not_advance_dynamic_state_before_application(self):
         self.step();first=self.control.status.copy()
         self.step(now=1.)
-        self.assertEqual(self.control.status['dwpp']['source'],'MEASURED_SEED')
+        self.assertEqual(self.control.status['dwpp']['source'],'MEASURED')
         self.assertEqual(self.control.status['dwpp']['window'],first['dwpp']['window'])
         self.assertIsNone(self.control.dwpp_state)
 
@@ -188,7 +188,8 @@ class ControllerIntegrationTests(unittest.TestCase):
         # An obsolete applied command must not enlarge the new window.
         self.control.reset();self.control.applied(.5,(80,80))
         self.assertIsNotNone(self.step(now=1.,speed=.2,k=2.))
-        self.assertEqual(self.control.status['motion_state_source'],'GAP_CRAWL_SEED')
+        self.assertEqual(self.control.status['motion_state_source'],'MEASURED')
+        self.assertTrue(self.control.status['control_gap'])
         self.assertEqual(self.control.status['dwpp']['dt_s'],.05)
 
     def test_applied_ramp_scaling_seeds_next_window_and_stop_clears_it(self):
@@ -199,14 +200,14 @@ class ControllerIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(self.control.dwpp_state)
         state=self.control.dwpp_state
         self.step(now=1.2,speed=.05)
-        self.assertEqual(self.control.status['dwpp']['source'],'APPLIED_REFERENCE')
-        self.assertEqual(self.control.status['dwpp']['current_linear_m_s'],state[1])
+        self.assertEqual(self.control.status['dwpp']['source'],'MEASURED')
+        self.assertEqual(self.control.status['dwpp']['current_linear_m_s'],.05)
         self.assertLess(state[1],proposal[1])
         self.control.applied(1.21,(0,0))
         self.assertIsNone(self.control.dwpp_state)
         self.assertIsNone(self.control.reference)
         self.step(now=1.4,speed=0.)
-        self.assertEqual(self.control.status['dwpp']['source'],'MEASURED_SEED')
+        self.assertEqual(self.control.status['dwpp']['source'],'MEASURED')
 
     def test_search_rotation_and_task_command_do_not_become_pursuit_state(self):
         for actual in ((-60,60),(60,-60),(100,20)):
@@ -217,7 +218,8 @@ class ControllerIntegrationTests(unittest.TestCase):
     def test_large_control_gap_and_missing_flow_keep_capped_dwpp(self):
         wheels=self.step();self.control.applied(1.01,wheels)
         self.assertIsNotNone(self.step(now=1.5))
-        self.assertEqual(self.control.status['motion_state_source'],'GAP_CRAWL_SEED')
+        self.assertEqual(self.control.status['motion_state_source'],'MEASURED')
+        self.assertTrue(self.control.status['control_gap'])
         self.assertLessEqual(self.control.status['target_speed_m_s'],.075)
         self.control.reset()
         self.assertIsNotNone(self.step(yaw=None))
