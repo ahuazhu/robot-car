@@ -586,7 +586,7 @@ class DrivingSessionTests(unittest.TestCase):
                     scene['travel_m']=0.
                     frame.crosswalk_state=task.update(None,scene,self.clock.now,True,True,True,
                                                       mode=='follow')
-                    self.assertEqual(task.phase,'RECOVERY_PASSING')
+                    self.assertEqual(task.phase,'RECOVERY_APPROACH')
                     follow=(100,120) if mode=='follow' else None
                     frame.command=s.search.command(frame.result,follow,scene,self.clock.now,
                         active=True,allowed=task.allows_road_search(),stopped=True)
@@ -595,7 +595,7 @@ class DrivingSessionTests(unittest.TestCase):
                     if step==1 and mode=='follow':
                         self.assertTrue(any(s.link.calls[-1][1:3]))
                 self.assertTrue(s.active)
-                self.assertEqual(task.phase,'RECOVERY_PASSING')
+                self.assertEqual(task.phase,'RECOVERY_APPROACH')
                 self.assertFalse(task.yield_completed);self.assertFalse(task.yield_verified)
                 moving=[call for call in s.link.calls[before:] if call[0]==2 and any(call[1:3])]
                 self.assertTrue(moving)

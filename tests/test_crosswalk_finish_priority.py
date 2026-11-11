@@ -29,13 +29,13 @@ class FinishPriorityCrosswalkTests(unittest.TestCase):
         for step in range(1,80):
             now=step*.15;state=self.advance(task,now)
             command=task.limit_command((100,120),state,motion())
-            self.assertEqual(state['phase'],'RECOVERY_PASSING')
+            self.assertEqual(state['phase'],'RECOVERY_APPROACH')
             self.assertGreater(min(command),0)
             self.assertLessEqual(max(command),60)
             self.assertAlmostEqual(command[0]/command[1],100/120,delta=.01)
-        self.assertEqual(state['phase'],'RECOVERY_PASSING')
+        self.assertEqual(state['phase'],'RECOVERY_APPROACH')
         self.assertFalse(state['yield_verified']);self.assertFalse(state['yield_completed'])
-        self.assertTrue(task.allows_road_search());self.assertFalse(task.allows_speed_profile())
+        self.assertTrue(task.allows_road_search());self.assertTrue(task.allows_speed_profile())
         self.assertIn('CROSSWALK UNVERIFIED CONTINUATION',state['issues'])
 
     def test_conservative_policy_keeps_its_unverified_position_gate(self):
@@ -59,8 +59,8 @@ class FinishPriorityCrosswalkTests(unittest.TestCase):
                     command=task.limit_command(None if kind=='road' else (100,120),state,scene)
                     if kind=='road':self.assertIsNone(command)
                     elif kind=='speed':self.assertTrue(any(command))
-                    self.assertEqual(task.phase,'RECOVERY_PASSING')
-                self.assertEqual(state['phase'],'RECOVERY_PASSING')
+                    self.assertEqual(task.phase,'RECOVERY_APPROACH')
+                self.assertEqual(state['phase'],'RECOVERY_APPROACH')
                 self.assertFalse(state['yield_completed'])
                 self.assertTrue(task.allows_road_search())
 
@@ -72,20 +72,20 @@ class FinishPriorityCrosswalkTests(unittest.TestCase):
         self.assertEqual(state['phase'],'APPROACH')
         self.assertTrue(any(task.limit_command((100,120),state,motion())))
         state=task.update(None,motion(),.6,True,False,False,False,road_available=False)
-        self.assertEqual(state['phase'],'RECOVERY_PASSING')
+        self.assertEqual(state['phase'],'RECOVERY_APPROACH')
         self.assertTrue(task.allows_road_search())
 
     def test_uncertainty_recovery_does_not_wait_for_a_zero_command_handshake(self):
         task=self.stuck()
         state=self.advance(task,.15,zero=False)
-        self.assertEqual(state['phase'],'RECOVERY_PASSING')
+        self.assertEqual(state['phase'],'RECOVERY_APPROACH')
         self.assertEqual(task.limit_command((100,120),state,motion()),(50,60))
 
     def test_missing_red_lamp_does_not_become_an_infinite_rule_verification_wait(self):
         task=self.stuck()
         for step in range(1,60):
             state=self.advance(task,step*.15,lamp=False)
-        self.assertEqual(state['phase'],'RECOVERY_PASSING')
+        self.assertEqual(state['phase'],'RECOVERY_APPROACH')
         self.assertFalse(state['yield_verified']);self.assertFalse(state['yield_completed'])
         self.assertGreater(min(task.limit_command((100,120),state,motion())),0)
 
@@ -116,7 +116,7 @@ class FinishPriorityCrosswalkTests(unittest.TestCase):
             task.update(observation(now,.36),motion(.06),now,True,False,False,True)
         scene=motion(valid=False)
         state=task.update(None,scene,.65,True,False,False,True)
-        self.assertEqual(state['phase'],'RECOVERY_PASSING')
+        self.assertEqual(state['phase'],'RECOVERY_APPROACH')
         self.assertEqual(task.limit_command((100,120),state,scene),(50,60))
 
     def test_uncertain_approach_effort_and_pending_candidate_cannot_block_search(self):
@@ -125,7 +125,7 @@ class FinishPriorityCrosswalkTests(unittest.TestCase):
             state=task.update(observation(now,.42),motion(),now,True,False,False,True)
         task.speed_pwm=0.;task.speed_update=task.last_update
         self.assertTrue(any(task.limit_command((100,120),state,motion(.4))))
-        self.assertEqual(task.phase,'RECOVERY_PASSING')
+        self.assertEqual(task.phase,'RECOVERY_APPROACH')
         task.pending_track=observation(.3,2.)
         task.speed_pwm=task.speed_update=None
         self.assertTrue(task.allows_road_search())
@@ -139,7 +139,7 @@ class FinishPriorityCrosswalkTests(unittest.TestCase):
             if kind=='fault':task.failure='CROSSWALK SETUP REQUIRED'
             for step in range(1,60):
                 state=self.advance(task,step*.15,active=kind!='idle')
-                self.assertNotEqual(state['phase'],'RECOVERY_PASSING')
+                self.assertNotEqual(state['phase'],'RECOVERY_APPROACH')
 
     def test_legal_dwell_uses_normal_permission_instead_of_unverified_recovery(self):
         task=self.task()
@@ -155,7 +155,7 @@ class FinishPriorityCrosswalkTests(unittest.TestCase):
     def test_current_far_reobservation_restores_normal_approach(self):
         task=self.stuck()
         for step in range(1,37):state=self.advance(task,step*.15)
-        self.assertEqual(state['phase'],'RECOVERY_PASSING')
+        self.assertEqual(state['phase'],'RECOVERY_APPROACH')
         obs=dict(task.track,observed_at=5.6,sigma_m=.01)
         state=task.update(obs,motion(),5.6,True,True,True,True)
         self.assertEqual(state['phase'],'APPROACH')
@@ -182,17 +182,16 @@ class FinishPriorityCrosswalkTests(unittest.TestCase):
         self.assertTrue(state['yield_verified'])
         self.assertGreaterEqual(now-physical_start,task.policy.hold_s)
 
-    def test_at_or_past_line_recovers_immediately_without_claiming_points(self):
+    def test_unserved_crossing_at_line_requests_one_stop_instead_of_discarding_yield(self):
         task=self.task()
-        for step in range(3):
+        for step in range(5):
             now=step*.15
             obs=observation(now,task.policy.body_front_m-.02)
             state=task.update(obs,motion(),now,True,True,True,True)
-            self.assertTrue(any(task.limit_command((100,120),state,motion())))
-        self.assertEqual(state['phase'],'RECOVERY_PASSING')
-        self.assertFalse(state['yield_completed']);self.assertFalse(state['yield_verified'])
-        self.assertGreater(min(task.limit_command((100,120),state,motion())),0)
-        self.assertIn('CROSSWALK STOP WINDOW MISSED',state['issues'])
+        self.assertIn(task.phase,('STOPPING','HOLD','RECOVERY_HOLD'))
+        self.assertEqual(task.limit_command((100,120),state,motion()),(0,0))
+        self.assertTrue(state['yield_pending'])
+        self.assertFalse(state['yield_verified'])
 
 
 if __name__=='__main__':unittest.main()

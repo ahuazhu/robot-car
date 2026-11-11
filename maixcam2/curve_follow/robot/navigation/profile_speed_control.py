@@ -75,6 +75,14 @@ class ProfileSpeedControl:
             angular_acceleration=config.get('angular_acceleration_rad_s2',2.),
             angular_deceleration=config.get('angular_deceleration_rad_s2',2.))
 
+    @classmethod
+    def for_driving(cls, settings):
+        """The deployed app has one motion planner; baseline controllers are offline only."""
+        control = cls.from_settings(settings)
+        if control is None or control.controller != 'DWPP':
+            raise ValueError('Driving requires ACTIVE DWPP; legacy entry is disabled')
+        return control
+
     def reset(self):
         self.applied_at = None
         self.applied_mean = 0.
@@ -152,7 +160,7 @@ class ProfileSpeedControl:
 
     def command(self, target, path, now, measured_speed, curvature, sigma, front_margin,
                 eligible, high_confidence=False, *, clearance_limit_m_s=None,
-                measured_yaw_rate=None):
+                measured_yaw_rate=None, motion_feedback=True, task_limit_m_s=None):
         try:
             confidence=float(target.get('control_confidence',target.get('confidence',1.)))
             length=(target.get('road_model') or {}).get('length_m')
@@ -182,8 +190,18 @@ class ProfileSpeedControl:
                                       envelope_speed_factor=envelope_factor)
         if not eligible:
             return self.fallback('EXISTING_PATH_OR_BODY_GATE')
-        if (measured_speed is None or not math.isfinite(measured_speed)
-                or measured_speed < -.006):
+        feedback = bool(motion_feedback and measured_speed is not None
+                        and math.isfinite(measured_speed) and measured_speed >= -.006
+                        and measured_yaw_rate is not None and math.isfinite(measured_yaw_rate))
+        state_source = 'MEASURED'
+        if self.controller == 'DWPP' and not feedback:
+            # This is command state, never odometry. Do not integrate an error
+            # against an invented speed or use this to transport a road/crossing.
+            recent = (self.dwpp_state is not None
+                      and 0 <= now-self.dwpp_state[0] < self.maximum_gap_s)
+            measured_speed, measured_yaw_rate = self.dwpp_state[1:] if recent else (0., 0.)
+            state_source = 'APPLIED_ESTIMATE' if recent else 'CRAWL_SEED'
+        elif measured_speed is None or not math.isfinite(measured_speed) or measured_speed < -.006:
             return self.fallback('MEASURED_FORWARD_SPEED_REQUIRED')
         if not all(math.isfinite(v) for v in (now, curvature, sigma, front_margin)) or sigma < 0:
             return self.fallback('INVALID_GEOMETRY')
@@ -216,6 +234,12 @@ class ProfileSpeedControl:
         # path authorization still belongs to steering's original body checks.
         ceiling = min(plan.entry_limit_m_s,
                       self.limits.maximum_m_s / (1 + abs(ratio)))
+        if task_limit_m_s is not None:
+            if not math.isfinite(task_limit_m_s) or task_limit_m_s < 0:
+                return self.fallback('INVALID_TASK_SPEED_LIMIT')
+            ceiling = min(ceiling, task_limit_m_s)
+        if self.controller == 'DWPP' and not feedback:
+            ceiling = min(ceiling, self.limits.maximum_m_s * .25)
         if self.controller=='DWPP':
             if measured_yaw_rate is None or not math.isfinite(measured_yaw_rate):
                 return self.fallback('DWPP_MEASURED_YAW_REQUIRED')
@@ -227,7 +251,16 @@ class ProfileSpeedControl:
         else:
             dt = .05 if self.updated_at is None else now - self.updated_at
         if not 0 < dt < self.maximum_gap_s:
-            return self.fallback('CONTROL_GAP')
+            if self.controller != 'DWPP' or dt <= 0:
+                return self.fallback('CONTROL_GAP')
+            # A long command gap is a new bounded crawl seed, not a giant
+            # acceleration window and not an invitation to switch algorithms.
+            self.dwpp_state = None
+            dt = .05
+            ceiling = min(ceiling, self.limits.maximum_m_s * .25)
+            feedback = False
+            measured_speed = measured_yaw_rate = 0.
+            state_source = 'GAP_CRAWL_SEED'
         fast_path = bool(high_confidence and confidence >= .8 and positions[-1] >= .40)
         reference_acceleration = self.limits.acceleration_m_s2 * (
             self.high_confidence_gain if fast_path else 1.)
@@ -239,14 +272,13 @@ class ProfileSpeedControl:
                      (min(self.limits.maximum_m_s,max(0.,measured_speed)),
                       max(-self.limits.maximum_m_s/self.limits.turn_lever_m,
                           min(self.limits.maximum_m_s/self.limits.turn_lever_m,measured_yaw_rate))))
-            solution=plan_twist(*current,curvature,ceiling,dt,
+            solution=plan_twist(*current,max(-1/self.limits.turn_lever_m,
+                min(1/self.limits.turn_lever_m,curvature)),ceiling,dt,
                 maximum=self.limits.maximum_m_s,lever=self.limits.turn_lever_m,
                 acceleration=reference_acceleration,deceleration=self.limits.deceleration_m_s2,
                 angular_acceleration=self.angular_acceleration,angular_deceleration=self.angular_deceleration)
             reference=solution.linear
-            if reference<=1e-10:
-                return self.fallback('DWPP_NO_FORWARD_REFERENCE')
-            ratio=self.limits.turn_lever_m*solution.angular/reference
+            ratio=self.limits.turn_lever_m*solution.angular/reference if reference > 1e-10 else 0.
             # Reference/effort conversion preserves the selected wheel ratio.
             ratio=max(-1.,min(1.,ratio))
             dwpp_status=dict(source=source,current_linear_m_s=current[0],current_angular_rad_s=current[1],
@@ -254,6 +286,8 @@ class ProfileSpeedControl:
                     w_min=solution.window.w_min,w_max=solution.window.w_max),
                 intersection=solution.intersection,overrides=list(solution.overrides),
                 requested_curvature_m_inv=curvature,selected_curvature_m_inv=solution.curvature)
+            if abs(curvature)*self.limits.turn_lever_m > 1:
+                dwpp_status['overrides'].append('FORWARD_CURVATURE_PROJECTION')
         else:
             reference = min(ceiling, previous_reference + reference_acceleration * dt)
         actual = (self.applied_mean if self.applied_at is not None
@@ -268,12 +302,21 @@ class ProfileSpeedControl:
                           actual + gain * (reference - measured_speed) * dt))
         if measured_speed > ceiling and actual > 0:
             mean = min(mean, actual * ceiling / measured_speed)
+        if self.controller == 'DWPP' and not feedback:
+            # Bounded feedforward during missing/noisy flow. Never wind up the
+            # measured-speed integrator while the sensor cannot observe motion.
+            mean = min(self.maximum_effort / (1 + abs(ratio)),
+                       self.maximum_effort * reference / self.limits.maximum_m_s)
+        if self.controller == "DWPP" and reference <= 1e-10:
+            mean = 0.  # Hard zero also clears previously accumulated effort at measured rest.
         wheels = (mean * (1 - ratio), mean * (1 + ratio))
         self.reference, self.updated_at = reference, now
         self.status = dict(
             mode='ACTIVE',controller=self.controller,selected=True,reason=plan.entry_reason,
             target_speed_m_s=reference, ceiling_m_s=ceiling,
-            measured_speed_m_s=float(measured_speed), initial_overspeed=plan.initial_overspeed,
+            measured_speed_m_s=float(measured_speed) if feedback else None,
+            motion_feedback=feedback, motion_state_source=state_source, task_ceiling_m_s=task_limit_m_s,
+            initial_overspeed=plan.initial_overspeed,
             supported_length_m=float(positions[-1]),
             usable_length_m=plan.stations_m[-1], limiting_station_m=plan.limiting_station_m,
             first_supported_point_m=segment[0].tolist(),

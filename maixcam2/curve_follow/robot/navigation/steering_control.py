@@ -279,7 +279,7 @@ class SteeringControl:
         return command if not any(command) or lease>0 else None
 
     def command(self, result, age_s=0.0, *, lookahead_m=None, alternatives=True,
-                speed_profile_allowed=True):
+                speed_profile_allowed=True, task_limit_m_s=None):
         """Follow geometry at command time, not at frame-receive time.
 
         Extrapolate ONLY valid measured body twist over the measured processing
@@ -493,15 +493,21 @@ class SteeringControl:
                 and abs(self.status.get('body_speed_m_s',1.))<=.006
                 and abs(self.status.get('body_yaw_rad_s',1.))<=.025)
             planning_target = dict(result, control_confidence=control_confidence)
+            if self.speed_control.controller == 'DWPP' and target_scale < 1.:
+                target_limit = self.speed_control.limits.maximum_m_s * max(0.,target_scale)
+                clearance_limit = target_limit if clearance_limit is None else min(clearance_limit,target_limit)
             if sigma_profile is not None:
                 planning_target["reference_sigma_m"] = support_sigma
             planned = self.speed_control.command(
                 planning_target, path, self.observed_at + age_s,
                 self.status.get('body_speed_m_s'), self.requested + self.trim,
                 support_sigma + prediction_sigma, self.body[0] if self.body else self.width,
-                eligible=(speed_profile_allowed and target_scale == 1.
-                          and self.status.get('motion_measured',False)
-                          and (resolved_forward_motion or measured_standstill)),
+                eligible=(speed_profile_allowed and (self.speed_control.controller == 'DWPP' or
+                          (target_scale == 1. and self.status.get('motion_measured',False)
+                           and (resolved_forward_motion or measured_standstill)))),
+                motion_feedback=bool(self.status.get('motion_measured',False)
+                                     and (resolved_forward_motion or measured_standstill)),
+                task_limit_m_s=task_limit_m_s,
                 high_confidence=(boost_ready and observation_quality >= .75
                     and abs(self.lever * (self.requested + self.trim)) <= .18),
                 clearance_limit_m_s=clearance_limit,
@@ -509,7 +515,7 @@ class SteeringControl:
             )
             if not speed_profile_allowed:
                 self.speed_control.status['reason'] = 'TASK_OWNS_SPEED'
-            elif not resolved_forward_motion and not measured_standstill:
+            elif self.speed_control.controller != 'DWPP' and not resolved_forward_motion and not measured_standstill:
                 self.speed_control.status['reason'] = 'MEASURED_FORWARD_SPEED_UNRESOLVED'
             self.status['speed_profile_control'] = self.speed_control.status
             self.status['confidence_speed_limit_m_s']=self.speed_control.status.get('confidence_ceiling_m_s')
@@ -545,6 +551,13 @@ class SteeringControl:
                 return (self._history_output(planned,age_s,support_sigma+prediction_sigma,
                                              positions[-1],envelope)
                         if persistent_recovery else planned)
+            # DISABLED: automatic target_command/legacy PWM fallback for DWPP.
+            # Invalid path/geometry delegates explicitly to active road search;
+            # sensor dropouts and task limits are handled inside DWPP above.
+            if self.speed_control.controller == 'DWPP':
+                self.status['speed_plan'] = dict(mode='DWPP_SEARCH_REQUIRED',
+                                                reason=self.speed_control.status['reason'])
+                return None
         bend = max(
             abs(self.requested + self.trim),
             self.gain * abs(float(result.get("path_curvature_m_inv", 0.0))),

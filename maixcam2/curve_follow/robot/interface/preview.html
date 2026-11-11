@@ -336,11 +336,13 @@ function updateFieldSummary(s,fresh){
   if(['ROAD SEARCH SCANNING','ROAD SEARCH SETTLING','ROAD SEARCH RETRY_WAIT','REACQUIRING ROAD','VISION WAIT','ROAD SEARCH','ROAD NOT FOUND'].includes(s.reason))title='寻路恢复中';
   if(s.reason==='CAUTIOUS FOLLOW')title='低速巡线中';
   const c=d.crosswalk||{};if(['STOPPING','HOLD','RECOVERY_HOLD'].includes(c.phase))title=c.phase==='STOPPING'?'横道刹停中':c.phase==='RECOVERY_HOLD'?'横道停位待核实':'横道停车礼让';
+  if(c.phase==='RECOVERY_APPROACH')title='横道低速接近中';
   if(c.phase==='RECOVERY_PASSING')title='横道低速恢复中';
   detail=lamp.permission?'发车许可已确认，本轮独立巡线。':'小车正在执行本轮任务。';
   if(laps.enabled)detail=`圈数 ${laps.completed_laps??0} / ${laps.total_laps??2}`+(s.reason==='FINISH DISTANCE'?` · 还需约 ${Math.ceil((laps.finish_remaining_m??0)*100)}cm`:'');
   if(c.phase==='HOLD')detail=`停稳亮红灯 ${Number(c.hold_elapsed_s||0).toFixed(1)} / ${Number(c.required_hold_s||3.2).toFixed(1)} 秒`;
   if(c.phase==='RECOVERY_HOLD')detail=c.finish_priority?'横道礼让中，结束后低速继续；当前停位未验证。':'停位尚未核实，当前停留不能算完成礼让。';
+  if(c.phase==='RECOVERY_APPROACH')detail='停车要求仍有效，正在重新确认横道位置。';
   if(c.phase==='RECOVERY_PASSING')detail='停位未验证，按完赛优先低速继续。';
   const plan=(d.steering||{}).speed_profile_control||{};
   if(plan.centerline_confidence<.5&&!['STOPPING','HOLD','RECOVERY_HOLD'].includes(c.phase)){title='慢行更新中线';detail='按中线置信度规划速度，持续观察修正。';}
@@ -451,7 +453,7 @@ async function updateStatus(){
    if(fresh&&s.reason==='WAIT START LIGHT')statusBox.textContent=lamp.permission?'出发许可已锁存，等待道路和电机就绪 · L=0 R=0':((lamp.initial_lamp_state||lockedInitialLampState||initialLampState)==='ON'?'等待当前亮灯稳定并熄灯 · L=0 R=0':'等待亮灯后再次熄灯 · L=0 R=0');
    const crossing=d.crosswalk;
    if(crossing){
-    const phases={SEARCH:'搜索横道',APPROACH:'接近横道',STOPPING:'确认停稳',HOLD:'停车礼让',RECOVERY_HOLD:'停位待核实，尚未完成礼让',RECOVERY_PASSING:'停位未验证，低速继续',PASSING:'通过横道',FAULT:'任务故障'};
+    const phases={SEARCH:'搜索横道',APPROACH:'接近横道',STOPPING:'确认停稳',HOLD:'停车礼让',RECOVERY_HOLD:'停位待核实，尚未完成礼让',RECOVERY_APPROACH:'低速接近，仍需停车',RECOVERY_PASSING:'停位未验证，低速继续',PASSING:'通过横道',FAULT:'任务故障'};
     const distance=crossing.distance_to_body_m;
     const observed=crossing.observation;
     const range=distance!==null&&distance!==undefined?`距车身 ${Math.round(distance*100)}cm`:observed?`距镜头参考点 ${Math.round(observed.near_m*100)}cm`:'';

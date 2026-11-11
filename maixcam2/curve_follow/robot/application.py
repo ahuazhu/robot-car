@@ -35,7 +35,7 @@ def main(app_dir):
     control_frame = runtime.get("control_frame", {})
     crosswalk_task = CrosswalkTask(crosswalk_policy, policy,
         finish_priority=runtime.get("road_search", {}).get("finish_priority", False),
-        recovery_cruise_pwm=settings.search_cruise_pwm)
+        recovery_cruise_pwm=settings.search_cruise_pwm, unified_control=True)
     start_light = StartSignal(runtime.get("start_signal"), app_dir=app_dir)
     lap_config = runtime.get("race", {})
     laps = LapCounter(
@@ -63,7 +63,7 @@ def main(app_dir):
         response_s=crosswalk_policy.speed_response_s,
         straight_cruise=settings.straight_cruise_pwm,
         confirmed_cruise=settings.confirmed_cruise_pwm,
-        speed_control=ProfileSpeedControl.from_settings(settings),
+        speed_control=ProfileSpeedControl.for_driving(settings),
     )
     search = RoadSearch(
         policy,
@@ -208,7 +208,8 @@ def main(app_dir):
             steering_tick = time.monotonic()
             steering.observe(details["ground_motion"], captured, allow_feedback=active)
             command = steering.command(result, age_s=time.monotonic() - captured,
-                                       speed_profile_allowed=crosswalk_task.allows_speed_profile())
+                                       speed_profile_allowed=crosswalk_task.allows_speed_profile(),
+                                       task_limit_m_s=crosswalk_task.motion_speed_limit())
             if (
                 command is None
                 and (steering.status.get("envelope") or {}).get("first_unsafe_m") == 0

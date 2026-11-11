@@ -187,8 +187,9 @@ class ControllerIntegrationTests(unittest.TestCase):
         self.assertGreater(plan['effective_curvature_m_inv'],1.)
         # An obsolete applied command must not enlarge the new window.
         self.control.reset();self.control.applied(.5,(80,80))
-        self.assertIsNone(self.step(now=1.,speed=.2,k=2.))
-        self.assertEqual(self.control.status['reason'],'CONTROL_GAP')
+        self.assertIsNotNone(self.step(now=1.,speed=.2,k=2.))
+        self.assertEqual(self.control.status['motion_state_source'],'GAP_CRAWL_SEED')
+        self.assertEqual(self.control.status['dwpp']['dt_s'],.05)
 
     def test_applied_ramp_scaling_seeds_next_window_and_stop_clears_it(self):
         wheels=self.step()
@@ -213,13 +214,15 @@ class ControllerIntegrationTests(unittest.TestCase):
             self.control.applied(1.01,actual)
             self.assertIsNone(self.control.dwpp_state)
 
-    def test_large_control_gap_and_missing_flow_use_existing_capped_fallback(self):
+    def test_large_control_gap_and_missing_flow_keep_capped_dwpp(self):
         wheels=self.step();self.control.applied(1.01,wheels)
-        self.assertIsNone(self.step(now=1.5))
-        self.assertEqual(self.control.status['reason'],'CONTROL_GAP')
-        self.assertIsNone(self.step(yaw=None))
-        self.assertEqual(self.control.status['reason'],'DWPP_MEASURED_YAW_REQUIRED')
-        self.assertTrue(any(self.control.limit_fallback((80,120))))
+        self.assertIsNotNone(self.step(now=1.5))
+        self.assertEqual(self.control.status['motion_state_source'],'GAP_CRAWL_SEED')
+        self.assertLessEqual(self.control.status['target_speed_m_s'],.075)
+        self.control.reset()
+        self.assertIsNotNone(self.step(yaw=None))
+        self.assertFalse(self.control.status['motion_feedback'])
+        self.assertEqual(self.control.status['motion_state_source'],'CRAWL_SEED')
 
     def test_low_confidence_lowers_speed_without_aging_out_the_path(self):
         self.control.applied(.9,(100,100))
