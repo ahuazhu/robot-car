@@ -14,7 +14,10 @@
     "maximum_m_s": 0.3,
     "lateral_acceleration_m_s2": 0.15,
     "acceleration_m_s2": 0.4,
-    "high_confidence_gain": 2.0
+    "high_confidence_gain": 2.0,
+    "controller": "DWPP",
+    "angular_acceleration_rad_s2": 2.0,
+    "angular_deceleration_rad_s2": 2.0
   },
   "crosswalk": {
     "mode": "yield",

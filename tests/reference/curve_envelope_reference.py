@@ -82,7 +82,8 @@ def envelope_reference(
             self.policy.forward_min_m,
             self.policy.maximum_target_m,
         )
-        if selected is not None:
+        # Preserve the supplied first arc, including a constrained DWPP turn.
+        if i and selected is not None:
             target = selected["point"]
             curvature = 2 * target[1] / max(float(target @ target), 1e-8)
 

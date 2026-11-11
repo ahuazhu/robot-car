@@ -1,6 +1,7 @@
 """One calibrated gain change reaches both pursuit and the body prediction."""
 from tests.support import ROOT
 from tests.support.driving import road, flow
+from dataclasses import replace
 from robot.config import RuntimeSettings
 from robot.control.controller import compensate_pwm
 from robot.navigation.profile_speed_control import ProfileSpeedControl
@@ -11,6 +12,10 @@ import unittest
 class UndersteerGainTests(unittest.TestCase):
     def evaluate(self, curvature, gain):
         settings=RuntimeSettings.load(ROOT/'maixcam2/curve_follow',{})
+        # Isolate the calibrated geometric law from the experimental dynamic
+        # window, whose first command deliberately limits the turn rate.
+        settings=replace(settings,runtime=dict(settings.runtime,speed_profile=dict(
+            settings.runtime['speed_profile'],controller='PURE_PURSUIT')))
         speed=ProfileSpeedControl.from_settings(settings)
         control=SteeringControl(settings.road_policy,[0.,0.],(.075,.105,.085),.3,
             lever=settings.turn_lever,gain=gain,cruise=settings.cruise_pwm,

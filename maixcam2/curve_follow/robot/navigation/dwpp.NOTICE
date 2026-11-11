@@ -1,0 +1,11 @@
+Dynamic Window Pure Pursuit (DWPP)
+
+The velocity-window construction and closest-pursuit-line selection in dwpp.py
+are adapted from Navigation2's dynamic_window_pure_pursuit_functions.hpp:
+https://github.com/ros-navigation/navigation2/tree/main/nav2_regulated_pure_pursuit_controller
+Copyright (c) 2025 Fumiya Ohnishi. Licensed under Apache License, Version 2.0.
+The complete license is included in dwpp.LICENSE beside this file.
+
+robot-car modifications (2026): Python implementation, forward-only wheel-speed
+polygon clipping, hard braking-envelope precedence with explicit overrides,
+applied-command state handling, and integration with confidence/body limits.

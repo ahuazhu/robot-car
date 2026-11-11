@@ -86,7 +86,13 @@ class SteeringControl:
             self.speed_control.applied(now, wheels)
         moving = max(abs(v) for v in wheels) > 0
         saturated = min(wheels) <= 0 and moving
-        self.commands.append((now, self.requested, moving, saturated, tuple(wheels)))
+        expected=self.requested
+        plan=self.status.get('speed_profile_control') or {}
+        if (plan.get('controller')=='DWPP' and plan.get('selected')
+                and plan.get('effective_curvature_m_inv') is not None):
+            # Deliberate dynamic-window turn limiting is not drivetrain bias.
+            expected=plan['effective_curvature_m_inv']-self.trim
+        self.commands.append((now, expected, moving, saturated, tuple(wheels)))
         self.commands = self.commands[-128:]
 
     def observe(self, motion, now, allow_feedback=True):
@@ -461,6 +467,7 @@ class SteeringControl:
                 high_confidence=(boost_ready and observation_quality >= .75
                     and abs(self.lever * (self.requested + self.trim)) <= .18),
                 clearance_limit_m_s=clearance_limit,
+                measured_yaw_rate=self.status.get('body_yaw_rad_s'),
             )
             if not speed_profile_allowed:
                 self.speed_control.status['reason'] = 'TASK_OWNS_SPEED'
@@ -468,10 +475,35 @@ class SteeringControl:
                 self.speed_control.status['reason'] = 'MEASURED_FORWARD_SPEED_UNRESOLVED'
             self.status['speed_profile_control'] = self.speed_control.status
             self.status['confidence_speed_limit_m_s']=self.speed_control.status.get('confidence_ceiling_m_s')
+            self.status.pop('dwpp_envelope',None)
             if planned is not None:
+                plan=self.speed_control.status
+                if (plan.get('controller')=='DWPP' and any(planned)
+                        and abs(plan['effective_curvature_m_inv']-(self.requested+self.trim))>1e-9):
+                    # DWPP can choose a different arc when the desired turn is
+                    # not reachable. Check that actual arc, not the ideal one.
+                    actual=self.envelope(path,plan['effective_curvature_m_inv'],
+                        support_sigma+prediction_sigma,self.width,observed_path=observed,
+                        speed_m_s=self.status.get('speed_upper_m_s'),sensor_transform=transform,
+                        lookahead_m=lookahead)
+                    self.status['dwpp_envelope']=actual
+                    limits=[actual.get('speed_limit_m_s')]
+                    if result.get('history_continuity_evidence') is not None:
+                        actual_candidate=self.envelope(path,plan['effective_curvature_m_inv'],
+                            support_sigma+prediction_sigma,self.width,observed_path=candidate,
+                            speed_m_s=self.status.get('speed_upper_m_s'),sensor_transform=transform,
+                            lookahead_m=lookahead)
+                        limits.append(actual_candidate.get('speed_limit_m_s'))
+                    known=[v for v in limits if v is not None]
+                    if known:
+                        cap=min(known)
+                        if (result.get('road_model') or {}).get('persistent_history'):
+                            cap=max(cap,self.speed_control.limits.maximum_m_s*.1)
+                        planned=self.speed_control.constrain_clearance(planned,cap)
                 self.status.update(envelope=envelope, target_selection='ADAPTIVE_PURSUIT',
                                    target_speed_scale=target_scale,
-                                   speed_plan=dict(mode='PROFILE', boost_eligible=boost_ready))
+                                   speed_plan=dict(mode='DWPP' if plan.get('controller')=='DWPP'
+                                                   else 'PROFILE', boost_eligible=boost_ready))
                 return (self._history_output(planned,age_s,support_sigma+prediction_sigma,
                                              positions[-1],envelope)
                         if persistent_recovery else planned)
@@ -644,7 +676,10 @@ class SteeringControl:
                 self.policy.forward_min_m,
                 self.policy.maximum_target_m,
             )
-            if selected is not None:
+            if i and selected is not None:
+                # The first advance must use the caller's selected curvature.
+                # Recomputing at pose zero would silently replace DWPP's
+                # constrained turn with the ideal pursuit before checking it.
                 target = selected["point"]
                 curvature = self.gain * 2 * target[1] / max(float(target @ target), 1e-8) + self.trim
         poses = np.asarray(poses)

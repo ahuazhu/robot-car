@@ -1,4 +1,4 @@
-"""Current supported-path speed planning and measured body-speed feedback.
+"""Supported-path speed envelope, optional DWPP, and forward-speed feedback.
 
 This scalar regulator cannot authorize a path or bypass mission supervision.
 Steering supplies an already accepted pursuit and body envelope; actual applied
@@ -11,11 +11,13 @@ from robot.core.geometry import arc, describe_curve
 from robot.navigation.supported_path import supported_segment
 from robot.navigation.speed_profile import SpeedLimits, plan_speed_profile
 from robot.core.route_confidence import confidence_speed_factor
+from robot.navigation.dwpp import plan_twist
 
 
 class ProfileSpeedControl:
     def __init__(self, limits, maximum_effort, response_s, maximum_gap_s=.30,
-                 *, high_confidence_gain=1.):
+                 *, high_confidence_gain=1., controller='PURE_PURSUIT',
+                 angular_acceleration=2., angular_deceleration=2.):
         self.limits = limits
         self.maximum_effort = float(maximum_effort)
         self.response_s = float(response_s)
@@ -25,6 +27,15 @@ class ProfileSpeedControl:
                 or not math.isfinite(high_confidence_gain) or not 1 <= high_confidence_gain <= 2):
             raise ValueError('High-confidence tracking gain must be within 1..2')
         self.high_confidence_gain = float(high_confidence_gain)
+        if controller not in ('PURE_PURSUIT','DWPP'):
+            raise ValueError('Unknown path controller')
+        if any(isinstance(v,bool) or not isinstance(v,(int,float))
+               or not math.isfinite(v) or v<=0
+               for v in (angular_acceleration,angular_deceleration)):
+            raise ValueError('Angular acceleration limits must be positive and finite')
+        self.controller=controller
+        self.angular_acceleration=float(angular_acceleration)
+        self.angular_deceleration=float(angular_deceleration)
         if not all(math.isfinite(v) and v > 0 for v in
                    (self.maximum_effort, self.response_s, self.maximum_gap_s)):
             raise ValueError('Invalid speed feedback settings')
@@ -36,7 +47,8 @@ class ProfileSpeedControl:
         if not isinstance(config, dict):
             raise ValueError('speed_profile must be an object')
         unknown = set(config) - {'mode', 'maximum_m_s', 'lateral_acceleration_m_s2',
-                                 'acceleration_m_s2', 'high_confidence_gain'}
+                                 'acceleration_m_s2', 'high_confidence_gain','controller',
+                                 'angular_acceleration_rad_s2','angular_deceleration_rad_s2'}
         if unknown or config.get('mode', 'LEGACY') not in ('LEGACY', 'ACTIVE'):
             raise ValueError('Invalid speed_profile configuration')
         if config.get('mode', 'LEGACY') == 'LEGACY':
@@ -57,26 +69,65 @@ class ProfileSpeedControl:
             float(p.brake_deceleration_m_s2 or .08), p.command_latency_s,
             settings.turn_lever,
         ), 200 - settings.pwm_boost, p.speed_response_s,
-            high_confidence_gain=config.get('high_confidence_gain', 1.))
+            high_confidence_gain=config.get('high_confidence_gain', 1.),
+            controller=config.get('controller','PURE_PURSUIT'),
+            angular_acceleration=config.get('angular_acceleration_rad_s2',2.),
+            angular_deceleration=config.get('angular_deceleration_rad_s2',2.))
 
     def reset(self):
         self.applied_at = None
         self.applied_mean = 0.
         self.reference = None
         self.updated_at = None
-        self.status = dict(mode='ACTIVE', selected=False, reason='NOT_EVALUATED')
+        self.status = dict(mode='ACTIVE',controller=self.controller,selected=False,reason='NOT_EVALUATED')
         self.confidence_status = {}
+        self.dwpp_state = None
+        self.dwpp_proposal = None
 
     def applied(self, now, wheels):
         self.applied_at = float(now)
         self.applied_mean = max(0., sum(wheels) / 2.)
+        if self.controller=='DWPP':
+            proposal=self.dwpp_proposal
+            self.dwpp_proposal=None
+            self.dwpp_state=None
+            if proposal is not None and any(wheels):
+                requested,v,w=proposal
+                norm=sum(x*x for x in requested)
+                scale=sum(a*b for a,b in zip(wheels,requested))/norm if norm else 0.
+                if (0<scale<=1.02 and max(abs(a-scale*b) for a,b in zip(wheels,requested))<=1.5):
+                    # Command-domain estimate after the shared motor ramp or
+                    # task scaling. It is not measured wheel/body velocity.
+                    self.dwpp_state=(float(now),v*min(1.,scale),w*min(1.,scale))
         if not any(wheels):
             self.reference = self.updated_at = None
 
     def fallback(self, reason):
         self.reference = self.updated_at = None
-        self.status = dict(mode='ACTIVE', selected=False, reason=reason,**self.confidence_status)
+        self.dwpp_proposal=self.dwpp_state=None
+        self.status = dict(mode='ACTIVE',controller=self.controller,selected=False,
+                           reason=reason,**self.confidence_status)
         return None
+
+    def constrain_clearance(self, command, ceiling):
+        """Brake a chosen arc after its actual curvature's body sweep is checked.
+
+        A common scale keeps that checked arc unchanged. As with any emergency
+        speed reduction, braking can override the nominal acceleration window;
+        the exception is explicit in telemetry and cannot authorize motion.
+        """
+        if self.controller!='DWPP' or self.dwpp_proposal is None:return command
+        requested,v,w=self.dwpp_proposal
+        if v<=ceiling:return command
+        scale=max(0.,ceiling/v)
+        wheels=tuple(round(x*scale) for x in command)
+        self.reference=v*scale
+        self.dwpp_proposal=(wheels,v*scale,w*scale)
+        self.status.update(reason='BODY_CLEARANCE',ceiling_m_s=ceiling,
+                           target_speed_m_s=v*scale,reference_angular_rad_s=w*scale,
+                           requested_wheels=list(wheels),effort_mean_pwm=sum(wheels)/2.)
+        self.status['dwpp']['overrides'].append('BODY_SWEEP_BRAKING')
+        return wheels
 
     def limit_fallback(self, command):
         """Use the same normalized envelope when measured-speed feedback is unavailable."""
@@ -88,7 +139,8 @@ class ProfileSpeedControl:
         return tuple(round(v*scale) for v in command)
 
     def command(self, target, path, now, measured_speed, curvature, sigma, front_margin,
-                eligible, high_confidence=False, *, clearance_limit_m_s=None):
+                eligible, high_confidence=False, *, clearance_limit_m_s=None,
+                measured_yaw_rate=None):
         try:
             confidence=float(target.get('control_confidence',target.get('confidence',1.)))
             length=(target.get('road_model') or {}).get('length_m')
@@ -150,14 +202,42 @@ class ProfileSpeedControl:
         # path authorization still belongs to steering's original body checks.
         ceiling = min(plan.entry_limit_m_s,
                       self.limits.maximum_m_s / (1 + abs(ratio)))
-        dt = .05 if self.updated_at is None else now - self.updated_at
+        if self.controller=='DWPP':
+            if measured_yaw_rate is None or not math.isfinite(measured_yaw_rate):
+                return self.fallback('DWPP_MEASURED_YAW_REQUIRED')
+            dt=.05 if self.dwpp_state is None else now-self.dwpp_state[0]
+        else:
+            dt = .05 if self.updated_at is None else now - self.updated_at
         if not 0 < dt < self.maximum_gap_s:
             return self.fallback('CONTROL_GAP')
         fast_path = bool(high_confidence and confidence >= .8 and positions[-1] >= .40)
         reference_acceleration = self.limits.acceleration_m_s2 * (
             self.high_confidence_gain if fast_path else 1.)
         previous_reference = max(0., measured_speed) if self.reference is None else self.reference
-        reference = min(ceiling, previous_reference + reference_acceleration * dt)
+        dwpp_status=None
+        if self.controller=='DWPP':
+            source='APPLIED_REFERENCE' if self.dwpp_state is not None else 'MEASURED_SEED'
+            current=(self.dwpp_state[1:] if self.dwpp_state is not None else
+                     (min(self.limits.maximum_m_s,max(0.,measured_speed)),
+                      max(-self.limits.maximum_m_s/self.limits.turn_lever_m,
+                          min(self.limits.maximum_m_s/self.limits.turn_lever_m,measured_yaw_rate))))
+            solution=plan_twist(*current,curvature,ceiling,dt,
+                maximum=self.limits.maximum_m_s,lever=self.limits.turn_lever_m,
+                acceleration=reference_acceleration,deceleration=self.limits.deceleration_m_s2,
+                angular_acceleration=self.angular_acceleration,angular_deceleration=self.angular_deceleration)
+            reference=solution.linear
+            if reference<=1e-10:
+                return self.fallback('DWPP_NO_FORWARD_REFERENCE')
+            ratio=self.limits.turn_lever_m*solution.angular/reference
+            # Reference/effort conversion preserves the selected wheel ratio.
+            ratio=max(-1.,min(1.,ratio))
+            dwpp_status=dict(source=source,current_linear_m_s=current[0],current_angular_rad_s=current[1],
+                dt_s=dt,window=dict(v_min=solution.window.v_min,v_max=solution.window.v_max,
+                    w_min=solution.window.w_min,w_max=solution.window.w_max),
+                intersection=solution.intersection,overrides=list(solution.overrides),
+                requested_curvature_m_inv=curvature,selected_curvature_m_inv=solution.curvature)
+        else:
+            reference = min(ceiling, previous_reference + reference_acceleration * dt)
         actual = (self.applied_mean if self.applied_at is not None
                   and 0 <= now - self.applied_at < self.maximum_gap_s else 0.)
         # Extra effort closes a positive speed error on an independently
@@ -173,7 +253,7 @@ class ProfileSpeedControl:
         wheels = (round(mean * (1 - ratio)), round(mean * (1 + ratio)))
         self.reference, self.updated_at = reference, now
         self.status = dict(
-            mode='ACTIVE', selected=True, reason=plan.entry_reason,
+            mode='ACTIVE',controller=self.controller,selected=True,reason=plan.entry_reason,
             target_speed_m_s=reference, ceiling_m_s=ceiling,
             measured_speed_m_s=float(measured_speed), initial_overspeed=plan.initial_overspeed,
             supported_length_m=float(positions[-1]),
@@ -185,4 +265,8 @@ class ProfileSpeedControl:
             reference_acceleration_m_s2=reference_acceleration,
             **self.confidence_status,
         )
+        if dwpp_status is not None:
+            self.status.update(dwpp=dwpp_status,reference_angular_rad_s=solution.angular,
+                               effective_curvature_m_inv=solution.curvature)
+            self.dwpp_proposal=(wheels,solution.linear,solution.angular)
         return wheels
