@@ -6,6 +6,8 @@ Construct before camera/display initialization; only the child uses the TTY.
 import multiprocessing
 import time
 
+from robot.core.road_policy import MAX_PREDICTION_COMMAND_S
+
 
 def _motor_error(state, message):
     data = str(message).encode("utf-8")[:255]
@@ -111,6 +113,7 @@ def _motor_worker(transport, state, connection, closed, period, fresh_seconds, s
 class MotorChannel:
     def __init__(self, transport, period=0.04, fresh_seconds=0.30, stop_seconds=0.60):
         self.transport = transport
+        self.fresh_seconds = float(fresh_seconds)
         # Linux device: fork before any camera/display resources exist. The child
         # uses POSIX TTY calls only, never inherited Maix camera or display APIs.
         ctx = multiprocessing.get_context("fork")
@@ -156,7 +159,12 @@ class MotorChannel:
         if self.unusable or self.closed.is_set() or not self.worker.is_alive():
             raise RuntimeError("Motor process unavailable")
         if op == 2:
-            if lease_s is not None and not 0 < float(lease_s) <= 0.15:
+            # Recovery rotations retain their short limit; forward prediction
+            # may bridge one camera interval within the independent watchdog.
+            maximum = min(self.fresh_seconds, MAX_PREDICTION_COMMAND_S)
+            if left * right < 0:
+                maximum = min(maximum, 0.15)
+            if lease_s is not None and not 0 < float(lease_s) <= maximum:
                 raise ValueError("Invalid bounded motion lease")
             with self.state["lock"]:
                 v = self.state["values"]

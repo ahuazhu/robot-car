@@ -51,6 +51,7 @@ class RoadSearch:
         search_policy=None,
         *,
         allow_visual_scan=False,
+        finish_priority=False,
     ):
         self.policy = policy
         self.origin = np.asarray(origin, float)
@@ -60,7 +61,11 @@ class RoadSearch:
         self.response_s = response_s
         self.limits = search_policy or SearchPolicy()
         self.allow_visual_scan = bool(allow_visual_scan)
-        self.scan = BoundedVisualScan(policy, cruise, response_s, self.limits.yaw_rate_rad_s)
+        self.finish_priority = bool(finish_priority)
+        self.scan = BoundedVisualScan(
+            policy, cruise, response_s, self.limits.yaw_rate_rad_s,
+            finish_priority=self.finish_priority,
+        )
         self.patches = []
         self.pose_hint = None
         self.now = 0.0
@@ -307,6 +312,23 @@ class RoadSearch:
         self.space_source = "LOCAL_POSE_ESTIMATE"
         return True
 
+    def _follow(self, result, follow, *, recovering=False):
+        self.reset()
+        quality = float(result.get("observation_confidence") or 0.0)
+        cautious = self.finish_priority and (
+            recovering or result.get("state") == "PREDICTED"
+            or result.get("transition_pending") or not math.isfinite(quality)
+            or quality < self.policy.confirmation_quality
+        )
+        if cautious and follow is not None and any(follow):
+            scale = min(1.0, self.cruise / max(abs(value) for value in follow))
+            follow = tuple(round(value * scale) for value in follow)
+            self.status = dict(
+                phase="CAUTIOUS", reason="RECOVERED PATH" if recovering else "LOW CONFIDENCE PATH",
+                search_pending=True, lease_s=None,
+            )
+        return follow
+
     def command(self, result, follow, motion, now, *, active=False, allowed=True, stopped=False):
         self.last_action = False
         self._map_proposal = None
@@ -314,23 +336,37 @@ class RoadSearch:
             self.reset()
             return follow
         if self.scan.began is not None:
+            if (
+                self.finish_priority and follow is not None and any(follow)
+                and result.get("valid") and result.get("state") == "PREDICTED"
+                and result.get("invalid_reason") != "BODY ENVELOPE BLOCKED"
+            ):
+                # Steering has already checked this historical curve's body,
+                # motion and remaining lease. Search cannot impose a second
+                # fresh-observation streak on a usable prediction. Session
+                # still applies task limits and the original prediction lease.
+                return self._follow(result, follow, recovering=True)
             command = self.scan.command(
                 result, follow, motion, now, allowed=allowed, stopped=stopped, hint=self.last_hint
             )
             if self.scan.began is None:
-                self.reset()
+                return self._follow(result, command, recovering=True)
             return command
-        if follow is not None:
-            self.reset()
-            return follow
+        blocked = self.finish_priority and result.get("invalid_reason") == "BODY ENVELOPE BLOCKED"
+        if follow is not None and not blocked:
+            return self._follow(result, follow)
         if not allowed:
             self.status = dict(
                 phase="TASK_WAIT", reason="YIELD TASK OWNS STOP", search_pending=False, lease_s=None
             )
             return None
         if self.finished:
+            if self.finish_priority and self.allow_visual_scan:
+                return self.scan.start(motion, now, stopped, self.last_hint)
             return None
         if self.allow_visual_scan and result.get("invalid_reason") == "BODY ENVELOPE BLOCKED":
+            if self.finish_priority:
+                return self.scan.start(motion, now, stopped, self.last_hint)
             self.status = dict(
                 phase="WAIT_EVIDENCE",
                 reason="BODY ENVELOPE BLOCKED",
@@ -373,6 +409,8 @@ class RoadSearch:
             and rate < self.limits.yaw_rate_rad_s / 4
         )
         if self.began is None and not resting:
+            if self.finish_priority and self.allow_visual_scan:
+                return self.scan.start(motion, now, stopped, self.last_hint)
             self.status = dict(
                 phase="SETTLING", reason="WAIT FOR MEASURED REST", search_pending=True, lease_s=None
             )

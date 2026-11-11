@@ -370,6 +370,8 @@ class DrivingSession:
             return "ROAD SEARCH " + self.search.snapshot()["phase"]
         if self.settings.crosswalk_policy.mode == "yield" and self.crosswalk.track:
             return "CROSSWALK " + self.crosswalk.phase
+        if self.search.snapshot().get("phase") == "CAUTIOUS":
+            return "CAUTIOUS FOLLOW"
         return "CURVE HANDOFF" if frame.result.get("transition_pending") else frame.result["mode"]
 
     def _poll_idle(self):

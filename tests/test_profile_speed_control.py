@@ -23,9 +23,11 @@ class ProfileControlTests(unittest.TestCase):
         self.target = road(reference_sigma_m=.005)
         self.path = self.target['control_path_m']
 
-    def step(self, now=.2, speed=.1, curvature=0., target=None, path=None, eligible=True):
+    def step(self, now=.2, speed=.1, curvature=0., target=None, path=None, eligible=True,
+             high_confidence=False):
         return self.control.command(self.target if target is None else target,
-            self.path if path is None else path, now, speed, curvature, .005, .075, eligible)
+            self.path if path is None else path, now, speed, curvature, .005, .075, eligible,
+            high_confidence=high_confidence)
 
     def test_enabled_configuration_and_explicit_legacy_rollback(self):
         settings = RuntimeSettings.load(ROOT/'maixcam2/curve_follow', {})
@@ -33,6 +35,7 @@ class ProfileControlTests(unittest.TestCase):
         self.assertIsNotNone(active)
         self.assertEqual(active.limits.deceleration_m_s2, .2)
         self.assertEqual(active.limits.maximum_m_s, .3)
+        self.assertEqual(active.high_confidence_gain, 1.5)
         self.assertIsNone(ProfileSpeedControl.from_settings(replace(settings,
             runtime=dict(settings.runtime, speed_profile={'mode':'LEGACY'}))))
         for config in ({'mode':'ACTVE'}, {'mode':'ACTIVE','maximum_m_s':.4},
@@ -40,6 +43,58 @@ class ProfileControlTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 ProfileSpeedControl.from_settings(replace(settings,
                     runtime=dict(settings.runtime, speed_profile=config)))
+
+    def test_high_confidence_closes_speed_error_faster_with_identical_speed_envelope(self):
+        outputs, statuses = [], []
+        for tracking in (1., 1.5):
+            self.control = ProfileSpeedControl(self.limits, 163, .4,
+                                               high_confidence_gain=tracking)
+            self.control.applied(.1, (70, 70))
+            self.step(speed=.15, high_confidence=True)
+            self.control.applied(.3, (70, 70))
+            outputs.append(self.step(now=.4, speed=.15, high_confidence=True))
+            statuses.append(self.control.status)
+        self.assertGreater(sum(outputs[1]), sum(outputs[0]))
+        self.assertEqual(statuses[0]['ceiling_m_s'], statuses[1]['ceiling_m_s'])
+        self.assertGreater(statuses[1]['target_speed_m_s'], statuses[0]['target_speed_m_s'])
+        self.assertTrue(statuses[1]['high_confidence_boost'])
+        self.assertLessEqual(max(compensate_pwm(outputs[1])), 200)
+
+    def test_lower_confidence_short_support_and_overspeed_get_no_extra_effort(self):
+        for args in ({'high_confidence':False}, {'high_confidence':True,'speed':.4},
+                     {'high_confidence':True, 'path':self.path[:30],
+                      'target':dict(self.target,path_observed_mask=[True]*30)}):
+            outputs=[]
+            for gain in (1., 1.5):
+                self.control=ProfileSpeedControl(self.limits,163,.4,high_confidence_gain=gain)
+                self.control.applied(.1,(70,70))
+                outputs.append(self.step(**args))
+            self.assertEqual(outputs[0],outputs[1])
+            self.assertFalse(self.control.status.get('high_confidence_boost',False))
+
+    def test_invalid_high_confidence_gain_is_rejected(self):
+        for gain in (0., .9, 2.1, True, '1.5', float('nan')):
+            with self.subTest(gain=gain), self.assertRaises(ValueError):
+                ProfileSpeedControl(self.limits,163,.4,high_confidence_gain=gain)
+
+    def test_live_steering_only_boosts_confirmed_gentle_measured_path(self):
+        for quality, curvature, measured, allowed, expected in (
+            (.9,0.,True,True,True), (.7,0.,True,True,False),
+            (.9,4.,True,True,False), (.9,0.,False,True,False),
+            (.9,0.,True,False,False),
+        ):
+            with self.subTest(quality=quality,curvature=curvature,measured=measured,allowed=allowed):
+                control=ProfileSpeedControl(self.limits,163,.4,high_confidence_gain=1.5)
+                steering=SteeringControl(RoadPolicy(),[0.,0.],(.075,.105,.085),.3,
+                    cruise=120,straight_cruise=163,confirmed_cruise=140,speed_control=control)
+                target=road(curvature,reference_sigma_m=.005,confidence=quality,
+                            observation_confidence=quality)
+                for now in (1.,1.2,1.4,1.6):
+                    scene=dict(motion(.1,.02),valid=measured,interval_s=.2)
+                    steering.observe(scene,now,False)
+                    steering.applied(now-.02,(60,60))
+                    steering.command(target,.1,speed_profile_allowed=allowed)
+                self.assertEqual(control.status.get('high_confidence_boost',False),expected)
 
     def test_future_bend_changes_actual_requested_speed_before_steering_turns(self):
         self.control.applied(.1, (70, 70))
@@ -102,12 +157,18 @@ class ProfileControlTests(unittest.TestCase):
             self.assertLessEqual(self.control.status['ceiling_m_s']*(1+abs(.15*curvature)),.3+1e-9)
 
     def test_feedback_converges_with_camera_lag_and_motor_deadzone(self):
-        for dt in (.15,.22,.28):
-            self.control.reset();ramp=CommandRamp();speed=0.;measured=0.;history=[]
+        for dt, acceleration, rise, tracking_gain in (
+            (dt, acceleration, rise, tracking_gain) for dt in (.15, .22, .28)
+            for acceleration, rise, tracking_gain in ((.3,180,1.),(.4,240,1.),(.4,240,1.5))
+        ):
+            self.control = ProfileSpeedControl(
+                replace(self.limits, acceleration_m_s2=acceleration), 163, .4,
+                high_confidence_gain=tracking_gain)
+            ramp=CommandRamp(rise);speed=0.;measured=0.;history=[]
             for i in range(100):
                 now=i*dt
                 self.control.applied(now-.02,ramp.previous)
-                wheels=self.step(now=now,speed=measured)
+                wheels=self.step(now=now,speed=measured,high_confidence=True)
                 if wheels is None:self.fail(self.control.status)
                 actual=compensate_pwm(ramp.apply(wheels,now))
                 desired=max(0.,(sum(actual)/2-20)*.0017) if any(actual) else 0.

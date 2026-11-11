@@ -33,7 +33,9 @@ def main(app_dir):
     road_cal = settings.road_calibration
     overlay_inverse = np.linalg.inv(np.asarray(cal["H_normalized"]))
     control_frame = runtime.get("control_frame", {})
-    crosswalk_task = CrosswalkTask(crosswalk_policy)
+    crosswalk_task = CrosswalkTask(crosswalk_policy, policy,
+        finish_priority=runtime.get("road_search", {}).get("finish_priority", False),
+        recovery_cruise_pwm=settings.search_cruise_pwm)
     start_light = StartSignal(runtime.get("start_signal"), app_dir=app_dir)
     lap_config = runtime.get("race", {})
     laps = LapCounter(
@@ -71,8 +73,9 @@ def main(app_dir):
         settings.search_cruise_pwm,
         crosswalk_policy.speed_response_s,
         allow_visual_scan=runtime.get("road_search", {}).get("allow_visual_scan", False),
+        finish_priority=runtime.get("road_search", {}).get("finish_priority", False),
     )
-    speed_observer = SpeedObserver(settings)
+    speed_observer = SpeedObserver(settings, enabled=steering.speed_control is None)
     backend = native_fit_status()
     print("GEOMETRY_BACKEND", json.dumps(backend), flush=True)
     cv2.setNumThreads(1)
@@ -88,7 +91,7 @@ def main(app_dir):
     began = time.monotonic()
     frames = observed_frames = 0
     saved, stats = set(), {}
-    ramp, recovery = CommandRamp(), RoadSupervisor(policy.missing_command_s)
+    ramp, recovery = CommandRamp(settings.motor_rise_pwm_s), RoadSupervisor(policy.missing_command_s)
     try:
         stream = LiveStream(8000, lamp_signal=start_light)
         session = DrivingSession(
@@ -163,7 +166,8 @@ def main(app_dir):
             profile_ms["lap_counter"] = round((time.perf_counter() - lap_tick) * 1000, 2)
             crosswalk_tick = time.perf_counter()
             crossing = crosswalk_detector.detect(
-                details, details.get("measured_road") or result, captured
+                details, details.get("measured_road") or result, captured,
+                reference=crosswalk_task.detection_reference(details.get("ground_motion"), captured),
             )
             actual_ack = motor_before.get("ack", []) if motor_before else []
             zero_ack = bool(
@@ -196,7 +200,7 @@ def main(app_dir):
             steering_tick = time.monotonic()
             steering.observe(details["ground_motion"], captured, allow_feedback=active)
             command = steering.command(result, age_s=time.monotonic() - captured,
-                                       speed_profile_allowed=crosswalk_task.allows_road_search())
+                                       speed_profile_allowed=crosswalk_task.allows_speed_profile())
             if (
                 command is None
                 and (steering.status.get("envelope") or {}).get("first_unsafe_m") == 0

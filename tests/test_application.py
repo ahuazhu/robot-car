@@ -31,6 +31,8 @@ class RuntimeSettingsTests(unittest.TestCase):
             (120.0, 140.0, 163.0, 37),
         )
         self.assertEqual(settings.runtime["race"]["finish_distance_m"], 0.4)
+        self.assertEqual(settings.motor_rise_pwm_s, 240)
+        self.assertEqual(settings.runtime['speed_profile']['acceleration_m_s2'], .4)
 
     def test_preview_override_and_calibration_gate_both_prevent_driving(self):
         self.assertTrue(RuntimeSettings.load(APP_ROOT, {"TARGET_PREVIEW_ONLY": "1"}).preview_only)
@@ -262,6 +264,8 @@ class ApplicationBoundaryTests(unittest.TestCase):
             shadow = published["speed_profile_shadow"]
             self.assertEqual(shadow["source_frame"], published["frame"])
             self.assertFalse(shadow["controls_motor"])
+            self.assertEqual(shadow["mode"], "DISABLED")
+            self.assertEqual(shadow["reason"], "ACTIVE_PROFILE_OWNS_SPEED")
             self.assertIn("speed_profile_shadow", published["profile_ms"])
         self.assertEqual(run.stream.publications[-1], json.loads(json.dumps(run.stream.metrics)))
 
@@ -295,15 +299,16 @@ class ApplicationBoundaryTests(unittest.TestCase):
         self.assertEqual(run.controls, [1, 2, 3, 4])
         self.assertFalse(run.stream.control.status()["active"])
 
-    def test_shadow_failure_does_not_change_control_or_stop_handling(self):
+    def test_active_mode_never_enters_shadow_geometry_or_changes_stop_handling(self):
         options = dict(frames=4, preview=False, touch_actions={2: "start", 4: "stop"})
         ordinary = self.run_application(**options)
-        with patch("robot.navigation.speed_observer.supported_segment", side_effect=RuntimeError):
+        with patch("robot.navigation.speed_observer.supported_segment", side_effect=RuntimeError) as shadow:
             failed = self.run_application(**options)
+        shadow.assert_not_called()
         self.assertEqual(ordinary.events, failed.events)
         self.assertEqual(ordinary.controls, failed.controls)
         self.assertEqual(ordinary.stops, failed.stops)
-        self.assertEqual(failed.stream.metrics["speed_profile_shadow"]["reason"], "ANALYSIS_ERROR")
+        self.assertEqual(failed.stream.metrics["speed_profile_shadow"]["reason"], "ACTIVE_PROFILE_OWNS_SPEED")
 
     def test_arm_and_stop_refresh_screen_immediately_between_display_deadlines(self):
         run = self.run_application(4, preview=False, touch_actions={2: "start", 4: "stop"})

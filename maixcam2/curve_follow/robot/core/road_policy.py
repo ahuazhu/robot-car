@@ -8,6 +8,8 @@ Calibration and actuator configuration remain separate from image thresholds.
 import math
 from dataclasses import dataclass, fields
 
+MAX_PREDICTION_COMMAND_S = 0.25
+
 
 @dataclass(frozen=True)
 class RoadPolicy:
@@ -24,6 +26,7 @@ class RoadPolicy:
     prediction_noise_m_s: float = 0.04
     maximum_prediction_s: float = 0.60
     maximum_blind_distance_m: float = 0.05
+    maximum_prediction_command_s: float = 0.15
     confidence_decay_s: float = 0.45
     confirmation_evidence: float = 1.5
     stopped_confirmation_frames: int = 4
@@ -95,6 +98,8 @@ class RoadPolicy:
             or policy.motion_min_inlier_fraction > 1
             or policy.motion_min_features < 3
             or policy.motion_min_features > policy.motion_max_features
+            or policy.maximum_prediction_command_s > MAX_PREDICTION_COMMAND_S
+            or policy.maximum_prediction_command_s > policy.missing_command_s
         ):
             raise ValueError("Inconsistent road_model limits")
         return policy

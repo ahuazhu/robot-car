@@ -130,7 +130,18 @@ class SearchHintTests(unittest.TestCase):
                         {k: v for k, v in b.items() if k != "path"},
                     )
             elif key == "scan":
-                self.assertEqual(vars(actual), vars(expected), key)
+                # Compare state values, not the identity of the nested visual
+                # rest accumulator copied for this idle-observation check.
+                self.assertEqual(
+                    {k: v for k, v in vars(actual).items() if k != "measured_rest"},
+                    {k: v for k, v in vars(expected).items() if k != "measured_rest"},
+                )
+                for name, value in vars(expected.measured_rest).items():
+                    observed = getattr(actual.measured_rest, name)
+                    if isinstance(value, np.ndarray):
+                        np.testing.assert_array_equal(observed, value)
+                    else:
+                        self.assertEqual(observed, value, name)
             else:
                 self.assertEqual(actual, expected, key)
 

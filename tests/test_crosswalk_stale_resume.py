@@ -40,13 +40,15 @@ class StaleCrosswalkResumeTests(unittest.TestCase):
         self.assertNotEqual(s["phase"], "APPROACH")
         self.assertEqual(t.limit_command((60, 80), s, motion()), (0, 0))
 
-    def test_current_but_coarse_far_pose_is_not_a_movement_authorization(self):
+    def test_fresh_coarse_pose_can_reapproach_when_entire_interval_is_far(self):
         t = self.task()
         obs = observation(95.1, 0.60)
         obs["sigma_m"] = 0.05
         s = t.update(obs, motion(), 95.1, True, True, True, True)
-        self.assertEqual(s["phase"], "STOPPING")
-        self.assertEqual(t.limit_command((60, 80), s, motion()), (0, 0))
+        self.assertEqual(s["phase"], "APPROACH")
+        self.assertGreater(s["clearance_interval_m"][0], .20)
+        self.assertNotEqual(t.limit_command((60, 80), s, motion()), (0, 0))
+        self.assertFalse(s["yield_completed"])
 
     def test_repeated_expired_observation_cannot_authorize_reapproach(self):
         t = self.task()

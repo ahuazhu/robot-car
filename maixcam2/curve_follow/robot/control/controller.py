@@ -19,6 +19,9 @@ class CommandRamp:
     MAX_CONTINUOUS_INTERVAL_S = 0.30
 
     def __init__(self, rise_pwm_s=180.0):
+        if (isinstance(rise_pwm_s, bool) or not isinstance(rise_pwm_s, (int, float))
+                or not math.isfinite(rise_pwm_s) or rise_pwm_s <= 0):
+            raise ValueError("Motor effort rise rate must be positive and finite")
         self.rise_pwm_s = rise_pwm_s
         self.reset()
 

@@ -6,12 +6,14 @@ No route, frame number, image row or elapsed lap time is a trigger.
 """
 
 from dataclasses import dataclass, fields
+from itertools import combinations
 import math
 from statistics import median
 import cv2
 import numpy as np
 
 from robot.core.stationarity import StationaryEvidence
+from robot.core.road_policy import RoadPolicy
 
 
 # Original race rules, visual racing IV.1(3): whole-body projection strictly
@@ -128,6 +130,31 @@ def crosswalk_body_support(normal, policy):
     ) * float(policy.body_half_width_m)
 
 
+def crosswalk_clearance_interval(observation, policy):
+    """Whole-body distance bounds, independent of observation age/precision gates."""
+    if observation is None or any(getattr(policy, name) is None for name in
+                                  ("body_front_m", "body_rear_m", "body_half_width_m")):
+        return None
+    normal = np.asarray(observation["normal"], float)
+    sigma = float(observation["sigma_m"])
+    near = float(observation["near_m"])
+    if (normal.shape != (2,) or not np.isfinite(normal).all()
+            or not math.isfinite(near) or not math.isfinite(sigma) or sigma < 0):
+        return None
+    clearance = near - crosswalk_body_support(normal, policy)
+    return [clearance - sigma, clearance + sigma]
+
+
+def _transport_error(previous, measured, dt, stationary):
+    # Repeated measurements of the same stopped scene are not independent
+    # driving increments. Preserve the existing bound; never make an uncertain
+    # pose precise simply because the motors stopped. Actual transforms still
+    # move the geometry, including small coherent translation and rotation.
+    if stationary:
+        return max(previous, measured)
+    return math.hypot(previous, measured) + 0.001 * max(0.0, dt)
+
+
 def crosswalk_closing_speed(normal, motion, policy):
     """Rate of whole-body clearance loss, not total camera translation speed.
 
@@ -171,7 +198,7 @@ class CrosswalkDetector:
         self._metric_points[:, :, 1] = pixels.ys[None, :]
         self.status = dict(reason="NOT_RUN", passes=[])
 
-    def detect(self, details, road, now):
+    def detect(self, details, road, now, reference=None):
         p = self.policy
         grid = self.pixels
         bird = details.get("bird")
@@ -214,11 +241,11 @@ class CrosswalkDetector:
             if values is None:
                 continue
             best = self._detect_value(
-                values, saturation, corridor, path, tangent, now, source, eligible
+                values, saturation, corridor, path, tangent, now, source, eligible, reference
             )
             if best is not None:
                 self.status.update(
-                    reason="DETECTED",
+                    reason="TRACKING_CANDIDATE" if best.get("tracking_only") else "DETECTED",
                     source=source,
                     bar_count=best["bar_count"],
                     near_m=best["near_m"],
@@ -231,10 +258,64 @@ class CrosswalkDetector:
         )
         return None
 
-    def _detect_value(self, value, saturation, corridor, path, tangent, now, source, eligible=None):
+    def _track_candidate(self, candidate, reference):
+        if reference is None or not reference.get("event_id"):
+            return None
+        p = self.policy
+        if (np.dot(candidate["normal"], reference["normal"]) < .98
+                or abs(candidate["near_m"] - reference["near_m"]) > p.association_m
+                or abs(candidate["far_m"] - reference["far_m"]) > p.association_m):
+            return None
+        # Match a rigid subset of the confirmed bar layout. A shared bounded
+        # correction can repair a short optical-flow gap; three unrelated
+        # nearest-neighbour hits cannot. Lateral pitch ambiguity does not move
+        # the front line: near/far agreement is checked independently above.
+        before = np.asarray(reference.get("corners", []), float)
+        current = np.asarray(candidate["corners"], float)
+        if (before.ndim != 2 or before.shape[1:] != (2,) or not 12 <= len(before) <= 28
+                or len(before) % 4 or not np.isfinite(before).all()):
+            return None
+        old_centers = before.reshape(-1, 4, 2).mean(axis=1)
+        centers = current.reshape(-1, 4, 2).mean(axis=1)
+        a, b = np.asarray(reference["normal"]), np.asarray(candidate["normal"])
+        cosine, sine = float(a @ b), float(a[0] * b[1] - a[1] * b[0])
+        rotation = np.array([[cosine, sine], [-sine, cosine]])
+        old_centers = old_centers @ rotation
+        lateral = np.array([-b[1], b[0]])
+        old_centers = old_centers[np.argsort(old_centers @ lateral)]
+        centers = centers[np.argsort(centers @ lateral)]
+        indices = np.asarray(list(combinations(range(len(old_centers)), len(centers))), int)
+        if not len(indices):
+            return None
+        differences = centers[None] - old_centers[indices]
+        shifts = differences.mean(axis=1)
+        residuals = np.linalg.norm(differences - shifts[:, None], axis=2).max(axis=1)
+        valid = ((np.linalg.norm(shifts, axis=1) <= p.association_m)
+                 & (residuals <= max(p.distance_error_m, 2 * self.pixels.step)))
+        if not np.any(valid):
+            return None
+        best = min(np.flatnonzero(valid), key=lambda i: (residuals[i], np.linalg.norm(shifts[i])))
+        template = before @ rotation + shifts[best]
+        projections = template @ b
+        near, far = float(projections.min()), float(projections.max())
+        # Keep the complete known front edge, including bars now outside the
+        # image. Replacing it by the visible subset can move the stopping line
+        # farther away on every frame. Alternative pitch matches and the
+        # current image's front edge enlarge the bound, never disappear.
+        possible_near = (before @ rotation @ b).min() + shifts[valid] @ b
+        error = max(float(np.max(abs(possible_near - near))), abs(candidate["near_m"] - near),
+                    float(residuals[best]))
+        return dict(candidate, near_m=near, far_m=max(far, candidate["far_m"]),
+                    sigma_m=candidate["sigma_m"] + error, corners=template.tolist(),
+                    observed_corners=candidate["corners"], tracking_only=True,
+                    event_id=reference["event_id"])
+
+    def _detect_value(self, value, saturation, corridor, path, tangent, now, source,
+                      eligible=None, reference=None):
         p = self.policy
         grid = self.pixels
         best = None
+        minimum_bars = 3 if reference is not None else p.minimum_bars
         if eligible is None:
             eligible = (saturation <= 105) & grid.visible & (corridor != 0)
         for level in grid.white_value_levels:
@@ -307,7 +388,7 @@ class CrosswalkDetector:
                     continue
                 evaluated.add(key)
                 group = [bars[int(i)] for i in ids]
-                if len(group) < p.minimum_bars:
+                if len(group) < minimum_bars:
                     continue
                 group.sort(key=lambda b: np.dot(b["center"], normal))
                 lateral = np.array([np.dot(b["center"], normal) for b in group])
@@ -322,7 +403,7 @@ class CrosswalkDetector:
                 chunks = np.split(np.arange(len(group)), np.flatnonzero(~good) + 1)
                 for ids in chunks:
                     stage["largest_group"] = max(stage["largest_group"], len(ids))
-                    if len(ids) < p.minimum_bars:
+                    if len(ids) < minimum_bars:
                         continue
                     selected = [group[int(i)] for i in ids]
                     t = np.mean([b["direction"] for b in selected], axis=0)
@@ -348,6 +429,10 @@ class CrosswalkDetector:
                         bar_width_m=width,
                         corners=corners.tolist(),
                     )
+                    if len(selected) < p.minimum_bars:
+                        candidate = self._track_candidate(candidate, reference)
+                        if candidate is None:
+                            continue
                     if best is None or candidate["confidence"] > best["confidence"]:
                         best = candidate
             # A complete seven-bar observation needs no second photometric pass.
@@ -364,12 +449,21 @@ class CrosswalkTask:
     forward observation; uncertain identity is recorded rather than guessed.
     """
 
-    def __init__(self, policy):
+    def __init__(self, policy, motion_policy=None, *, finish_priority=False, recovery_cruise_pwm=60.):
         self.policy = policy
+        self.motion_policy = motion_policy or RoadPolicy()
+        self.finish_priority = bool(finish_priority)
+        self.recovery_cruise_pwm = float(recovery_cruise_pwm)
+        if not math.isfinite(self.recovery_cruise_pwm) or self.recovery_cruise_pwm <= 0:
+            raise ValueError("Invalid crosswalk recovery effort")
         self.reset()
 
     def reset(self):
         self.track = None
+        self.position_at = None
+        self.position_source = "NO_POSITION"
+        self.tracking_observation = None
+        self.tracking_hits = 0
         self.hits = 0
         self.identity = 0
         self.phase = "SEARCH"
@@ -403,14 +497,20 @@ class CrosswalkTask:
         self.approach_wait_reason = None
         self.predicted_stopping_distance = None
         self.legal_stop_acquired = False
+        self.planned_stop = False
+        self.stop_ack_since = None
         self.rest = StationaryEvidence(
             self.policy.stationary_speed_m_s, self.policy.stationary_yaw_rad_s,
             self.policy.stationary_confirm_s, self.policy.confirmation_gap_s,
         )
 
-    def _begin_track(self, observation):
+    def _begin_track(self, observation, now):
         self.identity += 1
         self.track = dict(observation)
+        self.position_at = now
+        self.position_source = "OBSERVED"
+        self.tracking_observation = None
+        self.tracking_hits = 0
         self.hits = 1
         self.prediction_travel = 0.0
         self.issues = []
@@ -428,6 +528,161 @@ class CrosswalkTask:
         self.approach_speed_source = "NO_MEASURED_MOTION"
         self.approach_wait_reason = None
         self.legal_stop_acquired = False
+        self.planned_stop = False
+        self.stop_ack_since = None
+
+    def _resume_approach(self):
+        self.phase = "APPROACH"
+        self.stationary_since = self.hold_since = self.stopping_since = None
+        self.stop_deadline = self.physical_rest_since = None
+        self.stop_evidence = None
+        self.stop_blockers = []
+        self.hold_completed_s = 0.
+        self.speed_pwm = self.speed_update = self.speed_ceiling = None
+        self.recovery_reason = self.approach_wait_reason = None
+        self.planned_stop = False
+        self.stop_ack_since = None
+        self.rest.reset()
+
+    def _continue_unverified(self, reason):
+        self.phase = "RECOVERY_PASSING"
+        self.yield_completed = self.yield_verified = False
+        self._issue(reason)
+        self._issue("CROSSWALK UNVERIFIED CONTINUATION")
+        self.approach_wait_reason = None
+
+    def _recovery_command(self, command):
+        if command is None or not any(command):
+            return command
+        scale = min(1., self.recovery_cruise_pwm / max(abs(v) for v in command))
+        return tuple(round(v * scale) for v in command)
+
+    def _resolve_uncertainty(self, now, active, zero_ack, lamp_on, road_ready):
+        # Lack of task evidence never requests a stopped observation period.
+        # Lane following / bounded search and the motor supervisor own motion.
+        # Only an intentional, located yield stop owns its normal 3.2s dwell.
+        if (not self.finish_priority or not active or self.policy.mode != "yield"
+                or self.policy.blockers() or self.failure or self.track is None
+                or self.phase in ("PASSING", "RECOVERY_PASSING")):
+            return
+        if self.phase in ("STOPPING", "HOLD", "RECOVERY_HOLD"):
+            if not self.planned_stop and not self.legal_stop_acquired:
+                self._continue_unverified("CROSSWALK STOP POSITION UNCERTAIN")
+                return
+            # A planned yield still stops. Missing optical/lamp proof cannot
+            # extend that stop indefinitely or claim it was rule-compliant.
+            # Fresh zero ACKs bound this fallback; actual link faults remain
+            # the motor supervisor's responsibility, not a task override.
+            if not zero_ack:
+                return
+            if self.stop_ack_since is None:
+                self.stop_ack_since = now
+            if (self.phase == "HOLD" and self.physical_rest_since is not None
+                    and legal_stop_interval(self._stop_interval(now))):
+                # Available physical proof owns the real dwell, including
+                # coasting before standstill. The ACK fallback must not cut a
+                # healthy legal stop short merely because braking took time.
+                return
+            elapsed = now - self.stop_ack_since
+            if elapsed >= self.policy.hold_s:
+                self.hold_completed_s = elapsed
+                if not lamp_on:
+                    self._issue("CROSSWALK BRAKE LAMP UNVERIFIED")
+                self._continue_unverified("CROSSWALK STOP UNVERIFIED")
+            return
+        if self.approach_wait_reason or not road_ready:
+            self._continue_unverified(self.approach_wait_reason or "CROSSWALK ROAD UNAVAILABLE")
+
+    def _position_available(self, now):
+        # This clock follows measured pose propagation, not the last zebra
+        # detection. Continuous visual motion can preserve a useful interval
+        # after bars leave the image. Missing motion must be explicitly bounded;
+        # a later zero-speed sample cannot make an old unbounded pose current.
+        return (
+            now is not None and self.position_at is not None
+            and 0 <= now - self.position_at <= self.policy.confirmation_gap_s
+            and crosswalk_clearance_interval(self.track, self.policy) is not None
+        )
+
+    def _transport_observation(self, observation, motion, dt, stationary):
+        if motion and motion.get("valid") and dt <= self.motion_policy.motion_max_interval_s:
+            n = np.asarray(motion["rotation"]) @ np.asarray(observation["normal"])
+            shift = float(np.dot(n, motion["translation"]))
+            observation["normal"] = n.tolist()
+            observation["near_m"] += shift
+            observation["far_m"] += shift
+            for name in ("corners", "observed_corners"):
+                corners = np.asarray(observation.get(name, []), float)
+                if corners.ndim == 2 and corners.shape[1:] == (2,):
+                    observation[name] = (
+                        corners @ np.asarray(motion["rotation"]).T + motion["translation"]
+                    ).tolist()
+            observation["sigma_m"] = _transport_error(
+                observation["sigma_m"], float(motion["sigma_m"]), dt, stationary
+            )
+        else:
+            p = self.policy
+            radius = math.hypot(max(p.body_front_m or 0., p.body_rear_m or 0.),
+                                p.body_half_width_m or 0.)
+            # Do not substitute PWM for missing displacement. Bound all possible
+            # translation and whole-body rotation using the shared motion
+            # limits. These bounds constrain the normal braking envelope; when
+            # they cannot locate a stop, finish priority uses low-speed recovery.
+            observation["sigma_m"] += (
+                self.motion_policy.motion_max_speed_m_s * max(0., dt)
+                + min(2 * radius, radius * self.motion_policy.motion_max_yaw_rad_s * max(0., dt))
+            )
+            observation["motion_bounded"] = True
+
+    def detection_reference(self, motion, now):
+        """Read-only current-frame geometry for tracking an already confirmed event."""
+        if self.track is None or self.hits < self.policy.confirmation_frames or self.last_update is None:
+            return None
+        reference = dict(self.track, event_id=self.identity)
+        self._transport_observation(reference, motion, now - self.last_update, False)
+        return reference
+
+    def _confirm_tracking(self, observation, motion, dt, now):
+        if self.tracking_observation is not None:
+            self._transport_observation(self.tracking_observation, motion, dt, False)
+            if now - self.tracking_observation["observed_at"] > self.policy.confirmation_gap_s:
+                self.tracking_observation = None
+                self.tracking_hits = 0
+        if observation is None:
+            return None
+        if not observation.get("tracking_only"):
+            self.tracking_observation = None
+            self.tracking_hits = 0
+            return observation
+        if (self.track is None or self.hits < self.policy.confirmation_frames
+                or observation.get("event_id") != self.identity
+                or np.dot(self.track["normal"], observation["normal"]) < .98
+                or abs(self.track["near_m"] - observation["near_m"]) > self.policy.association_m):
+            return None
+        previous = self.tracking_observation
+        consistent = (
+            previous is not None
+            and np.dot(previous["normal"], observation["normal"]) >= .98
+            and abs(previous["near_m"] - observation["near_m"]) <= self.policy.association_m
+        )
+        self.tracking_hits = min(self.policy.confirmation_frames, self.tracking_hits + 1) if consistent else 1
+        self.tracking_observation = dict(observation)
+        if self.tracking_hits < self.policy.confirmation_frames:
+            self.observation_association = "CONFIRMING_PARTIAL"
+            return None
+        return observation
+
+    def _closing_speed(self, observation, motion):
+        speed, source = crosswalk_closing_speed(observation["normal"], motion, self.policy)
+        if speed is not None and observation.get("motion_bounded"):
+            p = self.policy
+            if (motion.get("speed_m_s") is None or motion.get("yaw_rad_s") is None
+                    or not np.isfinite([motion["speed_m_s"], motion["yaw_rad_s"]]).all()):
+                return None, "NO_MEASURED_SPEED"
+            radius = math.hypot(max(p.body_front_m, p.body_rear_m), p.body_half_width_m)
+            speed = abs(motion["speed_m_s"]) + radius * abs(motion["yaw_rad_s"])
+            source = "SCENE_SPEED_BOUND_AFTER_GAP"
+        return speed, source
 
     def _pending_crossing(self, observation, now):
         """Confirm fresh geometry independently of an unlocalized served event.
@@ -458,11 +713,12 @@ class CrosswalkTask:
                 yield_completed=self.yield_completed,
                 yield_verified=self.yield_verified,
                 passage_proven=False,
-                reason="SERVED_EVENT_POSITION_UNCERTAIN",
+                reason=("SERVED_EVENT_POSITION_UNCERTAIN" if self.yield_completed
+                        else "UNVERIFIED_EVENT_POSITION_UNCERTAIN"),
             )
             hits = self.pending_hits
             candidate = self.pending_track
-            self._begin_track(candidate)
+            self._begin_track(candidate, now)
             self.hits = hits
             self.pending_track = None
             self.pending_hits = 0
@@ -483,7 +739,7 @@ class CrosswalkTask:
         drift = (p.stationary_speed_m_s + radius * p.stationary_yaw_rad_s) * max(0.0, now - e["at"])
         return [e["lower_m"] - drift, e["upper_m"] + drift]
 
-    def _advance_stop_evidence(self, motion, now):
+    def _advance_stop_evidence(self, motion, now, stationary):
         if self.stop_evidence is None:
             return
         e = self.stop_evidence
@@ -499,9 +755,10 @@ class CrosswalkTask:
             + float(np.dot(normal, motion["translation"]))
             - crosswalk_body_support(normal, p)
         )
-        sigma = math.hypot(
-            (e["upper_m"] - e["lower_m"]) / 2, float(motion["sigma_m"])
-        ) + 0.001 * max(0.0, now - e["at"])
+        sigma = _transport_error(
+            (e["upper_m"] - e["lower_m"]) / 2,
+            float(motion["sigma_m"]), now - e["at"], stationary,
+        )
         self.stop_evidence = dict(
             lower_m=clearance - sigma, upper_m=clearance + sigma, normal=normal.tolist(), at=now
         )
@@ -594,6 +851,15 @@ class CrosswalkTask:
     def _request_stop(self, now):
         p = self.policy
         speed = max(0.0, self.last_visual_speed)
+        interval = crosswalk_clearance_interval(self.track, p)
+        # An interval wider than the entire legal window cannot locate a yield
+        # stop. In finish-priority mode it is a low-speed recovery, not braking.
+        self.planned_stop = bool(
+            self._position_available(now) and interval is not None
+            and interval[0] > 0
+            and interval[1] - interval[0] < CROSSWALK_STOP_LIMIT_M
+        )
+        self.stop_ack_since = None
         self.phase = "STOPPING"
         self.stopping_since = now
         self.stationary_since = None
@@ -606,6 +872,14 @@ class CrosswalkTask:
         self.speed_update = None
 
     def update(
+        self, observation, motion, now, active=False, zero_ack=False,
+        lamp_on=False, road_ready=False,
+    ):
+        self._update(observation, motion, now, active, zero_ack, lamp_on, road_ready)
+        self._resolve_uncertainty(now, active, zero_ack, lamp_on, road_ready)
+        return self.snapshot(now)
+
+    def _update(
         self,
         observation,
         motion,
@@ -618,53 +892,44 @@ class CrosswalkTask:
         p = self.policy
         self.observation_association = "NONE"
         if self.failure:
-            return self.snapshot(now)
+            return
         if p.mode == "yield" and p.blockers():
             self._fail("CROSSWALK SETUP REQUIRED")
-            return self.snapshot(now)
-        dt = 0 if self.last_update is None else now - self.last_update
+            return
+        previous_update = self.last_update
+        dt = 0 if previous_update is None else now - previous_update
         self.last_update = now
         valid_motion = bool(motion and motion.get("valid"))
         if valid_motion and motion.get("speed_m_s") is not None:
             self.last_visual_speed = float(motion["speed_m_s"])
+        stationary = self.rest.observe(motion, now, active and zero_ack and lamp_on)
         if valid_motion and self.phase in ("STOPPING", "HOLD", "RECOVERY_HOLD"):
-            self._advance_stop_evidence(motion, now)
+            self._advance_stop_evidence(motion, now, stationary)
         if self.track is not None and dt > 0:
-            if valid_motion:
-                n = np.asarray(motion["rotation"]) @ np.asarray(self.track["normal"])
-                shift = float(np.dot(n, motion["translation"]))
-                self.track["normal"] = n.tolist()
-                self.track["near_m"] += shift
-                self.track["far_m"] += shift
-                self.track["sigma_m"] = math.hypot(
-                    self.track["sigma_m"], float(motion["sigma_m"])
-                ) + 0.001 * max(0, dt)
-                self.prediction_travel += float(motion["travel_m"])
-            else:
-                self.track["sigma_m"] += max(p.approach_speed_m_s, self.last_visual_speed) * max(
-                    0, dt
+            self._transport_observation(self.track, motion, dt, stationary)
+            if self.position_at == previous_update and previous_update is not None:
+                self.position_at = now
+                self.position_source = (
+                    "BOUNDED_MOTION" if self.track.get("motion_bounded")
+                    else "STATIONARY" if stationary else "MEASURED_MOTION"
                 )
-        if self.pending_track is not None:
-            if valid_motion:
-                n = np.asarray(motion["rotation"]) @ np.asarray(self.pending_track["normal"])
-                shift = float(np.dot(n, motion["translation"]))
-                self.pending_track["normal"] = n.tolist()
-                self.pending_track["near_m"] += shift
-                self.pending_track["far_m"] += shift
-                self.pending_track["sigma_m"] = math.hypot(
-                    self.pending_track["sigma_m"], float(motion["sigma_m"])
-                ) + 0.001 * max(0, dt)
             else:
-                self.pending_track["sigma_m"] += max(
-                    p.approach_speed_m_s, self.last_visual_speed
-                ) * max(0, dt)
+                self.position_at = None
+                self.position_source = "MOTION_CHAIN_LOST"
+            if valid_motion:
+                self.prediction_travel += float(motion["travel_m"])
+        if self.pending_track is not None:
+            self._transport_observation(self.pending_track, motion, dt, stationary)
             if now - self.pending_track["observed_at"] > p.confirmation_gap_s:
                 self.pending_track = None
                 self.pending_hits = 0
+        if observation is not None and not 0 <= now - observation["observed_at"] <= p.observation_max_age_s:
+            observation = None
+        observation = self._confirm_tracking(observation, motion, dt, now)
         matched = False
         if observation is not None:
             if self.track is None:
-                self._begin_track(observation)
+                self._begin_track(observation, now)
                 self.observation_association = "NEW"
             else:
                 matched = (
@@ -678,15 +943,17 @@ class CrosswalkTask:
                     gap = observation["observed_at"] - self.track["observed_at"]
                     if self.hits < p.confirmation_frames and gap > p.confirmation_gap_s:
                         self.hits = 0
-                    self.hits += 1
+                    self.hits += int(not observation.get("tracking_only"))
                     self.track = dict(observation)
+                    self.position_at = now
+                    self.position_source = "TRACKED" if observation.get("tracking_only") else "OBSERVED"
                     self.prediction_travel = 0.0
                 elif self.hits < p.confirmation_frames:
-                    self._begin_track(observation)
+                    self._begin_track(observation, now)
                     self.observation_association = "REPLACED_UNCONFIRMED"
                 elif (
-                    self.phase == "PASSING"
-                    and self.yield_completed
+                    (self.phase == "PASSING" and self.yield_completed
+                     or self.phase == "RECOVERY_PASSING")
                     and (
                         now - self.track["observed_at"] > p.observation_max_age_s
                         or self.track["sigma_m"] > p.maximum_position_error_m
@@ -696,7 +963,7 @@ class CrosswalkTask:
                 else:
                     self.observation_association = "UNMATCHED_CONFIRMED"
         if self.track is None:
-            return self.snapshot(now)
+            return
         age = now - self.track["observed_at"]
         confirmed = self.hits >= p.confirmation_frames
         # Preview expiry only. A driving yield event is never erased on a timer.
@@ -704,52 +971,49 @@ class CrosswalkTask:
             p.mode == "observe" or not active and not self.failure
         ) and age > p.observation_max_age_s:
             self.track = None
+            self.position_at = None
+            self.position_source = "NO_POSITION"
             self.hits = 0
             self.phase = "SEARCH"
-            return self.snapshot(now)
+            return
         if not confirmed and age > p.confirmation_gap_s:
             self.track = None
+            self.position_at = None
+            self.position_source = "NO_POSITION"
             self.hits = 0
             self.phase = "SEARCH"
-            return self.snapshot(now)
+            return
         if confirmed and self.phase == "SEARCH":
             self.phase = "APPROACH"
         if p.mode != "yield" or not active or p.blockers():
-            return self.snapshot(now)
-        stationary = self.rest.observe(
-            motion, now,
-            self.phase in ("STOPPING", "HOLD", "RECOVERY_HOLD") and zero_ack and lamp_on,
-        )
+            return
         # During approach an already stopped legal pose needs no extra move.
-        if self.phase == "APPROACH":
+        if self.phase == "APPROACH" and not stationary:
             stationary = bool(
                 valid_motion and motion.get("speed_m_s") is not None
                 and abs(motion["speed_m_s"]) <= p.stationary_speed_m_s
                 and abs(motion["yaw_rad_s"]) <= p.stationary_yaw_rad_s
             )
-        # A continuously measured stationary scene preserves a stopped pose;
-        # it does not refresh the time of the last zebra observation.
-        stationary_hold = self.phase in ("STOPPING", "HOLD", "RECOVERY_HOLD") and stationary
         sigma = self.track["sigma_m"]
-        known = (
-            (age <= p.observation_max_age_s or stationary_hold)
-            and sigma <= p.maximum_position_error_m
-            and self.prediction_travel <= p.maximum_prediction_travel_m
-        )
-        # At rest the legal interval, rather than a fixed centimetre accuracy
-        # gate, decides whether position is precise enough for a verified yield.
-        position_available = (
-            age <= p.observation_max_age_s or stationary_hold
-        ) and self.prediction_travel <= p.maximum_prediction_travel_m
+        # Precision affects the remaining braking distance, rather than acting
+        # as a binary stop threshold. Neither zebra age nor travelled distance
+        # invalidates a continuously measured pose. Stop legality uses the
+        # complete interval independently of this movement authorization.
+        known = position_available = self._position_available(now)
         clearance = self.track["near_m"] - crosswalk_body_support(self.track["normal"], p)
         legal_rest = (
             stationary
             and position_available
             and legal_stop_interval([clearance - sigma, clearance + sigma])
         )
-        self.approach_speed, self.approach_speed_source = crosswalk_closing_speed(
-            self.track["normal"], motion, p
-        )
+        if (self.phase == "RECOVERY_PASSING" and matched and position_available
+                and 2 * sigma < CROSSWALK_STOP_LIMIT_M
+                and self.hold_completed_s < p.hold_s
+                and clearance - sigma > self.policy.stop_clearance_m):
+            # Reacquired current geometry returns to ordinary approach and
+            # its real stop proof, rather than treating recovery as compliance.
+            self._resume_approach()
+        self.approach_speed, self.approach_speed_source = self._closing_speed(self.track, motion)
         self.approach_wait_reason = None
         if self.phase == "APPROACH" and confirmed and not known and not legal_rest:
             # A temporary sensing pause is not a completed parking attempt.
@@ -759,7 +1023,7 @@ class CrosswalkTask:
             self.recovery_reason = None
         # After yielding, the old crossing is retained solely to prove passage
         # and suppress duplicate events. Age alone cannot cause repeated stops.
-        if self.phase == "PASSING":
+        if self.phase in ("PASSING", "RECOVERY_PASSING"):
             # The yield has already been served. Uncertainty about an old
             # crossing blocks rearming, not lane following. Keep its tombstone
             # until the entire far-edge uncertainty interval is behind the car.
@@ -778,7 +1042,7 @@ class CrosswalkTask:
                 speed = self.approach_speed
                 if speed is None:
                     self.approach_wait_reason = "CROSSWALK SPEED UNVERIFIED"
-                    return self.snapshot(now)
+                    return
                 stopping_distance = speed * p.command_latency_s + speed * speed / (
                     2 * float(p.brake_deceleration_m_s2)
                 )
@@ -797,26 +1061,21 @@ class CrosswalkTask:
         if self.phase in ("STOPPING", "HOLD", "RECOVERY_HOLD"):
             verified_rest = stationary and zero_ack and lamp_on
             if (
-                verified_rest and known and matched and road_ready
-                and age <= p.observation_max_age_s
+                verified_rest and known and road_ready
                 and not self.legal_stop_acquired
-                and clearance - sigma >= CROSSWALK_STOP_LIMIT_M
+                and clearance - sigma > p.stop_clearance_m
                 and not legal_stop_interval([clearance - sigma, clearance + sigma])
             ):
-                # A precisely re-observed early stop has not served the yield.
+                # An unserved stop with room before the nearest possible line
+                # can resume the distance-limited approach. An interval touching
+                # 20cm is not a reason to wait forever for centimetre precision.
+                # Continuous pose propagation is sufficient; no full pattern
+                # needs to reappear. Once a legal stop was acquired, never nudge.
                 # Resume ordinary approach; never creep after a legal stop or
-                # advance using a stale/coarse pose. Clear the preliminary
+                # advance without a bounded current pose. Clear the preliminary
                 # physical-rest clock so it cannot count toward the final hold.
-                self.phase = "APPROACH"
-                self.stationary_since = self.hold_since = self.stopping_since = None
-                self.stop_deadline = self.physical_rest_since = None
-                self.stop_evidence = None
-                self.stop_blockers = []
-                self.hold_completed_s = 0.0
-                self.speed_pwm = self.speed_update = self.speed_ceiling = None
-                self.recovery_reason = self.approach_wait_reason = None
-                self.rest.reset()
-                return self.snapshot(now)
+                self._resume_approach()
+                return
             if verified_rest and self.physical_rest_since is None:
                 self.physical_rest_since = now
             elif not verified_rest:
@@ -854,16 +1113,18 @@ class CrosswalkTask:
                 and now - self.physical_rest_since >= p.maximum_hold_s
             ):
                 self._issue("CROSSWALK HOLD EXCEEDED")
-        if self.phase == "PASSING" and known:
+        if self.phase in ("PASSING", "RECOVERY_PASSING") and known:
             n = self.track["normal"]
             rear = -crosswalk_body_support([-n[0], -n[1]], p)
             if self.track["far_m"] + sigma < rear:
                 self.passed += 1
                 self.track = None
+                self.position_at = None
+                self.position_source = "NO_POSITION"
                 self.hits = 0
                 self.phase = "SEARCH"
                 self.stationary_since = self.hold_since = self.stopping_since = None
-        return self.snapshot(now)
+        return
 
     def _position_outcome(self, now):
         """Describe the stop proof using existing evidence and retained blockers."""
@@ -909,18 +1170,27 @@ class CrosswalkTask:
             distance_to_body_m=distance,
             position_error_m=t["sigma_m"] if t else None,
             observation_age_s=now - t["observed_at"] if t else None,
+            position_source=self.position_source,
+            position_updated_at=self.position_at,
+            position_available=self._position_available(now) if t else False,
+            tracking_hits=self.tracking_hits,
+            clearance_interval_m=crosswalk_clearance_interval(t, p)
+            if t is not None and not p.blockers() else None,
             hold_elapsed_s=(
                 now - self.hold_since
                 if self.phase in ("HOLD", "RECOVERY_HOLD") and self.hold_since is not None
                 else self.hold_completed_s
                 if self.phase == "PASSING"
-                else 0.0
+                else self.hold_completed_s if self.phase == "RECOVERY_PASSING" else 0.0
             ),
             stop_verified=self.stop_evidence is not None and self.phase in ("STOPPING", "HOLD"),
             yield_completed=self.yield_completed,
             yield_verified=self.yield_verified,
             position_outcome=self._position_outcome(now),
             recovery_reason=self.recovery_reason,
+            finish_priority=self.finish_priority,
+            recovery_continuation=self.phase == "RECOVERY_PASSING",
+            planned_stop=self.planned_stop,
             issues=list(self.issues),
             stop_clearance_interval_m=self._stop_interval(now)
             if self.phase in ("STOPPING", "HOLD")
@@ -949,6 +1219,10 @@ class CrosswalkTask:
 
     def allows_road_search(self):
         """Task ownership shared by path search and its restart-envelope logic."""
+        return (self.track is None or self.phase == "RECOVERY_PASSING"
+                or self.phase == "PASSING" and self.pending_track is None)
+
+    def allows_speed_profile(self):
         return self.track is None or (self.phase == "PASSING" and self.pending_track is None)
 
     def supervision_command(self, road_command, processing_ms, budget_ms):
@@ -970,17 +1244,22 @@ class CrosswalkTask:
             return (0, 0)
         if self.phase in ("STOPPING", "HOLD", "RECOVERY_HOLD"):
             return (0, 0)
+        if self.phase == "RECOVERY_PASSING" and self.pending_track is None:
+            return self._recovery_command(command)
         if command is None or self.track is None:
             return command
         # A tentative metric zebra pattern already imposes the braking envelope.
         # Confirmation authorizes the yield event, never full-speed approach.
         if self.phase == "PASSING" and self.pending_track is None:
             return command
-        approach = self.pending_track if self.phase == "PASSING" else self.track
+        approach = self.pending_track if self.phase in ("PASSING", "RECOVERY_PASSING") else self.track
         clearance = approach["near_m"] - crosswalk_body_support(approach["normal"], p)
-        speed, source = crosswalk_closing_speed(approach["normal"], motion, p)
+        speed, source = self._closing_speed(approach, motion)
         self.approach_speed, self.approach_speed_source = speed, source
         if speed is None:
+            if self.finish_priority:
+                self._continue_unverified("CROSSWALK SPEED UNVERIFIED")
+                return self._recovery_command(command)
             # No blind nonzero command. A missing speed observation first
             # requests a measured recovery while stopped, rather than latching
             # a driving fault on a single optical-flow rejection.
@@ -993,9 +1272,16 @@ class CrosswalkTask:
         self.speed_missing_since = None
         if self.recovery_reason == "CROSSWALK SPEED UNVERIFIED":
             self.recovery_reason = None
-        if (self.approach_wait_reason or approach["sigma_m"] > p.maximum_position_error_m
-                or self.last_update is None
-                or self.last_update - approach["observed_at"] > p.observation_max_age_s):
+        position_available = (
+            self._position_available(self.last_update) if approach is self.track
+            else self.last_update is not None
+            and 0 <= self.last_update - approach["observed_at"] <= p.confirmation_gap_s
+            and crosswalk_clearance_interval(approach, p) is not None
+        )
+        if self.approach_wait_reason or not position_available:
+            if self.finish_priority:
+                self._continue_unverified(self.approach_wait_reason or "CROSSWALK POSITION UNCERTAIN")
+                return self._recovery_command(command)
             return (0, 0)
         available = max(0.0, clearance - approach["sigma_m"] - p.stop_clearance_m)
         decel = float(p.approach_deceleration)
@@ -1038,13 +1324,21 @@ class CrosswalkTask:
         )
         self.speed_update = now
         scale = min(1.0, self.speed_pwm / requested) if requested > 0 else 0.0
-        return tuple(round(value * scale) for value in command)
+        output = tuple(round(value * scale) for value in command)
+        if not any(output) and any(command) and self.finish_priority:
+            # Braking for an actual yield is handled by STOPPING above. The
+            # approach regulator must not become another zero-output latch.
+            self._continue_unverified("CROSSWALK STOP WINDOW MISSED"
+                if clearance + approach["sigma_m"] <= 0
+                else "CROSSWALK APPROACH EFFORT UNAVAILABLE")
+            return self._recovery_command(command)
+        return self._recovery_command(output) if self.phase == "RECOVERY_PASSING" else output
 
 
 def draw_crosswalk_overlay(out, snapshot, calibration, active=None):
     t = snapshot.get("observation")
     if t:
-        corners = np.asarray(t.get("corners", []), float)
+        corners = np.asarray(t.get("observed_corners", t.get("corners", [])), float)
         # Boxes belong to the last actual observation; avoid drawing stale boxes.
         if len(corners) and snapshot["observation_age_s"] < 0.05:
             q = (
@@ -1062,6 +1356,8 @@ def draw_crosswalk_overlay(out, snapshot, calibration, active=None):
         phase = "WAIT MOTION" if snapshot["approach_wait_reason"] == "CROSSWALK SPEED UNVERIFIED" else "WAIT POSITION"
     elif phase == "RECOVERY_HOLD":
         phase = "WAIT POSITION"
+    elif phase == "RECOVERY_PASSING":
+        phase = "UNVERIFIED GO"
     label = "ZEBRA %s %s" % (snapshot["mode"].upper(), phase)
     if distance is not None:
         label += " %.0fcm" % (distance * 100)

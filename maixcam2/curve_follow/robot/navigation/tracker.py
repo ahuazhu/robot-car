@@ -19,6 +19,7 @@ class TargetTracker:
 
     def __init__(self, cal):
         self.policy = RoadPolicy.from_config(cal)
+        self.finish_priority = bool(cal.get("road_search", {}).get("finish_priority", False))
         frame = cal.get("control_frame", {})
         self.reference_origin = np.asarray(frame.get("origin_m", [0.0, 0.0]), float)
         self.control_body = frame.get("body_m") if frame.get("geometry_verified") else None
@@ -113,9 +114,14 @@ class TargetTracker:
             index = min(len(positions) - 1, int(np.searchsorted(positions, position)))
             target_observed = all(observed_mask[max(0, index - 1) : index + 1])
         reason = support["reason"] or ("NO FORWARD CURVE POINT" if target is None else "")
+        history_prediction = bool(
+            self.finish_priority and not require_current and self.model.pending_count
+            and target is not None and not reason
+            and (motion["valid"] or motion.get("prediction_valid", False))
+        )
         transition_pending = bool(
             self.model.pending_count
-            and event["continuation_allowed"]
+            and (event["continuation_allowed"] or history_prediction)
             and target is not None
             and not reason
             and not require_current
@@ -166,6 +172,7 @@ class TargetTracker:
             pending_frames=self.model.pending_count,
             pending_confidence=self.model.pending_confidence,
             transition_pending=transition_pending,
+            history_prediction_only=history_prediction and not event["continuation_allowed"],
             association_kind=event["association_kind"],
             handoff_evidence=event["handoff_evidence"],
             history_continuity_evidence=event["history_continuity_evidence"]

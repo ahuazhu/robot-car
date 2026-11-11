@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from robot.control.controller import MAX_MOTOR_PWM, can_enable_drive
+from robot.control.controller import MAX_MOTOR_PWM, CommandRamp, can_enable_drive
 from robot.core.road_policy import RoadPolicy
 from robot.tasks.crosswalk import CrosswalkPolicy
 
@@ -30,6 +30,7 @@ class RuntimeSettings:
     confirmed_cruise_pwm: float
     search_cruise_pwm: float
     duration_s: float
+    motor_rise_pwm_s: float = 180.0
 
     @classmethod
     def load(cls, app_dir, environ=None):
@@ -42,6 +43,7 @@ class RuntimeSettings:
             calibration,
             road_model=runtime.get("road_model", {}),
             control_frame=runtime.get("control_frame", {}),
+            road_search=runtime.get("road_search", {}),
         )
         boost = int(np.clip(runtime.get("motor_peak_boost_pwm", 0), 0, 45))
         ceiling = float(MAX_MOTOR_PWM - boost)
@@ -64,4 +66,5 @@ class RuntimeSettings:
             float(np.clip(runtime.get("confirmed_cruise_pwm", cruise), cruise, straight)),
             float(np.clip(runtime.get("search_cruise_pwm", 60), 1, ceiling)),
             float(env.get("TARGET_TEST_SECONDS", "0")),
+            CommandRamp(runtime.get("motor_rise_pwm_s", 180.0)).rise_pwm_s,
         )

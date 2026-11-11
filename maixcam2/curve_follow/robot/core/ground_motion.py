@@ -49,6 +49,34 @@ class GroundMotion:
         self.ground_visible = None
         self.ground_mask = None
         self.previous_features = None
+        self.finish_priority = bool(calibration.get("road_search", {}).get("finish_priority", False))
+        self.last_visual = None
+
+    def recent_prediction(self, now, dt, fallback):
+        """One short gap from measured SE(2) twist; never mark it measured."""
+        if not self.finish_priority or self.last_visual is None:
+            return fallback
+        seen, previous = self.last_visual
+        window = self.policy.maximum_prediction_command_s
+        if not 0 < dt <= window or not 0 < now - seen <= window:
+            return fallback
+        old_dt = previous["interval_s"]
+        angle = math.atan2(previous["rotation"][1, 0], previous["rotation"][0, 0])
+        ratio = dt / old_dt
+        def integral(theta):
+            if abs(theta) < 1e-8:
+                return np.eye(2)
+            a, b = math.sin(theta) / theta, (1 - math.cos(theta)) / theta
+            return np.array([[a, -b], [b, a]])
+        theta = angle * ratio
+        velocity = np.linalg.solve(integral(angle), previous["translation"])
+        translation = integral(theta) @ velocity * ratio
+        c, s = math.cos(theta), math.sin(theta)
+        sigma = previous["sigma_m"] * max(1., ratio) + self.policy.prediction_noise_m_s * (now - seen)
+        return dict(fallback, rotation=np.array([[c, -s], [s, c]]), translation=translation,
+                    sigma_m=sigma, travel_m=float(np.linalg.norm(translation)),
+                    source="RECENT VISUAL PREDICTION", prediction_valid=True,
+                    prediction_age_s=now-seen)
 
     def project(self, uv):
         p = np.column_stack((np.asarray(uv) / [320.0, 240.0], np.ones(len(uv)))) @ self.H.T
@@ -83,7 +111,9 @@ class GroundMotion:
             self.previous = self.previous_mask = None
             self.previous_features = None
             self.previous_time = now
+            self.last_visual = None
             return fallback
+        fallback = self.recent_prediction(now, dt, fallback)
         gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
         mask = self.road_mask(bgr)
         previous, old_mask = self.previous, self.previous_mask
@@ -169,7 +199,7 @@ class GroundMotion:
         self.previous_features = uv1[ok][finite][keep].reshape(-1, 1, 2).copy()
         # Camera-frame motion is useful even with unmeasured body lever arm.
         # Do not label translation as measured wheel speed.
-        return dict(
+        result = dict(
             rotation=rotation,
             translation=translation,
             sigma_m=max(0.0015, error) + 0.002 * dt,
@@ -183,6 +213,8 @@ class GroundMotion:
             speed_m_s=travel / dt,
             yaw_rad_s=-yaw / dt,
         )
+        self.last_visual = (now, result)
+        return result
 
 
 def motion_summary(motion):

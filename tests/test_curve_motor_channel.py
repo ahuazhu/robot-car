@@ -155,6 +155,26 @@ if __name__ == "__main__":
 
 
 class SearchLeaseTests(unittest.TestCase):
+    def test_forward_prediction_bridges_150ms_then_expires_without_parent_refresh(self):
+        t = FakeTransport()
+        c = MotorChannel(t, period=.02)
+        try:
+            c.send(1)
+            sent = time.monotonic()
+            c.send(2, 50, 40, lease_s=.24)
+            time.sleep(.18)
+            self.assertTrue(any(e[0] >= sent + .15 and e[1:] == (2, 50, 40)
+                                for e in t.events))
+            time.sleep(.14)
+            self.assertTrue(any(e[0] >= sent + .24 and e[1:] == (2, 0, 0)
+                                for e in t.events))
+            self.assertTrue(c.snapshot()['armed'])
+            for lease in (.251, .3, float('nan')):
+                with self.assertRaises(ValueError):
+                    c.send(2, 50, 40, lease_s=lease)
+        finally:
+            c.close()
+
     def test_short_turn_expires_to_zero_independently_of_main_loop(self):
         t = FakeTransport()
         c = MotorChannel(t, period=0.02)

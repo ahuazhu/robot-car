@@ -51,8 +51,8 @@ class SingleCrosswalkDwellTests(unittest.TestCase):
             now = step*.1
             # Resolve the stopped pose before the physical dwell expires;
             # the same measured standstill clock remains authoritative.
-            state = self.update(task, now, .18, speed=.2 if step < 3 else 0.,
-                                sigma=.03 if now < 1. else .01)
+            state = self.update(task, now, .10, speed=.2 if step < 3 else 0.,
+                                sigma=.11 if now < 1. else .01)
             if task.phase == 'PASSING':
                 break
         self.assertEqual(task.phase, 'PASSING')

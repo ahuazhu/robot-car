@@ -37,7 +37,7 @@ class CrosswalkApproachBoundaryTests(unittest.TestCase):
             state, _ = self.observe(task, now, clearance, speed=0.24)
         self.assertEqual(state["phase"], "STOPPING")
 
-    def test_recorded_ambiguous_stops_do_not_restart_the_car(self):
+    def test_unserved_ambiguous_stops_resume_if_the_nearest_line_leaves_braking_room(self):
         # Live frames 3404 and 3414 stopped at 20.72 and 17.96 cm,
         # both with a 2.25 cm position bound. Neither proves >20 cm.
         for clearance in (0.2071874987, 0.1796386638):
@@ -46,8 +46,9 @@ class CrosswalkApproachBoundaryTests(unittest.TestCase):
                 self.brake(task, clearance + 0.006)
                 for now in (0.45, 0.60, 0.75):
                     state, command = self.observe(task, now, clearance)
-                    self.assertIn(state["phase"], ("STOPPING", "RECOVERY_HOLD"))
-                    self.assertEqual(command, (0, 0))
+                    self.assertEqual(state["phase"], "APPROACH")
+                    self.assertGreater(min(command), 0)
+                    self.assertEqual(state["hold_elapsed_s"], 0.)
                     self.assertFalse(state["yield_verified"])
 
     def test_precisely_reobserved_far_stop_resumes_approach_without_serving_dwell(self):
@@ -82,19 +83,18 @@ class CrosswalkApproachBoundaryTests(unittest.TestCase):
         self.assertTrue(state["yield_completed"])
         self.assertTrue(state["yield_verified"])
 
-    def test_persistent_ambiguity_never_claims_a_verified_legal_stop(self):
+    def test_ambiguity_never_earns_passage_by_waiting_in_an_unserved_far_pose(self):
         task = self.make_task()
         self.brake(task, 0.19)
         for step in range(1, 55):
             state, command = self.observe(task, 0.30 + step * 0.15, 0.18)
             if state["yield_completed"]:
                 break
-            self.assertEqual(command, (0, 0))
+            self.assertGreater(min(command), 0)
         self.assertFalse(state["yield_completed"])
-        self.assertEqual(state["phase"], "RECOVERY_HOLD")
+        self.assertEqual(state["phase"], "APPROACH")
         self.assertFalse(state["yield_verified"])
-        self.assertIn("CROSSWALK STOP UNVERIFIED", state["issues"])
-        self.assertGreaterEqual(state["hold_elapsed_s"], task.policy.hold_s)
+        self.assertEqual(state["hold_elapsed_s"], 0.)
 
 
 if __name__ == "__main__":

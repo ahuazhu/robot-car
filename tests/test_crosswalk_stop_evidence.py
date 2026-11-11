@@ -36,7 +36,7 @@ class StopEvidenceTests(unittest.TestCase):
             scene = motion()
             scene["sigma_m"] = 0.006
             state = task.update(None, scene, float(now), True, True, True, True)
-        self.assertGreater(state["position_error_m"], task.policy.maximum_position_error_m)
+        self.assertAlmostEqual(state["position_error_m"], .01)
         self.assertEqual(state["phase"], "PASSING")
         self.assertIsNone(task.failure)
         self.assertEqual(task.track["observed_at"], last_seen)

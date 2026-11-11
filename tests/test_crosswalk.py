@@ -126,10 +126,10 @@ class CrosswalkRuleTests(unittest.TestCase):
             task.update(observation(now, 0.6), motion(), now, True, False, False, True)
         for now in (0.4, 0.6, 0.8):
             s = task.update(None, motion(valid=False), now, True)
-        self.assertEqual(s["phase"], "APPROACH")
+        self.assertEqual(s["phase"], "STOPPING")
         self.assertIsNone(s["failure"])
         self.assertFalse(s["stop_verified"])
-        self.assertIn("CROSSWALK POSITION UNCERTAIN", s["issues"])
+        self.assertGreater(s["position_error_m"], s["distance_to_body_m"])
         self.assertEqual(task.limit_command((50, 50), s, motion(valid=False)), (0, 0))
         self.assertEqual(task.limit_command((50, 60), s, motion()), (0, 0))
 
@@ -233,7 +233,7 @@ class CrosswalkRuleTests(unittest.TestCase):
         self.assertIsNone(task.supervision_command(None, 100, 280))
         # A later visual displacement may prove conservative full-body passage even
         # with a wider interval than a legal stopping position would allow.
-        state = task.update(None, motion(0.3, 0.9), 1.8, True)
+        state = task.update(None, motion(0.3, 3.0), 1.8, True)
         self.assertEqual(state["passed"], 1)
         self.assertIsNone(task.track)
 

@@ -91,8 +91,9 @@ class SteeringControl:
 
     def observe(self, motion, now, allow_feedback=True):
         self.observed_at = now
-        self.status = dict(trim_m_inv=self.trim, feedback_valid=False)
-        if not motion.get("valid"):
+        measured = bool(motion.get("valid"))
+        self.status = dict(trim_m_inv=self.trim, feedback_valid=False, motion_measured=measured)
+        if not measured and not motion.get("prediction_valid"):
             return
         dt = motion["interval_s"]
         if dt <= 0:
@@ -110,12 +111,13 @@ class SteeringControl:
             speed_upper_m_s=max(0.0, speed) + 2 * sigma / dt,
             motion_sigma_m=sigma,
             motion_interval_s=dt,
+            motion_source=motion.get("source"),
         )
         # Hold only a conservative horizon-speed bound through a flow dropout.
         # It never transports road geometry or masquerades as measured twist.
         self.preview_speed = max(0.0, speed) + 2 * sigma / dt
         self.preview_interval = dt
-        if not allow_feedback or not self.commands or forward <= 2 * sigma:
+        if not measured or not allow_feedback or not self.commands or forward <= 2 * sigma:
             return
         # Do not identify a drivetrain bias during startup, a steering transient
         # or a regulator changing speed. One PWM step is command quantization.
@@ -416,6 +418,7 @@ class SteeringControl:
         # cannot erase otherwise continuous road observation history.
         boost_ready = (
             road_eligible and "body_speed_m_s" in self.status and stable_s >= self.response_s
+            and self.status.get("motion_measured", True)
         )
         if self.speed_control is not None:
             resolved_forward_motion = (
@@ -429,6 +432,8 @@ class SteeringControl:
                 support_sigma + prediction_sigma, self.body[0] if self.body else self.width,
                 eligible=(speed_profile_allowed and boost_ready and scale == 1.
                           and resolved_forward_motion),
+                high_confidence=(boost_ready and observation_quality >= .75
+                    and abs(self.lever * (self.requested + self.trim)) <= .18),
             )
             if not speed_profile_allowed:
                 self.speed_control.status['reason'] = 'TASK_OWNS_SPEED'
@@ -513,7 +518,7 @@ class SteeringControl:
             if measured:
                 room -= speed * age_s
             lease = (
-                min(0.15, remaining, room / speed)
+                min(self.policy.maximum_prediction_command_s, remaining, room / speed)
                 if measured and self.status.get("body_speed_m_s", 0.0) > 0
                 and room > 0 and remaining > 0 else 0.0
             )
@@ -522,7 +527,8 @@ class SteeringControl:
             budget = dict(
                 remaining_distance_m=room, remaining_time_s=remaining,
                 lease_s=lease, speed_scale=prediction_scale,
-                measured_motion=bool(measured),
+                measured_motion=bool(measured and self.status.get("motion_measured", True)),
+                motion_source=self.status.get("motion_source"),
             )
             self.status["prediction"] = budget
             if result.get("transition_pending"):

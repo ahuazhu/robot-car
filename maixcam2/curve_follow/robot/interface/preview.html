@@ -333,12 +333,15 @@ function updateFieldSummary(s,fresh){
  else if(s.reason==='LAPS COMPLETE'){title='已完赛 · 停车';detail=`完成 ${laps.completed_laps??laps.total_laps??0} / ${laps.total_laps??2} 圈`;}
  else if(s.active){
   title=s.reason==='FINISH DISTANCE'?'完赛冲线中':s.reason==='WAIT START LIGHT'?(lamp.permission?'已收到发车信号':'准备等灯中'):'行驶中';
-  if(['ROAD SEARCH SCANNING','ROAD SEARCH SETTLING','REACQUIRING ROAD','VISION WAIT','ROAD SEARCH','ROAD NOT FOUND'].includes(s.reason))title='寻路恢复中';
+  if(['ROAD SEARCH SCANNING','ROAD SEARCH SETTLING','ROAD SEARCH RETRY_WAIT','REACQUIRING ROAD','VISION WAIT','ROAD SEARCH','ROAD NOT FOUND'].includes(s.reason))title='寻路恢复中';
+  if(s.reason==='CAUTIOUS FOLLOW')title='低速巡线中';
   const c=d.crosswalk||{};if(['STOPPING','HOLD','RECOVERY_HOLD'].includes(c.phase))title=c.phase==='STOPPING'?'横道刹停中':c.phase==='RECOVERY_HOLD'?'横道停位待核实':'横道停车礼让';
+  if(c.phase==='RECOVERY_PASSING')title='横道低速恢复中';
   detail=lamp.permission?'发车许可已确认，本轮独立巡线。':'小车正在执行本轮任务。';
   if(laps.enabled)detail=`圈数 ${laps.completed_laps??0} / ${laps.total_laps??2}`+(s.reason==='FINISH DISTANCE'?` · 还需约 ${Math.ceil((laps.finish_remaining_m??0)*100)}cm`:'');
   if(c.phase==='HOLD')detail=`停稳亮红灯 ${Number(c.hold_elapsed_s||0).toFixed(1)} / ${Number(c.required_hold_s||3.2).toFixed(1)} 秒`;
-  if(c.phase==='RECOVERY_HOLD')detail='停位尚未核实，当前停留不能算完成礼让。';
+  if(c.phase==='RECOVERY_HOLD')detail=c.finish_priority?'横道礼让中，结束后低速继续；当前停位未验证。':'停位尚未核实，当前停留不能算完成礼让。';
+  if(c.phase==='RECOVERY_PASSING')detail='停位未验证，按完赛优先低速继续。';
  }
  else if(lamp.armed){title=lamp.permission?'已收到发车信号':lamp.phase==='WAIT_ON'?'已准备 · 等待亮灯':['WAIT_OFF','CONFIRM_OFF'].includes(lamp.phase)?((lamp.initial_lamp_state||lockedInitialLampState||initialLampState)==='ON'?'基准稳定 · 等待熄灯':'已见亮灯 · 等待熄灯'):'正在准备等灯';detail=lamp.permission?'等待道路和电机就绪后自动出发。':'准备后请保持车子和相机固定。';}
  else if(lamp.phase==='FAULT'){title='等灯已取消';detail='查看灯面与连接状态，重新准备等灯。';}
@@ -408,7 +411,7 @@ async function updateStatus(){
   canDirect=fresh&&!s.active&&!!(s.readiness?.direct_start_ready??s.ready);
   syncControls();
   statusBox.textContent=fresh?`${s.active?'运行中':'已停止'} · ${s.reason} · L=${s.left} R=${s.right}`:'状态更新中断';
-   const roadStates={"ROAD SEARCH SCANNING":"小幅转向寻路","ROAD SEARCH SETTLING":"寻路中，等待停稳","REACQUIRING ROAD":"正在寻回道路，确认后自动继续","VISION WAIT":"等待及时画面，恢复后自动继续","ROAD SEARCH":"正在重新搜索道路","ROAD NOT FOUND":"暂未找到道路，零速等待恢复"};
+   const roadStates={"CAUTIOUS FOLLOW":"低速巡线，持续确认道路","ROAD SEARCH SCANNING":"小幅转向寻路","ROAD SEARCH SETTLING":"寻路中，等待停稳","ROAD SEARCH RETRY_WAIT":"本轮未找到路，准备继续探路","REACQUIRING ROAD":"正在寻回道路，确认后自动继续","VISION WAIT":"等待及时画面，恢复后自动继续","ROAD SEARCH":"正在重新搜索道路","ROAD NOT FOUND":"暂未找到可用道路"};
    if(fresh&&roadStates[s.reason])statusBox.textContent=roadStates[s.reason]+` · L=${s.left} R=${s.right}`;
    const failures={"CROSSWALK STOP UNVERIFIED":"横道停车位置未能确认","CROSSWALK POSITION UNCERTAIN":"横道距离不确定","CROSSWALK STOP WINDOW MISSED":"未能在横道前及时停车"};
    if(fresh&&failures[s.reason])statusBox.textContent=failures[s.reason]+' · 已停车';
@@ -445,7 +448,7 @@ async function updateStatus(){
    if(fresh&&s.reason==='WAIT START LIGHT')statusBox.textContent=lamp.permission?'出发许可已锁存，等待道路和电机就绪 · L=0 R=0':((lamp.initial_lamp_state||lockedInitialLampState||initialLampState)==='ON'?'等待当前亮灯稳定并熄灯 · L=0 R=0':'等待亮灯后再次熄灯 · L=0 R=0');
    const crossing=d.crosswalk;
    if(crossing){
-    const phases={SEARCH:'搜索横道',APPROACH:'接近横道',STOPPING:'确认停稳',HOLD:'停车礼让',RECOVERY_HOLD:'停位待核实，尚未完成礼让',PASSING:'通过横道',FAULT:'任务故障'};
+    const phases={SEARCH:'搜索横道',APPROACH:'接近横道',STOPPING:'确认停稳',HOLD:'停车礼让',RECOVERY_HOLD:'停位待核实，尚未完成礼让',RECOVERY_PASSING:'停位未验证，低速继续',PASSING:'通过横道',FAULT:'任务故障'};
     const distance=crossing.distance_to_body_m;
     const observed=crossing.observation;
     const range=distance!==null&&distance!==undefined?`距车身 ${Math.round(distance*100)}cm`:observed?`距镜头参考点 ${Math.round(observed.near_m*100)}cm`:'';

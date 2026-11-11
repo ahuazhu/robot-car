@@ -164,6 +164,19 @@ class SpeedObserverTests(unittest.TestCase):
         self.assertEqual(json.dumps(self.target), before)
         json.dumps(status, allow_nan=False)
 
+    def test_active_controller_can_disable_duplicate_shadow_without_stale_success(self):
+        observer = SpeedObserver(RuntimeSettings.load(ROOT / 'maixcam2/curve_follow', {}),
+                                 enabled=False)
+        with patch('robot.navigation.speed_observer.plan_speed_profile',
+                   side_effect=AssertionError('duplicate speed planning')):
+            for frame in (1, 2):
+                status = observer.update(self.target, frame, .1)
+                self.assertEqual(status['source_frame'], frame)
+                self.assertEqual(status['mode'], 'DISABLED')
+                self.assertFalse(status['valid'])
+                self.assertFalse(status['controls_motor'])
+                self.assertNotIn('entry_limit_m_s', status)
+
     def test_missing_or_stale_road_never_reuses_previous_success(self):
         self.assertTrue(self.observer.update(self.target, 1, 0.1)["valid"])
         for state in ("PREDICTED", "CONFIRMING"):

@@ -23,3 +23,8 @@
 - `yield_cancel_road_20261107.json`：v0.6.69实际停车日志的10帧最小道路状态；道路已有效观测、横道处于APPROACH，取消搜路却持续截断巡线。测试提供的PWM是协调器输入，不是实测车轮输出；不代表实车轨迹回放。
 
 - `right_road_stall_20261107/`：实车卡住时的原图面板及配套标定，源图为预览JPEG解码，不冒充无损传感器帧。覆盖绿色隔带两侧路面误配边沿，含镜像和不满足分离证据的反例。
+# Crosswalk partial-view regression (2026-11-11)
+
+`crosswalk_20261111/three_bars.png` is the raw panel from the paused live preview where four-bar acquisition no longer found a crossing. Its capture-time project calibration and an explicitly reconstructed four-bar reference are included. The old app transported the line plane but did not transport its logged corners, so `reference.json` documents the longitudinal-only reconstruction assumption. This fixture verifies image-level reacquisition of three bars against that template; it does not validate the complete driving trajectory, exact previous-frame pose, or physical stopping distance.
+
+- `crosswalk_unverified_20261111.json`：v0.6.94帧4199的真实横道卡死状态；位置区间误差54.2cm、距离估计31.5cm。时间戳归零，用于验证不确定状态首帧交回低速跟线/寻路且不伪报合法完成；不是完整实车轨迹回放。

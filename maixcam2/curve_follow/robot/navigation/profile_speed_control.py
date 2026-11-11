@@ -13,11 +13,17 @@ from robot.navigation.speed_profile import SpeedLimits, plan_speed_profile
 
 
 class ProfileSpeedControl:
-    def __init__(self, limits, maximum_effort, response_s, maximum_gap_s=.30):
+    def __init__(self, limits, maximum_effort, response_s, maximum_gap_s=.30,
+                 *, high_confidence_gain=1.):
         self.limits = limits
         self.maximum_effort = float(maximum_effort)
         self.response_s = float(response_s)
         self.maximum_gap_s = float(maximum_gap_s)
+        if (isinstance(high_confidence_gain, bool)
+                or not isinstance(high_confidence_gain, (int, float))
+                or not math.isfinite(high_confidence_gain) or not 1 <= high_confidence_gain <= 2):
+            raise ValueError('High-confidence tracking gain must be within 1..2')
+        self.high_confidence_gain = float(high_confidence_gain)
         if not all(math.isfinite(v) and v > 0 for v in
                    (self.maximum_effort, self.response_s, self.maximum_gap_s)):
             raise ValueError('Invalid speed feedback settings')
@@ -28,7 +34,8 @@ class ProfileSpeedControl:
         config = settings.runtime.get('speed_profile', {})
         if not isinstance(config, dict):
             raise ValueError('speed_profile must be an object')
-        unknown = set(config) - {'mode', 'maximum_m_s', 'lateral_acceleration_m_s2', 'acceleration_m_s2'}
+        unknown = set(config) - {'mode', 'maximum_m_s', 'lateral_acceleration_m_s2',
+                                 'acceleration_m_s2', 'high_confidence_gain'}
         if unknown or config.get('mode', 'LEGACY') not in ('LEGACY', 'ACTIVE'):
             raise ValueError('Invalid speed_profile configuration')
         if config.get('mode', 'LEGACY') == 'LEGACY':
@@ -48,7 +55,8 @@ class ProfileSpeedControl:
             config.get('acceleration_m_s2', .30),
             float(p.brake_deceleration_m_s2 or .08), p.command_latency_s,
             settings.turn_lever,
-        ), 200 - settings.pwm_boost, p.speed_response_s)
+        ), 200 - settings.pwm_boost, p.speed_response_s,
+            high_confidence_gain=config.get('high_confidence_gain', 1.))
 
     def reset(self):
         self.applied_at = None
@@ -69,7 +77,7 @@ class ProfileSpeedControl:
         return None
 
     def command(self, target, path, now, measured_speed, curvature, sigma, front_margin,
-                eligible):
+                eligible, high_confidence=False):
         if not eligible:
             return self.fallback('EXISTING_PATH_OR_BODY_GATE')
         if (measured_speed is None or not math.isfinite(measured_speed)
@@ -105,11 +113,19 @@ class ProfileSpeedControl:
         dt = .05 if self.updated_at is None else now - self.updated_at
         if not 0 < dt < self.maximum_gap_s:
             return self.fallback('CONTROL_GAP')
+        fast_path = bool(high_confidence and positions[-1] >= .40)
+        reference_acceleration = self.limits.acceleration_m_s2 * (
+            self.high_confidence_gain if fast_path else 1.)
         previous_reference = max(0., measured_speed) if self.reference is None else self.reference
-        reference = min(ceiling, previous_reference + self.limits.acceleration_m_s2 * dt)
+        reference = min(ceiling, previous_reference + reference_acceleration * dt)
         actual = (self.applied_mean if self.applied_at is not None
                   and 0 <= now - self.applied_at < self.maximum_gap_s else 0.)
+        # Extra effort closes a positive speed error on an independently
+        # confirmed gentle path. It changes neither the reference envelope nor
+        # the response to overspeed; both wheel limits remain authoritative.
+        tracking_gain = (self.high_confidence_gain if fast_path and measured_speed < reference else 1.)
         gain = self.maximum_effort / (self.limits.maximum_m_s * (self.response_s + dt))
+        gain *= tracking_gain
         mean = max(0., min(self.maximum_effort / (1 + abs(ratio)),
                           actual + gain * (reference - measured_speed) * dt))
         if measured_speed > ceiling and actual > 0:
@@ -125,5 +141,7 @@ class ProfileSpeedControl:
             first_supported_point_m=segment[0].tolist(),
             effort_mean_pwm=mean, applied_mean_pwm=actual,
             requested_wheels=list(wheels),
+            tracking_gain=tracking_gain, high_confidence_boost=tracking_gain > 1.,
+            reference_acceleration_m_s2=reference_acceleration,
         )
         return wheels

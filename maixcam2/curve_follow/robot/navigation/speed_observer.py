@@ -17,7 +17,8 @@ class SpeedObserver:
     reused only for this observer. Task stops and body rollout are not solved.
     """
 
-    def __init__(self, settings):
+    def __init__(self, settings, *, enabled=True):
+        self.enabled = bool(enabled)
         crossing = settings.crosswalk_policy
         self.limits = SpeedLimits(
             0.30, 0.15, 0.15,
@@ -44,6 +45,9 @@ class SpeedObserver:
             scope="SUPPORTED_SEGMENT_ENTRY_ONLY", valid=False,
             parameters=dict(self.parameters),
         )
+        if not self.enabled:
+            snapshot.update(mode="DISABLED", reason="ACTIVE_PROFILE_OWNS_SPEED")
+            return snapshot
         # Analysis failures must not become driving faults or stale success.
         try:
             if not self.calibrated:

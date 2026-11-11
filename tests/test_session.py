@@ -84,7 +84,7 @@ class DrivingSessionTests(unittest.TestCase):
     def tearDown(self):
         self.output.__exit__(None, None, None)
 
-    def session(self, *, preview=False, yield_mode=False):
+    def session(self, *, preview=False, yield_mode=False, finish_priority=False):
         policy = RoadPolicy()
         crosswalk_policy = CrosswalkPolicy(mode="yield" if yield_mode else "observe")
         settings = SimpleNamespace(
@@ -100,10 +100,11 @@ class DrivingSessionTests(unittest.TestCase):
             MotorPeer(),
             WebControl(),
             SteeringControl(policy, [0.0, 0.0], [0.075, 0.105, 0.085], 0.3),
-            RoadSearch(policy, [0.0, 0.0], [0.075, 0.105, 0.085], 0.3, allow_visual_scan=True),
+            RoadSearch(policy, [0.0, 0.0], [0.075, 0.105, 0.085], 0.3,
+                       allow_visual_scan=True, finish_priority=finish_priority),
             StartLight({"enabled": True}),
             LapCounter({"enabled": True, "laps": 2, "finish_distance_m": 0.4}),
-            CrosswalkTask(crosswalk_policy),
+            CrosswalkTask(crosswalk_policy, finish_priority=finish_priority),
             CommandRamp(),
             RoadSupervisor(),
             clock=lambda: self.clock.now,
@@ -218,9 +219,12 @@ class DrivingSessionTests(unittest.TestCase):
         self.assertFalse(signal.permission);self.assertFalse(s.active)
 
     def test_recovered_follow_after_search_cancel_still_obeys_crosswalk_stop(self):
-        for phase in ("STOPPING", "HOLD", "RECOVERY_HOLD"):
-            with self.subTest(phase=phase):
-                s = self.session()
+        for phase, finish_priority in (
+            (phase, priority) for phase in ("STOPPING", "HOLD", "RECOVERY_HOLD")
+            for priority in (False, True)
+        ):
+            with self.subTest(phase=phase, finish_priority=finish_priority):
+                s = self.session(finish_priority=finish_priority)
                 self.start(s)
                 config = json.loads((ROOT / "maixcam2/curve_follow/runtime.json").read_text())
                 policy = CrosswalkPolicy.from_config(config["crosswalk"])
@@ -480,6 +484,127 @@ class DrivingSessionTests(unittest.TestCase):
         self.assertEqual(s.pwm, (0, 0))
         self.assertEqual(s.reason, "ROAD NOT FOUND")
         self.assertEqual(sum(c[0] == 1 for c in s.link.calls), 1)
+
+    def test_finish_priority_continues_scans_and_manual_stop_ends_retries(self):
+        s = self.session(finish_priority=True)
+        self.start(s)
+        base = self.clock.now + 0.1
+        before = len(s.link.calls)
+        missing = dict(valid=False, observed=False, confidence=0.0, state="LOST",
+                       mode="LOST", road_evidence="ABSENT")
+        motion = dict(valid=False, speed_m_s=0.0, yaw_rad_s=0.0)
+        for step in range(151):
+            self.clock.now = base + step / 10
+            command = s.search.command(missing, None, motion, self.clock.now,
+                                       active=s.active, stopped=True)
+            s.update(self.frame(s, result=missing, details={"ground_motion": motion},
+                                command=command, follow_command=None))
+        self.assertTrue(s.active)
+        self.assertGreaterEqual(s.search.scan.round_index, 3)
+        self.assertGreaterEqual(s.search.scan.total_pulses, 8)
+        for op, left, right, lease in s.link.calls[before:]:
+            if op == 2 and (left or right):
+                self.assertEqual(left + right, 0)
+                self.assertEqual(lease, 0.12)
+        self.clock.now += 0.1
+        s.update(self.frame(s), ("stop",))
+        self.assertFalse(s.active)
+        self.assertEqual(s.pwm, (0, 0))
+        self.assertIsNone(s.search.scan.began)
+
+    def test_cautious_path_moves_while_supervisor_rechecks_without_new_start(self):
+        s = self.session(finish_priority=True)
+        self.start(s)
+        s.recovery.failed = "ROAD NOT FOUND"
+        s.consecutive = 0
+        self.clock.now += 0.1
+        frame = self.frame(s)
+        frame.result["observation_confidence"] = 0.6
+        frame.result["confidence"] = 0.6
+        frame.command = s.search.command(frame.result, (100, 120),
+                                        frame.details["ground_motion"], self.clock.now,
+                                        active=True, stopped=True)
+        s.update(frame)
+        self.assertTrue(s.active)
+        self.assertEqual(s.recovery.phase, "SEARCHING")
+        self.assertTrue(any(s.pwm))
+        self.assertLessEqual(max(map(abs, s.pwm)), 60)
+        self.assertEqual(s.reason, "CAUTIOUS FOLLOW")
+
+    def test_accepted_prediction_exits_scan_with_its_own_lease_and_task_stop_priority(self):
+        for phase in (None, 'STOPPING', 'HOLD', 'RECOVERY_HOLD'):
+            with self.subTest(phase=phase):
+                s = self.session(finish_priority=True)
+                self.start(s)
+                if phase:
+                    config = json.loads((ROOT / 'maixcam2/curve_follow/runtime.json').read_text())
+                    s.settings.crosswalk_policy = CrosswalkPolicy.from_config(config['crosswalk'])
+                    s.crosswalk = CrosswalkTask(s.settings.crosswalk_policy)
+                frame = self.frame(s)
+                s.search.command(dict(valid=False, observed=False, state='LOST'), None,
+                                 frame.details['ground_motion'], self.clock.now,
+                                 active=True, stopped=True)
+                self.clock.now += .1
+                frame.result.update(state='PREDICTED', observed=False)
+                s.steering.status['prediction'] = dict(lease_s=.22)
+                frame.command = s.search.command(frame.result, (100, 120),
+                    frame.details['ground_motion'], self.clock.now,
+                    active=True, allowed=phase is None, stopped=True)
+                self.assertTrue(any(frame.command))
+                self.assertIsNone(s.search.scan.began)
+                if phase:
+                    s.crosswalk.phase = phase
+                s.update(frame)
+                self.assertTrue(s.active)
+                if phase:
+                    self.assertEqual(s.pwm, (0, 0))
+                    self.assertIsNone(s.link.calls[-1][3])
+                else:
+                    self.assertTrue(any(s.pwm))
+                    self.assertEqual(s.link.calls[-1][3], .22)
+                    self.assertEqual(s.reason, 'CAUTIOUS FOLLOW')
+
+    def test_unverified_crosswalk_returns_motor_ownership_to_follow_or_search(self):
+        fixture=json.loads((ROOT/'tests/fixtures/crosswalk_unverified_20261111.json').read_text())
+        config=json.loads((ROOT/'maixcam2/curve_follow/runtime.json').read_text())['crosswalk']
+        for mode in ('follow','search'):
+            with self.subTest(mode=mode):
+                s=self.session(finish_priority=True);self.start(s)
+                s.settings.crosswalk_policy=CrosswalkPolicy.from_config(config)
+                s.crosswalk=CrosswalkTask(s.settings.crosswalk_policy,finish_priority=True)
+                task=s.crosswalk;task.track=dict(fixture['track'],observed_at=self.clock.now)
+                task.hits=fixture['hits'];task.identity=1;task.phase='RECOVERY_HOLD'
+                task.position_at=task.last_update=self.clock.now
+                before=len(s.link.calls);began=self.clock.now
+                for step in range(1,42):
+                    self.clock.now=began+step*.2
+                    frame=self.frame(s)
+                    if mode=='search':
+                        frame.result.update(valid=False,observed=False,state='LOST',
+                                            mode='LOST',road_evidence='ABSENT',confidence=0.)
+                    scene=frame.details['ground_motion']
+                    scene['travel_m']=0.
+                    frame.crosswalk_state=task.update(None,scene,self.clock.now,True,True,True,
+                                                      mode=='follow')
+                    self.assertEqual(task.phase,'RECOVERY_PASSING')
+                    follow=(100,120) if mode=='follow' else None
+                    frame.command=s.search.command(frame.result,follow,scene,self.clock.now,
+                        active=True,allowed=task.allows_road_search(),stopped=True)
+                    frame.follow_command=follow
+                    s.update(frame)
+                    if step==1 and mode=='follow':
+                        self.assertTrue(any(s.link.calls[-1][1:3]))
+                self.assertTrue(s.active)
+                self.assertEqual(task.phase,'RECOVERY_PASSING')
+                self.assertFalse(task.yield_completed);self.assertFalse(task.yield_verified)
+                moving=[call for call in s.link.calls[before:] if call[0]==2 and any(call[1:3])]
+                self.assertTrue(moving)
+                self.assertLessEqual(max(abs(v) for call in moving for v in call[1:3]),97)
+                if mode=='search':
+                    self.assertTrue(any(call[1]+call[2]==0 and call[3]==.12 for call in moving))
+                self.clock.now+=.1;s.update(self.frame(s),('stop',))
+                self.assertFalse(s.active);self.assertEqual(s.pwm,(0,0))
+                self.assertEqual(task.phase,'SEARCH')
 
     def test_motor_publication_failure_ends_session_and_cancels_waiting(self):
         s = self.session()

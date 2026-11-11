@@ -7,6 +7,29 @@ from robot.control.controller import CommandRamp, compensate_pwm
 
 
 class CommandRampTimingTests(unittest.TestCase):
+    def test_faster_restart_reaches_same_effort_sooner_at_different_frame_rates(self):
+        for fps in (5, 10, 20):
+            with self.subTest(fps=fps):
+                old, fast = CommandRamp(180), CommandRamp(240)
+                old_at = fast_at = None
+                for frame in range(2 * fps):
+                    now = frame / fps
+                    a, b = old.apply((80, 163), now), fast.apply((80, 163), now)
+                    if a == (80, 163) and old_at is None:
+                        old_at = now
+                    if b == (80, 163) and fast_at is None:
+                        fast_at = now
+                    self.assertLessEqual(max(compensate_pwm(b)), 200)
+                    self.assertLessEqual(abs(b[0] * 163 - b[1] * 80), 122)
+                self.assertLess(fast_at, old_at)
+                self.assertEqual(fast.apply((0, 0), 2.), (0, 0))
+                self.assertLessEqual(max(fast.apply((80, 163), 2.01)), 12)
+
+    def test_bad_rise_setting_is_rejected(self):
+        for value in (0, -1, True, None, '240', float('nan'), float('inf')):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                CommandRamp(value)
+
     def settled(self, command=(80, 163)):
         ramp = CommandRamp()
         for i in range(11):
