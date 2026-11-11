@@ -1,0 +1,410 @@
+{
+  "source": "Maix v0.6.97 frame1403 before the loss; recorded curve and uncertainty, not a complete pose replay.",
+  "target": {
+    "valid": true,
+    "state": "PREDICTED",
+    "road_evidence": "ABSENT",
+    "mode": "PREDICT",
+    "confidence": 0.28447612671526534,
+    "observed": false,
+    "invalid_reason": "",
+    "observation_confidence": 0.0,
+    "measurement_reject": "NO EDGE",
+    "age_s": 0.468,
+    "reacquired": false,
+    "pending_frames": 0,
+    "pending_confidence": 0.0,
+    "transition_pending": false,
+    "history_prediction_only": false,
+    "association_kind": "UNOBSERVED",
+    "handoff_evidence": null,
+    "history_continuity_evidence": null,
+    "association_prior_path_m": null,
+    "candidate_path_m": null,
+    "candidate_mode": null,
+    "candidate_confidence": 0.0,
+    "confirmation_required_frames": 0,
+    "measurement_alignment": null,
+    "confirmation_alignment": null,
+    "blind_distance_m": 0.07168852809880429,
+    "target_m": [
+      0.0049999999999999975,
+      0.029150014731048206
+    ],
+    "control_target_m": [
+      0.06,
+      0.029150014731048206
+    ],
+    "control_reference_origin_m": [
+      -0.055,
+      0.0
+    ],
+    "control_path_m": [
+      [
+        0.056722279514067823,
+        0.0343456558613477
+      ],
+      [
+        0.06491517902109112,
+        0.021358774936693557
+      ],
+      [
+        0.07271768756940815,
+        0.008133946821154793
+      ],
+      [
+        0.07922914042503593,
+        -0.005768268229428853
+      ],
+      [
+        0.08450105229364552,
+        -0.020188122163301424
+      ],
+      [
+        0.08893144371988948,
+        -0.034889954039832444
+      ],
+      [
+        0.09290795861998702,
+        -0.0497209278464292
+      ],
+      [
+        0.0964290690453923,
+        -0.064662658543662
+      ],
+      [
+        0.09912343217148398,
+        -0.07977817141527815
+      ],
+      [
+        0.10267068571730853,
+        -0.09469368573124694
+      ],
+      [
+        0.10816268403766624,
+        -0.10901996195104774
+      ],
+      [
+        0.1150027240518157,
+        -0.1227528139826612
+      ],
+      [
+        0.12330097427458322,
+        -0.13563817395580013
+      ],
+      [
+        0.13316001006016076,
+        -0.14738247827720333
+      ],
+      [
+        0.14329895881042434,
+        -0.15890935270129503
+      ],
+      [
+        0.15267873516927638,
+        -0.17105682501292052
+      ],
+      [
+        0.1613005908436418,
+        -0.18375845145335187
+      ],
+      [
+        0.16954301929503032,
+        -0.1967133312267861
+      ],
+      [
+        0.1774315021239488,
+        -0.20988650663972197
+      ],
+      [
+        0.18496991670100427,
+        -0.22326326953113132
+      ],
+      [
+        0.1934333595081216,
+        -0.23606817180586523
+      ],
+      [
+        0.20325328072647972,
+        -0.24786033047602937
+      ],
+      [
+        0.21448017323614643,
+        -0.25832228070598434
+      ],
+      [
+        0.22674598019712958,
+        -0.26755283912315453
+      ],
+      [
+        0.23973878024710493,
+        -0.27573294282195215
+      ],
+      [
+        0.253168940664001,
+        -0.283175688302339
+      ],
+      [
+        0.26679681039276787,
+        -0.2902509647768084
+      ],
+      [
+        0.2804450288988231,
+        -0.29728721215288706
+      ],
+      [
+        0.29404939746050274,
+        -0.30440785429330736
+      ],
+      [
+        0.30757892735343306,
+        -0.31166965672148683
+      ],
+      [
+        0.3209628259745031,
+        -0.3191963870588959
+      ]
+    ],
+    "reference_sigma_m": 0.04279351456682982,
+    "reference_inferred": true,
+    "target_inferred": true,
+    "path_observed_mask": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "path_confidence": [
+      0.3928053805618366,
+      0.3928053805618366,
+      0.3928053805618366,
+      0.3928053805618366,
+      0.3928053805618366,
+      0.3928053805618366,
+      0.438259522241054,
+      0.438259522241054,
+      0.438259522241054,
+      0.438259522241054,
+      0.438259522241054,
+      0.438259522241054,
+      0.438259522241054,
+      0.438259522241054,
+      0.3928053805618366,
+      0.3928053805618366,
+      0.3928053805618366,
+      0.3928053805618366,
+      0.3928053805618366,
+      0.3928053805618366,
+      0.3928053805618366,
+      0.3928053805618366,
+      0.3928053805618366,
+      0.3928053805618366,
+      0.3928053805618366,
+      0.2885869317067971,
+      0.28447612671526534,
+      0.28447612671526534,
+      0.28447612671526534,
+      0.28447612671526534,
+      0.28447612671526534
+    ],
+    "control_target_source": "HISTORY PREDICTION",
+    "target_distance_m": 0.06670624677509841,
+    "target_selection": "NEAREST_CURVE",
+    "target_speed_scale": 1.0,
+    "path_heading_rad": -1.0228823553812638,
+    "path_curvature_m_inv": 5.165433437886493,
+    "near_support_m": 0.019495577542010242,
+    "reliable_length_m": 0.46049565892923605,
+    "road_model": {
+      "reason": "",
+      "age_s": 0.46807744500006265,
+      "blind_distance_m": 0.07168852809880429,
+      "sigma_m": 0.04279351456682982,
+      "confidence": 0.28447612671526534,
+      "length_m": 0.46049565892923605,
+      "fresh_fraction": 0.0,
+      "sample_count": 31,
+      "oldest_seen": 1295.873703624,
+      "observed_mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "version": 2,
+      "support_scope": "HISTORY_ALLOWED",
+      "geometry_observed": false,
+      "model_age_s": 0.149
+    },
+    "timings_ms": {
+      "motion": 54.7,
+      "perception": 59.5,
+      "model": 9.0,
+      "target": 3.7
+    },
+    "boundary_tracks": {
+      "left": [
+        {
+          "id": 195,
+          "confirmed": true,
+          "age_s": 0.149,
+          "sigma_m": 0.0093
+        }
+      ],
+      "right": []
+    },
+    "surface_rejection": {
+      "contradicted": false,
+      "visible_samples": 0,
+      "green_samples": 0,
+      "longest_green_m": 0.0
+    },
+    "motion": {
+      "sigma_m": 0.00786,
+      "valid": false,
+      "source": "COMMAND PRIOR",
+      "reason": "MOTION LIMIT OR RESIDUAL",
+      "interval_s": 0.14899,
+      "travel_m": 0.0038,
+      "inliers": 0,
+      "residual_m": null,
+      "speed_m_s": null,
+      "yaw_rad_s": null
+    },
+    "counts": {
+      "left": 0,
+      "right": 0
+    },
+    "boundary_fallback": null,
+    "road_component_selection": null,
+    "white_value_min": 210,
+    "photometric_passes": 4,
+    "exposure_normalized": true
+  },
+  "steering": {
+    "trim_m_inv": -0.019307796530338744,
+    "feedback_valid": false,
+    "motion_measured": false,
+    "speed_profile_control": {
+      "mode": "ACTIVE",
+      "selected": false,
+      "reason": "MEASURED_FORWARD_SPEED_UNRESOLVED"
+    },
+    "receive_curvature_m_inv": 11.13665301114799,
+    "latency_prediction": {
+      "age_s": 0.14383789899989097,
+      "applied": false,
+      "reason": "NO_VALID_MEASURED_MOTION",
+      "point_m": [
+        0.22869337690004243,
+        -0.2687788956245438
+      ]
+    },
+    "raw_lookahead_m": 0.45713511516955563,
+    "lookahead_filter_s": 0.4,
+    "target_selection": "ADAPTIVE_PURSUIT",
+    "lookahead_m": 0.35290615660695734,
+    "lookahead_time_s": 1.4346127299998443,
+    "horizon_speed_m_s": 0.3186470506013182,
+    "target_mode": "LOOKAHEAD",
+    "target_distance_m": 0.35290615660695734,
+    "command_target_m": [
+      0.22869337690004243,
+      -0.2687788956245438
+    ],
+    "receive_target_m": [
+      0.22869337690004243,
+      -0.2687788956245438
+    ],
+    "target_observed": false,
+    "requested_curvature_m_inv": -3.668813342054693,
+    "corrected_curvature_m_inv": -3.6881211385850317,
+    "speed_plan": {
+      "baseline_cruise_pwm": 120.0,
+      "confirmed_cruise_pwm": 140.0,
+      "straight_cruise_pwm": 163.0,
+      "selected_cruise_pwm": 120.0,
+      "bend_load": 0.6585927633305277,
+      "boost_eligible": false,
+      "road_confirmed_s": 0.0,
+      "required_road_confirm_s": 0.4,
+      "observation_confidence": 0.0,
+      "road_eligible": false,
+      "global_confidence": 0.28447612671526534,
+      "control_confidence": 0.28447612671526534,
+      "control_quality_source": "GLOBAL",
+      "forward_confidence": 0.28447612671526534
+    },
+    "envelope": {
+      "speed_scale": 0.17634606992443178,
+      "coverage": 0.2857142857142857,
+      "state": "PARTIAL",
+      "minimum_clearance_m": -0.09473509148741974,
+      "first_unsafe_m": 0.09999999999999999
+    },
+    "target_speed_scale": 1.0,
+    "prediction": {
+      "remaining_distance_m": 0.03551795733436589,
+      "remaining_time_s": -0.011915343999953643,
+      "lease_s": 0.0,
+      "speed_scale": 0.0,
+      "measured_motion": false,
+      "motion_source": null
+    },
+    "published_curvature_proxy_m_inv": 0.0
+  }
+}

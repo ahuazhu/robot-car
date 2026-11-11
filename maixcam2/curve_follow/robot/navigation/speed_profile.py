@@ -7,6 +7,7 @@ physical limits and conservative distance margins; no unseen gaps are joined.
 
 from dataclasses import dataclass
 import math
+from robot.core.route_confidence import confidence_speed_factor
 
 
 @dataclass(frozen=True)
@@ -39,11 +40,13 @@ class SpeedProfile:
 
 
 def plan_speed_profile(stations_m, curvature_m_inv, limits, *, stop_at_m=None,
-                       distance_margin_m=0.0, initial_speed_m_s=None):
+                       distance_margin_m=0.0, initial_speed_m_s=None, centerline_confidence=1.,
+                       clearance_limit_m_s=None):
     """Plan a forward-only sampled envelope with an explicit zero-speed end.
 
     Each sample is bounded by lateral acceleration and nominal differential
-    outer-wheel speed. A backward pass enforces braking before future limits.
+    outer-wheel speed, centerline confidence and an optional absolute chassis
+    clearance speed limit. A backward pass brakes before future limits.
     Reaction/actuation delay is charged ONCE at entry, then a forward pass
     enforces acceleration. Complexity and memory are O(number of samples).
 
@@ -70,6 +73,9 @@ def plan_speed_profile(stations_m, curvature_m_inv, limits, *, stop_at_m=None,
     if initial_speed_m_s is not None and (
             not math.isfinite(initial_speed_m_s) or initial_speed_m_s < 0):
         raise ValueError("Initial speed must be finite and nonnegative")
+    if clearance_limit_m_s is not None and (
+            not math.isfinite(clearance_limit_m_s) or clearance_limit_m_s < 0):
+        raise ValueError("Clearance speed limit must be finite and nonnegative")
 
     task_stop = stop_at_m is not None and stop_at_m <= s[-1]
     end = max(0.0, min(s[-1], stop_at_m if task_stop else s[-1]) - distance_margin_m)
@@ -81,12 +87,16 @@ def plan_speed_profile(stations_m, curvature_m_inv, limits, *, stop_at_m=None,
         boundary_k = max((k[cut - 1], k[cut]), key=abs)
         s, k = s[:cut] + (end,), k[:cut] + (boundary_k,)
 
+    confidence_limit=limits.maximum_m_s*confidence_speed_factor(centerline_confidence)
     caps, reasons = [], []
     for curvature in k:
         load = abs(limits.turn_lever_m * curvature)
         lateral = math.sqrt(limits.lateral_acceleration_m_s2 / abs(curvature)) if curvature else math.inf
         wheel = limits.maximum_m_s / (1.0 + load)
-        choices = [(limits.maximum_m_s, "MAXIMUM_SPEED"), (lateral, "CURVATURE"), (wheel, "OUTER_WHEEL")]
+        choices = [(limits.maximum_m_s, "MAXIMUM_SPEED"), (lateral, "CURVATURE"), (wheel, "OUTER_WHEEL"),
+                   (confidence_limit,'CENTERLINE_CONFIDENCE')]
+        if clearance_limit_m_s is not None:
+            choices.append((clearance_limit_m_s,'BODY_CLEARANCE'))
         if load > 1.0:
             # Forward-only tracking cannot ask the inside wheel to reverse.
             choices.append((0.0, "FORWARD_KINEMATICS"))

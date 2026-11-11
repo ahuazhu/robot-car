@@ -7,8 +7,8 @@
     "maximum_prediction_command_s": 0.25
   },
   "turn_lever_m": 0.15,
-  "steering_gain": 0.85,
-  "cruise_pwm": 120,
+  "steering_gain": 0.95,
+  "cruise_pwm": 135,
   "speed_profile": {
     "mode": "ACTIVE",
     "maximum_m_s": 0.3,
@@ -52,7 +52,7 @@
     "basis": "User: lens approximately on front axle; axle spacing 11cm; camera to outer left/right wheel edges 6/11cm (total width17cm). Four-point road calibration established with centered car, so lateral origin is lane/body centre and optical offset is already absorbed; no second lateral shift."
   },
   "motor_peak_boost_pwm": 37,
-  "motor_rise_pwm_s": 320,
+  "motor_rise_pwm_s": 400,
   "straight_cruise_pwm": 163,
   "search_cruise_pwm": 60,
   "race": {
@@ -64,7 +64,7 @@
     "finish_distance_m": 0.4,
     "initial_line_ignore_s": 30.0
   },
-  "confirmed_cruise_pwm": 140,
+  "confirmed_cruise_pwm": 155,
   "road_search": {
     "allow_visual_scan": true,
     "finish_priority": true

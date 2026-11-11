@@ -85,6 +85,7 @@ class RoadSearch:
         self.leg = 0
         self.targets = []
         self.last_action = False
+        self.aligning = False
         self.awaiting_rest = False
         self._map_proposal = None
         self.finished = False
@@ -314,10 +315,18 @@ class RoadSearch:
 
     def _follow(self, result, follow, *, recovering=False):
         self.reset()
+        if result.get('speed_limit_source')=='CENTERLINE_CONFIDENCE':
+            if float(result.get('control_confidence',0.))<.8:
+                self.status=dict(phase='CAUTIOUS',reason='CENTERLINE CONFIDENCE',
+                                 search_pending=True,lease_s=None)
+            return follow
         quality = float(result.get("observation_confidence") or 0.0)
         cautious = self.finish_priority and (
             recovering or result.get("state") == "PREDICTED"
             or result.get("transition_pending") or not math.isfinite(quality)
+            or result.get("partial_boundary_inference")
+            or ((result.get("road_model") or {}).get("persistent_history")
+                and not all(result.get("path_observed_mask", [False])))
             or quality < self.policy.confirmation_quality
         )
         if cautious and follow is not None and any(follow):
@@ -335,10 +344,33 @@ class RoadSearch:
         if not active:
             self.reset()
             return follow
+        alignment=result.get("route_alignment") or {}
+        heading=alignment.get("heading_rad")
+        distance=alignment.get("distance_m")
+        directional=bool(self.finish_priority and allowed
+            and isinstance(heading,(int,float)) and math.isfinite(heading)
+            and isinstance(distance,(int,float)) and math.isfinite(distance)
+            and 0 <= distance <= self.policy.maximum_target_m)
+        if directional and abs(heading) > math.radians(20 if self.aligning else 70):
+            # A known route supplies a signed heading error. Rotate to reduce
+            # that error, rather than alternating blind search directions.
+            # Fresh frames renew a short rotation lease; tasks/STOP still win.
+            self.scan.reset();self.began=None;self.aligning=True;self.last_action=True
+            effort=min(float(self.cruise),60.)
+            turn=math.copysign(effort,heading)
+            self.status=dict(phase="ALIGNING",reason="ALIGN TO PREDICTED CENTERLINE",
+                search_pending=True,lease_s=.15,heading_error_rad=heading,
+                route_distance_m=distance,space_source="ROUTE_HEADING",space_verified=False)
+            return (round(-turn),round(turn))
+        if self.aligning:
+            self.reset()
         if self.scan.began is not None:
             if (
                 self.finish_priority and follow is not None and any(follow)
-                and result.get("valid") and result.get("state") == "PREDICTED"
+                and result.get("valid") and (
+                    result.get("state") == "PREDICTED"
+                    or ((result.get("road_model") or {}).get("persistent_history")
+                        and (result.get("target_inferred") or result.get("partial_boundary_inference"))))
                 and result.get("invalid_reason") != "BODY ENVELOPE BLOCKED"
             ):
                 # Steering has already checked this historical curve's body,

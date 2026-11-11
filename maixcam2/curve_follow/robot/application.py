@@ -142,8 +142,8 @@ def main(app_dir):
             previous_captured = captured
             active, pwm = session.active, session.pwm
             v, omega = motion_from_pwm(pwm, turn_lever) if active else (0.0, 0.0)
-            # Arming uses a trusted current component; driving keeps bounded
-            # historical support. Both queries share the same persistent model.
+            # Arming uses a trusted current component; driving keeps the
+            # transported prediction until confirmed correction, with no TTL.
             result, details = vision.update(bgr, captured, v, omega, require_current=not active)
             frames += 1
             motor_before = None if preview_only else link.snapshot()
@@ -151,7 +151,7 @@ def main(app_dir):
             lap_observation = lap_detector.detect(
                 bgr,
                 details,
-                details.get("measured_road") or result,
+                result,
                 captured,
                 motion=details.get("ground_motion"),
             )
@@ -166,7 +166,7 @@ def main(app_dir):
             profile_ms["lap_counter"] = round((time.perf_counter() - lap_tick) * 1000, 2)
             crosswalk_tick = time.perf_counter()
             crossing = crosswalk_detector.detect(
-                details, details.get("measured_road") or result, captured,
+                details, result, captured,
                 reference=crosswalk_task.detection_reference(details.get("ground_motion"), captured),
             )
             actual_ack = motor_before.get("ack", []) if motor_before else []
@@ -223,6 +223,8 @@ def main(app_dir):
                     control_target_source="OBSERVED"
                     if steering.status["target_observed"]
                     else "HISTORY PREDICTION",
+                    speed_limit_source='CENTERLINE_CONFIDENCE' if steering.status.get('confidence_speed_limit_m_s') is not None else 'LEGACY',
+                    control_confidence=(steering.status.get('speed_profile_control') or {}).get('centerline_confidence'),
                 )
             steering_done = time.monotonic()
             search_tick = steering_done

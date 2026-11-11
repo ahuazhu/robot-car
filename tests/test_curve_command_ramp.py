@@ -9,7 +9,7 @@ from robot.control.controller import CommandRamp, compensate_pwm
 class CommandRampTimingTests(unittest.TestCase):
     def test_faster_restart_reaches_same_effort_sooner_at_different_frame_rates(self):
         for fps, old_rise, new_rise in (
-                (fps, a, b) for fps in (5, 10, 20) for a, b in ((180,240),(240,320))):
+                (fps, a, b) for fps in (5, 10, 20) for a, b in ((180,240),(240,320),(320,400))):
             with self.subTest(fps=fps, old_rise=old_rise, new_rise=new_rise):
                 old, fast = CommandRamp(old_rise), CommandRamp(new_rise)
                 old_at = fast_at = None

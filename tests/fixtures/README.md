@@ -28,3 +28,9 @@
 `crosswalk_20261111/three_bars.png` is the raw panel from the paused live preview where four-bar acquisition no longer found a crossing. Its capture-time project calibration and an explicitly reconstructed four-bar reference are included. The old app transported the line plane but did not transport its logged corners, so `reference.json` documents the longitudinal-only reconstruction assumption. This fixture verifies image-level reacquisition of three bars against that template; it does not validate the complete driving trajectory, exact previous-frame pose, or physical stopping distance.
 
 - `crosswalk_unverified_20261111.json`：v0.6.94帧4199的真实横道卡死状态；位置区间误差54.2cm、距离估计31.5cm。时间戳归零，用于验证不确定状态首帧交回低速跟线/寻路且不伪报合法完成；不是完整实车轨迹回放。
+
+- `single_edge_stall_20261111/`：v0.6.97用户STOP后抓取的原图、对应标定及同轮帧1403最后有效中线。两份几何/图像不是同一帧；用于单边推断和历史淘汰门槛的独立回归，不冒充完整位姿回放。
+
+- `persistent_bend_exit_20261111.json`：v0.6.98帧2033的真实反证、主路线和当前候选，另含前一轮停车后远处横向道路快照。用于防止明确绿色时继续直行及远路错误替换；不同快照不构成完整位姿回放。
+
+- `body_clearance_speed_20261111.json`：v0.6.99现场帧1849与2027的独立控制快照；原规划参考速度超过已有车身预测限速，覆盖两种转向。边界风险为算法预测，非逐帧人工压线标注，也不是连续位姿回放。

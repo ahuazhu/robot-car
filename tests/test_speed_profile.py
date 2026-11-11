@@ -35,6 +35,36 @@ class SpeedProfileTests(unittest.TestCase):
         self.assertEqual(plan.entry_limit_m_s, 0.30)
         self.assertEqual(plan.entry_reason, "MAXIMUM_SPEED")
 
+    def test_centerline_confidence_is_one_continuous_speed_constraint(self):
+        ceilings=[]
+        for confidence in (1.,.8,.6,.3,.08,0.):
+            plan=plan_speed_profile([0,.5,1,2],[0]*4,LIMITS,
+                                    centerline_confidence=confidence)
+            ceilings.append(plan.entry_limit_m_s)
+            self.assertGreater(plan.entry_limit_m_s,0.)
+            if confidence<.8:self.assertEqual(plan.entry_reason,'CENTERLINE_CONFIDENCE')
+        np_expected=[.30,.30,.225,.1125,.03,.03]
+        for actual,expected in zip(ceilings,np_expected):self.assertAlmostEqual(actual,expected)
+        # A low-confidence crawl never cancels a real stopping constraint.
+        stopped=plan_speed_profile([0,1],[0,0],LIMITS,stop_at_m=0.,centerline_confidence=0.)
+        self.assertEqual(stopped.entry_limit_m_s,0.)
+        self.assertEqual(stopped.entry_reason,'STOP_POINT')
+
+    def test_invalid_centerline_confidence_cannot_authorize_a_profile(self):
+        for confidence in (-.1,1.1,math.nan,math.inf):
+            with self.subTest(confidence=confidence),self.assertRaises(ValueError):
+                plan_speed_profile([0,1],[0,0],LIMITS,centerline_confidence=confidence)
+
+    def test_clearance_is_an_absolute_cap_even_when_initial_speed_is_low(self):
+        for initial in (0.,.05,.2):
+            plan=plan_speed_profile([0,.5,1,2],[0]*4,LIMITS,
+                initial_speed_m_s=initial,clearance_limit_m_s=.1)
+            self.assertAlmostEqual(plan.entry_limit_m_s,.1)
+            self.assertEqual(plan.entry_reason,'BODY_CLEARANCE')
+        for cap in (-.1,math.nan,math.inf):
+            with self.assertRaises(ValueError):
+                plan_speed_profile([0,1],[0,0],LIMITS,clearance_limit_m_s=cap)
+
     def test_future_turn_slows_before_turn(self):
         limits = replace(LIMITS, maximum_m_s=1.0, delay_s=0.0, turn_lever_m=0.05)
         plan = plan_speed_profile([0, 0.1, 0.2, 1.5], [0, 6, 6, 0], limits)

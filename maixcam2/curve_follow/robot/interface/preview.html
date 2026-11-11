@@ -335,6 +335,7 @@ function updateFieldSummary(s,fresh){
   title=s.reason==='FINISH DISTANCE'?'完赛冲线中':s.reason==='WAIT START LIGHT'?(lamp.permission?'已收到发车信号':'准备等灯中'):'行驶中';
   if(['ROAD SEARCH SCANNING','ROAD SEARCH SETTLING','ROAD SEARCH RETRY_WAIT','REACQUIRING ROAD','VISION WAIT','ROAD SEARCH','ROAD NOT FOUND'].includes(s.reason))title='寻路恢复中';
   if(s.reason==='CAUTIOUS FOLLOW')title='低速巡线中';
+  if(s.reason==='ROAD SEARCH ALIGNING')title='正在对正中线';
   const c=d.crosswalk||{};if(['STOPPING','HOLD','RECOVERY_HOLD'].includes(c.phase))title=c.phase==='STOPPING'?'横道刹停中':c.phase==='RECOVERY_HOLD'?'横道停位待核实':'横道停车礼让';
   if(c.phase==='RECOVERY_PASSING')title='横道低速恢复中';
   detail=lamp.permission?'发车许可已确认，本轮独立巡线。':'小车正在执行本轮任务。';
@@ -342,6 +343,8 @@ function updateFieldSummary(s,fresh){
   if(c.phase==='HOLD')detail=`停稳亮红灯 ${Number(c.hold_elapsed_s||0).toFixed(1)} / ${Number(c.required_hold_s||3.2).toFixed(1)} 秒`;
   if(c.phase==='RECOVERY_HOLD')detail=c.finish_priority?'横道礼让中，结束后低速继续；当前停位未验证。':'停位尚未核实，当前停留不能算完成礼让。';
   if(c.phase==='RECOVERY_PASSING')detail='停位未验证，按完赛优先低速继续。';
+  const plan=(d.steering||{}).speed_profile_control||{};
+  if(plan.centerline_confidence<.5&&!['STOPPING','HOLD','RECOVERY_HOLD'].includes(c.phase)){title='慢行更新中线';detail='按中线置信度规划速度，持续观察修正。';}
  }
  else if(lamp.armed){title=lamp.permission?'已收到发车信号':lamp.phase==='WAIT_ON'?'已准备 · 等待亮灯':['WAIT_OFF','CONFIRM_OFF'].includes(lamp.phase)?((lamp.initial_lamp_state||lockedInitialLampState||initialLampState)==='ON'?'基准稳定 · 等待熄灯':'已见亮灯 · 等待熄灯'):'正在准备等灯';detail=lamp.permission?'等待道路和电机就绪后自动出发。':'准备后请保持车子和相机固定。';}
  else if(lamp.phase==='FAULT'){title='等灯已取消';detail='查看灯面与连接状态，重新准备等灯。';}
@@ -469,7 +472,8 @@ async function updateStatus(){
    const searchLabels={"GROUND MOTION UNVERIFIED":"等待有效运动估计","BODY POSE CLEARANCE UNVERIFIED":"车身与道路余量尚未确认","NO OBSERVABLE SAFE YAW STEP":"暂无可确认的小幅转向空间","ROTATION SWEEP NOT INSIDE KNOWN ROAD":"转向范围超过可信道路余量","SEARCH BUDGET OR DRIFT LIMIT":"试探达到角度、漂移或时长界限","SWEEP COMPLETED WITHOUT A CONFIRMED PATH":"左右试探后仍无可信追踪路径"};
    const searchNotice=searchLabels[search.reason]||'';
    const waiting=(!s.active&&!s.ready)?(d.blocked_by||[]).map(blockerLabel).join('；'):'';
-   document.getElementById('diagnostics').textContent=[waiting,searchNotice,d.observed_streak!==undefined?`道路确认 ${Math.min(d.observed_streak,d.required_observations)}/${d.required_observations}`:'',d.processing_ms!==undefined?`视觉 ${d.processing_ms}ms`:'',d.confidence!==undefined?`置信度 ${Math.round(d.confidence*100)}%`:'',d.frame!==undefined?`帧 ${d.frame}`:''].filter(Boolean).join(' · ');
+   const planningConfidence=(d.steering?.speed_profile_control||{}).centerline_confidence??d.confidence;
+   document.getElementById('diagnostics').textContent=[waiting,searchNotice,d.observed_streak!==undefined?`道路确认 ${Math.min(d.observed_streak,d.required_observations)}/${d.required_observations}`:'',d.processing_ms!==undefined?`视觉 ${d.processing_ms}ms`:'',planningConfidence!==undefined?`中线置信度 ${Math.round(planningConfidence*100)}%`:'',d.frame!==undefined?`帧 ${d.frame}`:''].filter(Boolean).join(' · ');
 
  }catch(e){if(revision===controlRevision){statusExpiresAt=0;canStart=canDirect=false;syncControls();statusBox.textContent=receivedStatus?'控制台显示异常，请刷新页面':'Maix 连接中断，请检查电脑与小车网络';maixNeedsReconnect=true;markESPUnknown('Maix 状态暂不可达');document.getElementById('mission-state').textContent='小车连接中断';document.getElementById('mission-detail').textContent='请检查电脑与小车网络；停车按钮仍可发送请求。';console.warn('Control status update failed',e);}}
  finally{statusBusy=false;}

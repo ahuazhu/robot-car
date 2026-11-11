@@ -348,8 +348,6 @@ class DrivingSession:
                 self.search.snapshot().get("lease_s")
                 if self.search.is_turning()
                 else (self.steering.status.get("prediction") or {}).get("lease_s")
-                if frame.result.get("state") == "PREDICTED" or frame.result.get("transition_pending")
-                else None
             )
         try:
             self.link.send(2, *compensate_pwm(self.pwm, s.pwm_boost), lease_s=lease)

@@ -28,10 +28,10 @@ class RuntimeSettingsTests(unittest.TestCase):
                 settings.straight_cruise_pwm,
                 settings.pwm_boost,
             ),
-            (120.0, 140.0, 163.0, 37),
+            (135.0, 155.0, 163.0, 37),
         )
         self.assertEqual(settings.runtime["race"]["finish_distance_m"], 0.4)
-        self.assertEqual(settings.motor_rise_pwm_s, 320)
+        self.assertEqual(settings.motor_rise_pwm_s, 400)
         self.assertEqual(settings.runtime['speed_profile']['acceleration_m_s2'], .4)
 
     def test_preview_override_and_calibration_gate_both_prevent_driving(self):

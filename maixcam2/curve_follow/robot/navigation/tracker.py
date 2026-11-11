@@ -8,6 +8,7 @@ from robot.core.road_policy import RoadPolicy
 from robot.core.ground_motion import GroundMotion, motion_summary
 from robot.perception.boundaries import CurvePixels
 from robot.navigation.road_model import LocalRoadModel, BoundaryTrackBank
+from robot.navigation.route_reference import route_reference
 
 
 class TargetTracker:
@@ -31,7 +32,8 @@ class TargetTracker:
         if self.reference_origin.shape != (2,) or not np.isfinite(self.reference_origin).all():
             raise ValueError("Invalid control frame")
         self.pixels = CurvePixels(cal, self.policy)
-        self.model = LocalRoadModel(self.policy)
+        self.model = LocalRoadModel(self.policy, persistent_history=self.finish_priority,
+                                   reference_origin_m=self.reference_origin)
         self.boundaries = BoundaryTrackBank(self.policy)
         self.motion = GroundMotion(cal, self.policy)
 
@@ -89,6 +91,13 @@ class TargetTracker:
             continuation_clearance_m=continuation_margin,
             boundary_confirmed=self.boundaries.confirms(measurement, details.get("fits", {}), now),
         )
+        if (self.model.persistent_history and event['observed']
+                and measurement is not None and measurement['confidence']>=p.confirmation_quality
+                and surface_rejection is not None and not surface_rejection['contradicted']):
+            # A missed/uncertain color test does not erase a prior contradiction.
+            # Accepted current road evidence may actually resolve it.
+            self.model.surface_contradicted=False
+            self.model.surface_support=1.
         path, support = self.model.support(now, current_only=require_current)
         confidence_profile = support.pop("confidence_profile", [])
         model_ms = (time.perf_counter() - tick) * 1000
@@ -100,13 +109,20 @@ class TargetTracker:
                 maximum_target_m=p.maximum_target_m,
                 reference_origin_m=self.reference_origin,
                 observation_sigma_m=float(support.get("sigma_m") or p.observation_sigma_m),
-                maximum_reference_sigma_m=p.maximum_sigma_m,
+                maximum_reference_sigma_m=max(p.maximum_sigma_m, float(support.get("sigma_m") or 0.))
+                if self.model.persistent_history else p.maximum_sigma_m,
                 curve_analysis_window_m=p.curve_analysis_window_m,
             )
             if path is not None
             else None
         )
         observed_mask = support.get("observed_mask", [])
+        route_alignment = None
+        if self.finish_priority:
+            if path is not None:
+                route_alignment = route_reference(path,self.reference_origin,p.maximum_target_m)
+                if route_alignment is not None:
+                    route_alignment["source"]="OBSERVED" if event["observed"] else "PREDICTED"
         target_observed = False
         if target is not None:
             position = target["position_m"]
@@ -117,7 +133,7 @@ class TargetTracker:
         history_prediction = bool(
             self.finish_priority and not require_current and self.model.pending_count
             and target is not None and not reason
-            and (motion["valid"] or motion.get("prediction_valid", False))
+            and (self.model.persistent_history or motion["valid"] or motion.get("prediction_valid", False))
         )
         transition_pending = bool(
             self.model.pending_count
@@ -160,6 +176,8 @@ class TargetTracker:
             observation_confidence=float(measurement["confidence"])
             if event["observed"] and measurement is not None
             else 0.0,
+            partial_boundary_inference=bool(details.get("partial_boundary_inference")),
+            route_alignment=route_alignment,
             measurement_reject=None
             if event["observed"]
             else (

@@ -1,0 +1,1304 @@
+{
+  "source": "v0.6.99 CONTROL snapshots from the 2026-11-11 track run. Two independent frames; not continuous pose replay. Boundary risk is a prediction, not labelled physical line contact.",
+  "records": [
+    {
+      "frame": 1849,
+      "target": {
+        "valid": true,
+        "state": "OBSERVED",
+        "road_evidence": "OBSERVED",
+        "mode": "TWO EDGES",
+        "confidence": 0.6094475210636804,
+        "observed": true,
+        "invalid_reason": "",
+        "observation_confidence": 0.9842616391090152,
+        "partial_boundary_inference": false,
+        "route_alignment": {
+          "heading_rad": -0.0851644374657648,
+          "bearing_rad": -1.0642756717970128,
+          "distance_m": 0.0746390882679409,
+          "point_m": [
+            0.036210237021113034,
+            -0.06526723705155818
+          ],
+          "source": "OBSERVED"
+        },
+        "measurement_reject": null,
+        "age_s": 2.822,
+        "reacquired": false,
+        "pending_frames": 0,
+        "pending_confidence": 0.0,
+        "transition_pending": false,
+        "history_prediction_only": false,
+        "association_kind": "OVERLAP",
+        "handoff_evidence": null,
+        "history_continuity_evidence": null,
+        "association_prior_path_m": null,
+        "candidate_path_m": null,
+        "candidate_mode": "TWO EDGES",
+        "candidate_confidence": 0.9842616391090152,
+        "confirmation_required_frames": 0,
+        "measurement_alignment": {
+          "distance_m": 0.0058154421382933365,
+          "heading_cos": 0.9971052682104379,
+          "overlap_m": 0.47251960045698915
+        },
+        "confirmation_alignment": null,
+        "blind_distance_m": 0.40108592519796654,
+        "target_m": [
+          0.18086210123087462,
+          -0.0654981236709824
+        ],
+        "control_target_m": [
+          0.23586210123087462,
+          -0.0654981236709824
+        ],
+        "control_reference_origin_m": [
+          -0.055,
+          0.0
+        ],
+        "control_path_m": [
+          [
+            0.036210237021113034,
+            -0.06526723705155818
+          ],
+          [
+            0.0511894273751037,
+            -0.06654602454166926
+          ],
+          [
+            0.06618080482272551,
+            -0.06767296178444987
+          ],
+          [
+            0.08118308060235822,
+            -0.06864406826816959
+          ],
+          [
+            0.09619502548379674,
+            -0.06945200841826989
+          ],
+          [
+            0.11121535599751162,
+            -0.07008512409680326
+          ],
+          [
+            0.12624246813436565,
+            -0.07052890898062672
+          ],
+          [
+            0.14127421706455054,
+            -0.0707685458873875
+          ],
+          [
+            0.1563056558541012,
+            -0.07102793262494453
+          ],
+          [
+            0.17133918608228574,
+            -0.07097885344968088
+          ],
+          [
+            0.18636259071101383,
+            -0.0704286743241915
+          ],
+          [
+            0.2013594201185176,
+            -0.06937960863723648
+          ],
+          [
+            0.21631963838829474,
+            -0.06789665999118376
+          ],
+          [
+            0.23124562987039984,
+            -0.06610099846977653
+          ],
+          [
+            0.2461527187046117,
+            -0.06415425008128282
+          ],
+          [
+            0.2610628993731879,
+            -0.06223132105553149
+          ],
+          [
+            0.2759982076378872,
+            -0.06051566693916691
+          ],
+          [
+            0.2909703237753682,
+            -0.059159689240685286
+          ],
+          [
+            0.30597618218549183,
+            -0.05825168082586115
+          ],
+          [
+            0.3210033649347899,
+            -0.05782144351545672
+          ],
+          [
+            0.33603683804377693,
+            -0.05782589757404684
+          ],
+          [
+            0.3510666392195928,
+            -0.05816391301801933
+          ],
+          [
+            0.3660908497202944,
+            -0.05869539994894775
+          ],
+          [
+            0.38112116191932466,
+            -0.0590122395608589
+          ],
+          [
+            0.39615371817069694,
+            -0.05919564965543875
+          ],
+          [
+            0.41118668408032794,
+            -0.059341696277994585
+          ],
+          [
+            0.426219954470206,
+            -0.05945209830309477
+          ],
+          [
+            0.44125342006507373,
+            -0.05953168346496525
+          ],
+          [
+            0.4562869939135885,
+            -0.05958725886326249
+          ],
+          [
+            0.47132062249926093,
+            -0.059625319272826424
+          ],
+          [
+            0.4863542762398812,
+            -0.0596516319793803
+          ],
+          [
+            0.5013879461653472,
+            -0.05966572500326778
+          ],
+          [
+            0.5164216204644595,
+            -0.05965868093711702
+          ],
+          [
+            0.5314552359683233,
+            -0.0596164579215981
+          ],
+          [
+            0.5464886006139889,
+            -0.05952002444911214
+          ],
+          [
+            0.5615213870122535,
+            -0.059356604745213724
+          ],
+          [
+            0.5765533798823971,
+            -0.05913166845979158
+          ],
+          [
+            0.5915846035543879,
+            -0.05886010408097407
+          ],
+          [
+            0.6066153588566331,
+            -0.05856373244953246
+          ],
+          [
+            0.6216461359391009,
+            -0.05826849899264203
+          ],
+          [
+            0.6366777087205324,
+            -0.05801736981826508
+          ],
+          [
+            0.6517110755278175,
+            -0.05792100654751016
+          ],
+          [
+            0.6667436929075776,
+            -0.05774253156897214
+          ],
+          [
+            0.681776600196012,
+            -0.05759041560280546
+          ],
+          [
+            0.6968096333107616,
+            -0.05745128820560495
+          ],
+          [
+            0.7118424511600101,
+            -0.057290575364587815
+          ],
+          [
+            0.7268740525497579,
+            -0.057040793663938875
+          ],
+          [
+            0.7419007563143203,
+            -0.05658305352377668
+          ],
+          [
+            0.7569094313409308,
+            -0.05571644044456705
+          ]
+        ],
+        "reference_sigma_m": 0.02980760762244204,
+        "reference_inferred": true,
+        "target_inferred": true,
+        "path_observed_mask": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "path_confidence": [
+          0.6885651594922172,
+          0.6885578255814585,
+          0.6885256244960644,
+          0.6884885354603902,
+          0.6884902276881089,
+          0.6886256955758728,
+          0.6886963279437316,
+          0.6887127469002682,
+          0.6886722960462623,
+          0.6884338155750371,
+          0.6874894185996273,
+          0.6834966197715999,
+          0.6665883334284384,
+          0.6509451689597869,
+          0.6094475210636804,
+          0.9539918935067264,
+          0.9632747580061334,
+          0.9696625414076612,
+          0.9728471571699446,
+          0.973949126785793,
+          0.9741782656062351,
+          0.9741971525009115,
+          0.9741770612209952,
+          0.9741788074359276,
+          0.9741796365763964,
+          0.9741576830506319,
+          0.9740741600731947,
+          0.9739463605882152,
+          0.9739029831622069,
+          0.9739362455204352,
+          0.9740074126625317,
+          0.9740811760547285,
+          0.974135453296723,
+          0.974166044835983,
+          0.9741797551871362,
+          0.9741828465567604,
+          0.9741757239251061,
+          0.974154386085292,
+          0.9741120801837412,
+          0.9740429948560022,
+          0.9739339676188317,
+          0.9737134529564775,
+          0.9736426775704696,
+          0.9736296914341878,
+          0.9736325515054699,
+          0.9736406706406243,
+          0.9736728146615864,
+          0.9737924417176848,
+          0.974053020534751
+        ],
+        "control_target_source": "HISTORY PREDICTION",
+        "target_distance_m": 0.22816511886472746,
+        "target_selection": "ADAPTIVE_PURSUIT",
+        "target_speed_scale": 1.0,
+        "path_heading_rad": -0.0698358359435318,
+        "path_curvature_m_inv": 1.8606580194043736,
+        "near_support_m": 0.06665503616404432,
+        "reliable_length_m": 0.7216142058901686,
+        "road_model": {
+          "reason": "",
+          "age_s": 2.821705382028995,
+          "blind_distance_m": 0.40108592519796654,
+          "sigma_m": 0.02980760762244204,
+          "confidence": 0.6094475210636804,
+          "length_m": 0.7216142058901684,
+          "fresh_fraction": 0.6938775510204082,
+          "sample_count": 49,
+          "oldest_seen": 5731.424546918971,
+          "observed_mask": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "persistent_history": true,
+          "surface_contradicted": false,
+          "observation_agreement": 1.0,
+          "surface_support": 1.0,
+          "version": 2,
+          "support_scope": "HISTORY_ALLOWED",
+          "geometry_observed": true,
+          "model_age_s": 0.0
+        },
+        "timings_ms": {
+          "motion": 28.7,
+          "perception": 61.0,
+          "model": 29.7,
+          "target": 4.0
+        },
+        "boundary_tracks": {
+          "left": [
+            {
+              "id": 142,
+              "confirmed": true,
+              "age_s": 0.0,
+              "sigma_m": 0.005
+            },
+            {
+              "id": 147,
+              "confirmed": true,
+              "age_s": 0.0,
+              "sigma_m": 0.005
+            },
+            {
+              "id": 148,
+              "confirmed": false,
+              "age_s": 0.0,
+              "sigma_m": 0.005
+            },
+            {
+              "id": 149,
+              "confirmed": false,
+              "age_s": 0.0,
+              "sigma_m": 0.005
+            }
+          ],
+          "right": [
+            {
+              "id": 144,
+              "confirmed": true,
+              "age_s": 0.0,
+              "sigma_m": 0.005
+            },
+            {
+              "id": 146,
+              "confirmed": true,
+              "age_s": 0.0,
+              "sigma_m": 0.005
+            }
+          ]
+        },
+        "surface_rejection": {
+          "contradicted": false,
+          "visible_samples": 38,
+          "green_samples": 0,
+          "longest_green_m": 0.0
+        },
+        "motion": {
+          "sigma_m": 0.00485,
+          "valid": true,
+          "source": "GROUND FLOW",
+          "reason": "",
+          "interval_s": 0.24085,
+          "travel_m": 0.02195,
+          "inliers": 27,
+          "residual_m": 0.00436,
+          "speed_m_s": 0.09116,
+          "yaw_rad_s": -0.16406
+        },
+        "counts": {
+          "left": 4,
+          "right": 2
+        },
+        "boundary_fallback": null,
+        "road_component_selection": null,
+        "white_value_min": 210,
+        "photometric_passes": 1,
+        "exposure_normalized": true,
+        "nearest_reference_m": [
+          0.06,
+          -0.06720833609081873
+        ],
+        "speed_limit_source": "CENTERLINE_CONFIDENCE",
+        "control_confidence": 0.6094475210636804
+      },
+      "steering": {
+        "trim_m_inv": 0.0,
+        "feedback_valid": false,
+        "motion_measured": true,
+        "body_speed_m_s": 0.09031868013726778,
+        "body_yaw_rad_s": -0.16406209245147385,
+        "speed_upper_m_s": 0.1305597660024265,
+        "motion_sigma_m": 0.004846064414932358,
+        "motion_interval_s": 0.24085157300032733,
+        "motion_source": "GROUND FLOW",
+        "speed_profile_control": {
+          "mode": "ACTIVE",
+          "selected": true,
+          "reason": "CENTERLINE_CONFIDENCE",
+          "target_speed_m_s": 0.20174229853874376,
+          "ceiling_m_s": 0.2285428203988801,
+          "measured_speed_m_s": 0.09031868013726778,
+          "initial_overspeed": false,
+          "supported_length_m": 0.7216142058901687,
+          "usable_length_m": 0.579325610937677,
+          "limiting_station_m": 0.0,
+          "first_supported_point_m": [
+            0.021014393199486246,
+            -0.06437205025900121
+          ],
+          "effort_mean_pwm": 117.9042615873179,
+          "applied_mean_pwm": 94.0,
+          "requested_wheels": [
+            152,
+            84
+          ],
+          "tracking_gain": 1.0,
+          "high_confidence_boost": false,
+          "reference_acceleration_m_s2": 0.4,
+          "centerline_confidence": 0.6094475210636804,
+          "confidence_speed_factor": 0.7618094013296004,
+          "confidence_ceiling_m_s": 0.2285428203988801,
+          "confidence_valid": true
+        },
+        "receive_curvature_m_inv": -14.07597981998225,
+        "latency_prediction": {
+          "age_s": 0.19068520499968145,
+          "applied": true,
+          "displacement_m": [
+            0.017219626902562575,
+            -0.0002693732142350215
+          ],
+          "yaw_rad": -0.031284213731785984,
+          "sigma_m": 0.003836689853803787,
+          "point_m": [
+            0.22057578746315726,
+            -0.058357891082211746
+          ]
+        },
+        "raw_lookahead_m": 0.21713049431618564,
+        "lookahead_filter_s": 0.4,
+        "target_selection": "ADAPTIVE_PURSUIT",
+        "lookahead_m": 0.22816511886472746,
+        "lookahead_time_s": 1.6630735560000176,
+        "horizon_speed_m_s": 0.1305597660024265,
+        "target_mode": "LOOKAHEAD",
+        "target_distance_m": 0.22816511886472746,
+        "command_target_m": [
+          0.22057578746315726,
+          -0.058357891082211746
+        ],
+        "receive_target_m": [
+          0.23586210123087462,
+          -0.0654981236709824
+        ],
+        "target_observed": false,
+        "requested_curvature_m_inv": -1.9056801365245422,
+        "corrected_curvature_m_inv": -1.9056801365245422,
+        "confidence_speed_limit_m_s": 0.2285428203988801,
+        "envelope": {
+          "speed_scale": 1.0,
+          "coverage": 0.39285714285714285,
+          "state": "PARTIAL",
+          "minimum_clearance_m": -0.011457916993787884,
+          "first_unsafe_m": 0.09999999999999999
+        },
+        "target_speed_scale": 1.0,
+        "speed_plan": {
+          "mode": "PROFILE",
+          "boost_eligible": false
+        },
+        "prediction": {
+          "persistent_history": true,
+          "remaining_time_s": null,
+          "remaining_distance_m": 0.7216142058901687,
+          "lease_s": 0.15931479500031853,
+          "uncertainty_m": 0.033644297476245824,
+          "envelope_unverified": false,
+          "measured_motion": true,
+          "motion_source": "GROUND FLOW"
+        },
+        "published_curvature_proxy_m_inv": -1.9340159271899888
+      },
+      "pwm": [
+        189,
+        104
+      ],
+      "logical_pwm": [
+        152,
+        84
+      ]
+    },
+    {
+      "frame": 2027,
+      "target": {
+        "valid": true,
+        "state": "OBSERVED",
+        "road_evidence": "OBSERVED",
+        "mode": "TWO EDGES",
+        "confidence": 0.5014049516375684,
+        "observed": true,
+        "invalid_reason": "",
+        "observation_confidence": 0.944135440580014,
+        "partial_boundary_inference": false,
+        "route_alignment": {
+          "heading_rad": 0.3452139417028224,
+          "bearing_rad": -1.2177440477648453,
+          "distance_m": 0.012323261998422576,
+          "point_m": [
+            0.004260933378642008,
+            -0.01156318438080706
+          ],
+          "source": "OBSERVED"
+        },
+        "measurement_reject": null,
+        "age_s": 1.402,
+        "reacquired": false,
+        "pending_frames": 0,
+        "pending_confidence": 0.0,
+        "transition_pending": false,
+        "history_prediction_only": false,
+        "association_kind": "OVERLAP",
+        "handoff_evidence": null,
+        "history_continuity_evidence": null,
+        "association_prior_path_m": null,
+        "candidate_path_m": null,
+        "candidate_mode": "TWO EDGES",
+        "candidate_confidence": 0.944135440580014,
+        "confirmation_required_frames": 0,
+        "measurement_alignment": {
+          "distance_m": 0.0013429380054987966,
+          "heading_cos": 0.9998428776139046,
+          "overlap_m": 0.6151007737610795
+        },
+        "confirmation_alignment": null,
+        "blind_distance_m": 0.15847732001839104,
+        "target_m": [
+          0.2230476090790901,
+          0.08633917119779341
+        ],
+        "control_target_m": [
+          0.2780476090790901,
+          0.08633917119779341
+        ],
+        "control_reference_origin_m": [
+          -0.055,
+          0.0
+        ],
+        "control_path_m": [
+          [
+            -0.027979839379816955,
+            -0.021933605580106662
+          ],
+          [
+            -0.013601110264192605,
+            -0.017654225254009604
+          ],
+          [
+            0.0006282570707466933,
+            -0.012901794163749293
+          ],
+          [
+            0.014704973537017031,
+            -0.0077146459632615886
+          ],
+          [
+            0.028633430400181473,
+            -0.002141611411889517
+          ],
+          [
+            0.042429129685694386,
+            0.0037524119198667602
+          ],
+          [
+            0.05611857063826111,
+            0.00988919726262528
+          ],
+          [
+            0.06973729107236258,
+            0.016181364274465728
+          ],
+          [
+            0.08325681940940984,
+            0.022683925346817613
+          ],
+          [
+            0.09675288228169568,
+            0.029235049906739995
+          ],
+          [
+            0.1102866997754709,
+            0.03570781731639354
+          ],
+          [
+            0.12391623236089033,
+            0.04197652007006643
+          ],
+          [
+            0.13768726913597823,
+            0.04792791103540444
+          ],
+          [
+            0.15162760857857915,
+            0.0534711289712725
+          ],
+          [
+            0.16574473099589757,
+            0.05854727655982775
+          ],
+          [
+            0.18002752188201288,
+            0.06313664334908341
+          ],
+          [
+            0.19444746356471887,
+            0.0672749495170366
+          ],
+          [
+            0.20897272310263512,
+            0.0710269276857861
+          ],
+          [
+            0.2235712047091847,
+            0.07448309562698359
+          ],
+          [
+            0.23821421152687683,
+            0.07774549645417181
+          ],
+          [
+            0.2528782780063278,
+            0.08091189823685206
+          ],
+          [
+            0.2675460531275159,
+            0.08406107553896916
+          ],
+          [
+            0.2822070877706234,
+            0.08724148418777788
+          ],
+          [
+            0.29684825180941726,
+            0.09051215115856348
+          ],
+          [
+            0.3114924068515231,
+            0.09376940000669526
+          ],
+          [
+            0.3261522524936206,
+            0.09695528622742561
+          ],
+          [
+            0.3408438470993192,
+            0.09999139563829146
+          ],
+          [
+            0.3555842569392299,
+            0.10278085554017308
+          ],
+          [
+            0.3703877034696346,
+            0.10521362581337619
+          ],
+          [
+            0.3852612133255458,
+            0.10717282307746986
+          ],
+          [
+            0.400200520932043,
+            0.1085425105848445
+          ],
+          [
+            0.4151871534110637,
+            0.10922022742636067
+          ],
+          [
+            0.4301888103659997,
+            0.10912508355081711
+          ],
+          [
+            0.44516253414191465,
+            0.10820511759318527
+          ],
+          [
+            0.4600612504128282,
+            0.10644850723627557
+          ],
+          [
+            0.47484257418990533,
+            0.10388552941858674
+          ],
+          [
+            0.48947681044650504,
+            0.10058464075251296
+          ],
+          [
+            0.503952722642863,
+            0.09664687458672558
+          ],
+          [
+            0.5182793603996317,
+            0.09219636983921897
+          ],
+          [
+            0.5324866026308577,
+            0.08737820512084746
+          ],
+          [
+            0.5466107588821675,
+            0.08232162052342848
+          ],
+          [
+            0.56068970202377,
+            0.0771404718763292
+          ],
+          [
+            0.5747567390462708,
+            0.07192708421088442
+          ],
+          [
+            0.5888371135079014,
+            0.06674982800372015
+          ],
+          [
+            0.6029454261534962,
+            0.06164919716993831
+          ],
+          [
+            0.6170872041108348,
+            0.05664209825820892
+          ],
+          [
+            0.6312615422935294,
+            0.051727927994419304
+          ],
+          [
+            0.6454622695814574,
+            0.046890543850710203
+          ],
+          [
+            0.6596808393016762,
+            0.042105857773148646
+          ],
+          [
+            0.6739079715506348,
+            0.037346692665865926
+          ],
+          [
+            0.6881484658047019,
+            0.03262766010994419
+          ],
+          [
+            0.7023724477837447,
+            0.02785908787719183
+          ],
+          [
+            0.7165684016247379,
+            0.02300771277282764
+          ],
+          [
+            0.7307169173346639,
+            0.018019682185628202
+          ],
+          [
+            0.7448243302125096,
+            0.012916561199860824
+          ],
+          [
+            0.758878165191763,
+            0.00766768954406858
+          ],
+          [
+            0.7728650587042687,
+            0.0022429569847673466
+          ],
+          [
+            0.7867710171251299,
+            -0.003386005171612116
+          ],
+          [
+            0.8005819782562779,
+            -0.009244183667211787
+          ],
+          [
+            0.8142918763855687,
+            -0.015335131068097864
+          ]
+        ],
+        "reference_sigma_m": 0.03018111436456505,
+        "reference_inferred": true,
+        "target_inferred": false,
+        "path_observed_mask": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "path_confidence": [
+          0.589924065493968,
+          0.5909523494926338,
+          0.5908502697002926,
+          0.5906619081047958,
+          0.5903854318865003,
+          0.5920081281606026,
+          0.6326953966687321,
+          0.6387544695106692,
+          0.6399532516531661,
+          0.5014049516375684,
+          0.6596601382094214,
+          0.6957751004037175,
+          0.88339887660465,
+          0.9249894325735902,
+          0.9307254781495263,
+          0.9328044750334246,
+          0.9335311134077348,
+          0.9336612141805307,
+          0.9336217405851859,
+          0.9335937962317737,
+          0.9336067437973796,
+          0.9336334504034155,
+          0.933650890934752,
+          0.9336586056139553,
+          0.9336606877401664,
+          0.9336483332808344,
+          0.9336185030236446,
+          0.9335753042911606,
+          0.9335266075317735,
+          0.933479159336204,
+          0.9334344254564797,
+          0.9332871362726556,
+          0.9331618684257723,
+          0.9331115510557588,
+          0.9331591739745109,
+          0.9332910418578345,
+          0.933456121632131,
+          0.9335916716409496,
+          0.9336566556447397,
+          0.9336474173320415,
+          0.9335870875711985,
+          0.9335178444141418,
+          0.9334798471009218,
+          0.9334913013818738,
+          0.9335433806384488,
+          0.9336039451739606,
+          0.933600254519844,
+          0.9335924590254913,
+          0.9335836718314993,
+          0.9335755714042535,
+          0.9335521316377587,
+          0.9335377823525892,
+          0.9335378241744056,
+          0.9335420535875646,
+          0.9335537536236999,
+          0.9335735636267947,
+          0.9336005122357381,
+          0.9336313340133607,
+          0.9336569559414507,
+          0.9336544702230092
+        ],
+        "control_target_source": "OBSERVED",
+        "target_distance_m": 0.27928155509450264,
+        "target_selection": "ADAPTIVE_PURSUIT",
+        "target_speed_scale": 1.0,
+        "path_heading_rad": 0.4405599521176135,
+        "path_curvature_m_inv": 1.572658678419764,
+        "near_support_m": 0.009952257169702518,
+        "reliable_length_m": 0.8851187416932147,
+        "road_model": {
+          "reason": "",
+          "age_s": 1.4018005859998084,
+          "blind_distance_m": 0.15847732001839104,
+          "sigma_m": 0.03018111436456505,
+          "confidence": 0.5014049516375684,
+          "length_m": 0.8851187416932147,
+          "fresh_fraction": 0.7666666666666667,
+          "sample_count": 60,
+          "oldest_seen": 5768.184565305,
+          "observed_mask": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "persistent_history": true,
+          "surface_contradicted": false,
+          "observation_agreement": 1.0,
+          "surface_support": 1.0,
+          "version": 2,
+          "support_scope": "HISTORY_ALLOWED",
+          "geometry_observed": true,
+          "model_age_s": 0.0
+        },
+        "timings_ms": {
+          "motion": 29.7,
+          "perception": 33.4,
+          "model": 30.3,
+          "target": 4.3
+        },
+        "boundary_tracks": {
+          "left": [
+            {
+              "id": 170,
+              "confirmed": true,
+              "age_s": 0.0,
+              "sigma_m": 0.005
+            }
+          ],
+          "right": [
+            {
+              "id": 168,
+              "confirmed": true,
+              "age_s": 0.0,
+              "sigma_m": 0.005
+            }
+          ]
+        },
+        "surface_rejection": {
+          "contradicted": false,
+          "visible_samples": 40,
+          "green_samples": 0,
+          "longest_green_m": 0.0
+        },
+        "motion": {
+          "sigma_m": 0.00231,
+          "valid": true,
+          "source": "GROUND FLOW",
+          "reason": "",
+          "interval_s": 0.21097,
+          "travel_m": 0.02223,
+          "inliers": 50,
+          "residual_m": 0.00189,
+          "speed_m_s": 0.10537,
+          "yaw_rad_s": 0.14197
+        },
+        "counts": {
+          "left": 1,
+          "right": 1
+        },
+        "boundary_fallback": null,
+        "road_component_selection": null,
+        "white_value_min": 210,
+        "photometric_passes": 1,
+        "exposure_normalized": true,
+        "nearest_reference_m": [
+          0.06,
+          0.011682508308762024
+        ],
+        "speed_limit_source": "CENTERLINE_CONFIDENCE",
+        "control_confidence": 0.5014049516375684
+      },
+      "steering": {
+        "trim_m_inv": 0.0030868564405551356,
+        "feedback_valid": false,
+        "motion_measured": true,
+        "body_speed_m_s": 0.10496455386077795,
+        "body_yaw_rad_s": 0.1419676480879779,
+        "speed_upper_m_s": 0.12688470913376865,
+        "motion_sigma_m": 0.0023121934909880915,
+        "motion_interval_s": 0.21096506499998213,
+        "motion_source": "GROUND FLOW",
+        "speed_profile_control": {
+          "mode": "ACTIVE",
+          "selected": true,
+          "reason": "CENTERLINE_CONFIDENCE",
+          "target_speed_m_s": 0.16424069318773915,
+          "ceiling_m_s": 0.18802685686408813,
+          "measured_speed_m_s": 0.10496455386077795,
+          "initial_overspeed": false,
+          "supported_length_m": 0.8401126789049093,
+          "usable_length_m": 0.7021580626836286,
+          "limiting_station_m": 0.0,
+          "first_supported_point_m": [
+            0.002160328297564835,
+            -0.007856231862562242
+          ],
+          "effort_mean_pwm": 80.31793413574482,
+          "applied_mean_pwm": 70.0,
+          "requested_wheels": [
+            59,
+            102
+          ],
+          "tracking_gain": 1.0,
+          "high_confidence_boost": false,
+          "reference_acceleration_m_s2": 0.4,
+          "centerline_confidence": 0.5014049516375684,
+          "confidence_speed_factor": 0.6267561895469604,
+          "confidence_ceiling_m_s": 0.18802685686408813,
+          "confidence_valid": true
+        },
+        "receive_curvature_m_inv": 5.31523219918764,
+        "latency_prediction": {
+          "age_s": 0.11826501499945152,
+          "applied": true,
+          "displacement_m": [
+            0.012413051316040102,
+            0.00010420880995102926
+          ],
+          "yaw_rad": 0.01678980603056156,
+          "sigma_m": 0.0012961937460752755,
+          "point_m": [
+            0.2670449180396219,
+            0.08176306479832664
+          ]
+        },
+        "raw_lookahead_m": 0.18505629318464598,
+        "lookahead_filter_s": 0.4,
+        "target_selection": "ADAPTIVE_PURSUIT",
+        "lookahead_m": 0.2792815550945027,
+        "lookahead_time_s": 1.4584601599988674,
+        "horizon_speed_m_s": 0.12688470913376865,
+        "target_mode": "LOOKAHEAD",
+        "target_distance_m": 0.27928155509450264,
+        "command_target_m": [
+          0.2670449180396219,
+          0.08176306479832664
+        ],
+        "receive_target_m": [
+          0.2780476090790901,
+          0.08633917119779341
+        ],
+        "target_observed": true,
+        "requested_curvature_m_inv": 1.7820569358700056,
+        "corrected_curvature_m_inv": 1.7851437923105606,
+        "confidence_speed_limit_m_s": 0.18802685686408813,
+        "envelope": {
+          "speed_scale": 1.0,
+          "coverage": 0.35714285714285715,
+          "state": "PARTIAL",
+          "minimum_clearance_m": -0.005024161449707867,
+          "first_unsafe_m": 0.09999999999999999
+        },
+        "target_speed_scale": 1.0,
+        "speed_plan": {
+          "mode": "PROFILE",
+          "boost_eligible": false
+        },
+        "published_curvature_proxy_m_inv": 1.796042617960426
+      },
+      "pwm": [
+        80,
+        139
+      ],
+      "logical_pwm": [
+        59,
+        102
+      ]
+    }
+  ],
+  "calculation_basis": {
+    "deceleration_m_s2": 0.2,
+    "delay_s": 0.35
+  }
+}

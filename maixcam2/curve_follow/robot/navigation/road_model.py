@@ -17,14 +17,19 @@ from robot.core.geometry import (
     support_projection,
     curve_handoff,
     contained_observation,
+    choose_target,
+    differential,
 )
 from robot.core.ground_motion import apply_ground_motion
 from robot.core.road_policy import RoadPolicy
+from robot.core.route_confidence import confidence_profile,innovation_likelihood
 
 
 class LocalRoadModel:
-    def __init__(self, policy=None):
+    def __init__(self, policy=None, *, persistent_history=False, reference_origin_m=(0.,0.)):
         self.policy = policy or RoadPolicy()
+        self.persistent_history = bool(persistent_history)
+        self.reference_origin = np.asarray(reference_origin_m,float)
         self.reset()
 
     def reset(self):
@@ -35,6 +40,9 @@ class LocalRoadModel:
         self.last_seen = None
         self.confidence = 0.0
         self.retired_support = None
+        self.surface_contradicted = False
+        self.observation_agreement = 1.
+        self.surface_support = 1.
         self._pruned_at = None
         self.reset_pending()
 
@@ -46,9 +54,9 @@ class LocalRoadModel:
     def reject_surface(self, surface):
         """Current visible exterior can disprove history, never refresh it.
 
-        Revoke the whole old curve on a contradiction. Keeping only its far
-        remainder could authorize crossing the very green gap that disproved it.
-        Fresh measurements may still initialize a new road in this same frame.
+        Conservative mode revokes a contradicted curve. Persistent prediction
+        records counterevidence and lowers confidence without deleting it;
+        independently confirmed current geometry can then correct the route.
         """
         if surface is None or self.path is None:
             return None
@@ -59,7 +67,13 @@ class LocalRoadModel:
             green_samples=int(evidence["green_samples"]),
             longest_green_m=float(evidence["longest_green_m"]),
         )
-        if summary["contradicted"]:
+        self.surface_contradicted = (
+            self.surface_contradicted or summary["contradicted"]
+            if self.persistent_history else summary["contradicted"]
+        )
+        if self.persistent_history and summary['contradicted']:
+            self.surface_support=1. / (1. + (summary['longest_green_m']/self.policy.minimum_segment_m)**2)
+        if summary["contradicted"] and not self.persistent_history:
             self.reset()
         return summary
 
@@ -83,9 +97,12 @@ class LocalRoadModel:
         self.last_seen = now
         self.confidence = quality
         self.retired_support = None
+        self.surface_contradicted = False
+        self.observation_agreement = 1.
+        self.surface_support = 1.
 
     def retire_expired(self, now):
-        """Remove unusable geometry before it can bias perception/association.
+        """Compact expiring conservative support; retain persistent predictions.
 
         Preserve independent candidate confirmation, but retain only diagnostic
         ages/distances from a retired road. Expired points cannot veto a new
@@ -95,6 +112,11 @@ class LocalRoadModel:
             return
         self._pruned_at = now
         if self.path is None:
+            return
+        if self.persistent_history:
+            # Retention and command confidence are separate. Keep the accepted
+            # curve until measured replacement or an explicit reset; time,
+            # travel and uncertainty do not erase the prediction.
             return
         path, support = self.support(now)
         if path is None:
@@ -164,6 +186,7 @@ class LocalRoadModel:
         self.mode = measurement["mode"]
         self.last_seen = now
         self.confidence = q
+        self.observation_agreement = 1.
         self.reset_pending()
         return True
 
@@ -204,6 +227,16 @@ class LocalRoadModel:
             event["reject"] = "INVALID ROAD GEOMETRY"
             return event
         event["measurement_usable"] = True
+        if (self.persistent_history and self.path is not None
+                and choose_target(candidate, reference_origin_m=self.reference_origin,
+                    forward_min_m=p.forward_min_m, maximum_target_m=p.maximum_target_m) is None):
+            # A stable observation of another road beyond control range is
+            # not a correction of the route being followed. Retain the primary
+            # prediction; confirmation alone cannot confer route identity.
+            self.reset_pending()
+            event["reject"] = "CANDIDATE OUTSIDE CONTROL RANGE"
+            event["association_kind"] = "UNRELATED_REMOTE_OBSERVATION"
+            return event
         if self.path is None and self.retired_support is not None:
             # Cold startup and recovery are distinct. A fully expired reference
             # supplies no geometry proof; confirm fresh candidates against each
@@ -262,6 +295,18 @@ class LocalRoadModel:
             consistent = fused is not None
         if not consistent:
             prior, support = self.support(now)
+            if self.persistent_history and prior is not None:
+                if agreement is not None:
+                    self.observation_agreement=innovation_likelihood(
+                        agreement['distance_m'],agreement['heading_cos'],p.association_distance_m)
+                else:
+                    distance,position= support_projection(candidate,prior)
+                    nearest=int(np.argmin(distance))
+                    old_index=min(len(prior)-1,int(np.searchsorted(arc(prior),position[nearest])))
+                    old_tangent,_=differential(prior)
+                    new_tangent,_=differential(candidate)
+                    heading=float(old_tangent[old_index]@new_tangent[nearest])
+                    self.observation_agreement=innovation_likelihood(float(distance[nearest]),heading,p.association_distance_m)
             event["prior_path"] = None if prior is None else prior.tolist()
             # A small current patch inside a valid road is a partial update,
             # not a disconnected replacement. Short samples must not force the
@@ -357,12 +402,15 @@ class LocalRoadModel:
                 required = max(p.stopped_confirmation_frames, required)
             event["required"] = required
             event["reacquired"] = bool(
-                self.pending_count >= required > 0 and (plausible or stationary)
+                self.pending_count >= required > 0
+                and (plausible or stationary or self.persistent_history)
             )
             if not event["reacquired"]:
                 event["reject"] = "COVERAGE HANDOFF PENDING" if moving_handoff else "ROAD CONFLICT"
                 return event
             # A confirmed disconnected replacement does not inherit old tails.
+            if self.persistent_history and not plausible and not stationary:
+                event["association_kind"] = "CONFIRMED_PREDICTION_CORRECTION"
             self.initialize(candidate, now, measurement["confidence"], measurement["mode"])
         elif self.path is None:
             self.initialize(candidate, now, measurement["confidence"], measurement["mode"])
@@ -399,6 +447,7 @@ class LocalRoadModel:
         if event["association_kind"] == "UNOBSERVED":
             event["association_kind"] = "OVERLAP" if agreement else "INITIAL"
         event["continuation_allowed"] = False
+        self.observation_agreement = 1.
         self.reset_pending()
         event["observed"] = True
         event["reject"] = None
@@ -408,7 +457,9 @@ class LocalRoadModel:
         """Query a continuous component without changing persistent evidence.
 
         Arming requires a sufficiently long, trusted current observation.
-        Driving may also use bounded historical support through an occlusion.
+        Driving may use transported history through an occlusion. Persistent
+        mode has no age/travel/uncertainty expiry; those remain honest telemetry
+        and confidence inputs. Current-only startup never borrows old samples.
         Old tails remain in the model regardless of which component is queried.
         """
         p = self.policy
@@ -418,9 +469,14 @@ class LocalRoadModel:
             )
         age = np.maximum(0.0, now - self.seen)
         sigma = np.sqrt(self.variance)
-        q = self.quality * np.exp(-age / p.confidence_decay_s)
-        good = (age <= p.maximum_prediction_s) & (self.travel <= p.maximum_blind_distance_m)
-        good &= (sigma <= p.maximum_sigma_m) & (q >= 0.22)
+        if self.persistent_history:
+            q = confidence_profile(self.quality,sigma,self.observation_agreement,
+                                   self.surface_support,p.maximum_sigma_m)
+            good = np.isfinite(self.path).all(axis=1) & np.isfinite(sigma)
+        else:
+            q = self.quality * np.exp(-age / p.confidence_decay_s)
+            good = (age <= p.maximum_prediction_s) & (self.travel <= p.maximum_blind_distance_m)
+            good &= (sigma <= p.maximum_sigma_m) & (q >= 0.22)
         if current_only:
             # Current accepted geometry is eligible for the startup streak.
             # confirmation_quality belongs to adoption of conflicting roads;
@@ -433,7 +489,8 @@ class LocalRoadModel:
         ]
         if not runs:
             return None, dict(
-                reason="NO CURRENT ROAD SUPPORT" if current_only else "ROAD SUPPORT EXPIRED",
+                reason="NO CURRENT ROAD SUPPORT" if current_only else
+                    "NO USABLE ROAD GEOMETRY" if self.persistent_history else "ROAD SUPPORT EXPIRED",
                 age_s=float(age.max()),
                 blind_distance_m=float(self.travel.max()),
                 sigma_m=float(sigma.max()),
@@ -452,6 +509,10 @@ class LocalRoadModel:
             sample_count=len(path),
             oldest_seen=float(self.seen[ids].min()),
             observed_mask=(age[ids] < 1e-6).tolist(),
+            persistent_history=self.persistent_history,
+            surface_contradicted=self.surface_contradicted,
+            observation_agreement=self.observation_agreement,
+            surface_support=self.surface_support,
         )
 
 

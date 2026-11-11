@@ -154,6 +154,46 @@ class CurvePixels:
                 chains.append((chain, inward, facing))
         return chains
 
+    def linear_partial(self, chain, inward, facing, side):
+        """Recover side/heading when a short edge cannot support curvature.
+
+        A curved normal offset may shrink a valid 10cm boundary below the
+        centre-curve minimum. If those SAME measured pixels also support a
+        straight line within observation error, use that lower-order model.
+        It neither extends the boundary nor invents a bend beyond the image.
+        """
+        if facing < .8 or arc(chain)[-1] > 2 * self.policy.minimum_segment_m:
+            return None
+        mean = np.mean(chain, axis=0)
+        relative = chain - mean
+        _, vectors = np.linalg.eigh(relative.T @ relative)
+        tangent = vectors[:, -1]
+        if tangent @ (chain[-1] - chain[0]) < 0:
+            tangent = -tangent
+        normal = np.array([-tangent[1], tangent[0]])
+        projection = relative @ tangent
+        residual = np.abs(relative @ normal)
+        length = float(np.ptp(projection))
+        # A sampled pixel represents a grid cell, not a dimensionless point.
+        # Include only its half-cell endpoint footprint; otherwise mirrored
+        # 7.5cm fragments flip acceptance on sub-millimetre rounding.
+        endpoint_margin = self.step / 2
+        if (length + self.step < self.policy.minimum_segment_m
+                or np.quantile(residual, .9) > math.hypot(self.policy.observation_sigma_m, self.step)
+                or residual.max() > 2 * self.policy.observation_sigma_m
+                or np.mean(np.diff(projection) >= -self.step / 2) < .85
+                or abs(float(np.mean(inward @ normal))) < .8):
+            return None
+        line = mean + np.linspace(projection.min() - endpoint_margin, projection.max() + endpoint_margin,
+                                  max(10, int(length / self.policy.sample_step_m) + 1))[:, None] * tangent
+        edge = fit_curve(line)
+        center = inward_center(edge, side, self.width) if edge is not None else None
+        if center is None:
+            return None
+        edge.update(geometry_model="LINEAR_PARTIAL", endpoint_grid_margin_m=endpoint_margin,
+                    measured_residual_m=float(np.quantile(residual, .9)))
+        return edge, center
+
     def extract(self, bgr, prior=None, white_value_min=180, prepared=None, normalized=False):
         bird, s, raw_value, gray, green, contrast, normalized_gray, vicinity = (
             self.prepare(bgr) if prepared is None else prepared
@@ -190,18 +230,23 @@ class CurvePixels:
             if chains is None:
                 chains = self.contour_chains_reference(pixels, region_codes, gray, minimum_samples)
             for chain, inward, facing in chains:
-                edge = fit_curve(chain)
-                if edge is None or edge["length"] < self.policy.minimum_segment_m:
-                    continue
                 direction = chain[-1] - chain[0]
                 left_normal = np.array([-direction[1], direction[0]])
                 side = "right" if np.dot(left_normal, np.mean(inward, axis=0)) > 0 else "left"
-                center = inward_center(edge, side, self.width)
+                edge = fit_curve(chain)
+                center = (inward_center(edge, side, self.width)
+                          if edge is not None and edge["length"] >= self.policy.minimum_segment_m else None)
                 if center is None:
-                    continue
+                    recovered = self.linear_partial(chain, inward, facing, side)
+                    if recovered is None:
+                        continue
+                    edge, center = recovered
                 confidence = min(1.0, edge["length"] / 0.18) * (
                     1 - min(0.3, edge["residual"] / 0.025)
                 )
+                if edge.get("geometry_model") == "LINEAR_PARTIAL":
+                    excess = max(0., edge["measured_residual_m"] - self.step / math.sqrt(2))
+                    confidence = facing * (1 - min(.3, excess / .025))
                 score = confidence * (0.5 + 0.5 * facing)
                 # Observation relevance is continuous in distance; a strong
                 # far fragment must not eclipse a usable near boundary.
@@ -227,6 +272,14 @@ class CurvePixels:
                     score *= math.exp(-min(a["distance_m"] for a in agreements) / self.width)
                     edge["score"] = score
                 fits[side].append(edge)
+        # A complete curved-edge model outranks the partial straight recovery.
+        # A short independently strong fallback must not veto an already usable
+        # regular boundary on the opposite side of the same image.
+        if any(f.get("geometry_model") != "LINEAR_PARTIAL"
+               and self.policy.single_edge_quality_scale * f["confidence"] >= self.policy.measurement_quality
+               for fs in fits.values() for f in fs):
+            fits = {side: [f for f in fs if f.get("geometry_model") != "LINEAR_PARTIAL"]
+                    for side, fs in fits.items()}
         # White strips have two contours. Choose a single supported chain per side;
         # matching uses normal offsets and tangent agreement, not image left/right.
         selected = {s: max(fs, key=lambda f: f["score"]) if fs else None for s, fs in fits.items()}
@@ -393,6 +446,10 @@ class CurvePixels:
         details["measurement_reason"] = reason if curve is None else ""
         if curve is None:
             return None, details
+        details["partial_boundary_inference"] = any(
+            f is not None and f.get("geometry_model") == "LINEAR_PARTIAL"
+            for f in details.get("fits", {}).values()
+        )
         return dict(
             path=curve["path"],
             mode=mode,

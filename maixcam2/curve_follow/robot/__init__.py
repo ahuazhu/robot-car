@@ -1,3 +1,3 @@
 """Robot car application package."""
 
-APP_VERSION = "0.6.97"
+APP_VERSION = "0.6.101"

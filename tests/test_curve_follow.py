@@ -342,7 +342,8 @@ class BrightRoadFallbackTests(unittest.TestCase):
             image = cv2.imread(str(RECORDED / name))[:240, :320]
             pixels = CurvePixels(cal)
             regular, _ = pixels.extract(image)
-            self.assertTrue(all(f is None for f in regular.values()), name)
+            self.assertTrue(all(f is None or f.get("geometry_model") == "LINEAR_PARTIAL"
+                                for f in regular.values()), name)
             r, _ = tracker.TargetTracker(cal).update(image, 0)
             self.assertTrue(r["observed"], (name, r))
             self.assertEqual(r["mode"], "ONE LEFT")

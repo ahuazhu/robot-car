@@ -90,6 +90,7 @@ def envelope_reference(
     # The camera cannot see under the chassis. Missing coverage is reported,
     # not fabricated from an extrapolated prefix or treated as a collision.
     scale = 1.0
+    safe_speed = None
     if first_unsafe is not None:
         a = self.deceleration
         t = self.policy.missing_command_s
@@ -102,4 +103,5 @@ def envelope_reference(
         state="FULL" if checked == total else "PARTIAL",
         minimum_clearance_m=None if not math.isfinite(minimum) else minimum,
         first_unsafe_m=first_unsafe,
+        speed_limit_m_s=safe_speed,
     )

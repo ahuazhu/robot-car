@@ -232,6 +232,16 @@ class SteeringControl:
         quality = float(profile[first:last].min())
         return quality, "FORWARD_PROFILE"
 
+    def _history_output(self, command, age_s, sigma, length, envelope):
+        lease=min(self.policy.maximum_prediction_command_s,
+                  max(0.,self.policy.missing_command_s-age_s))
+        self.status['prediction']=dict(persistent_history=True,remaining_time_s=None,
+            remaining_distance_m=float(length),lease_s=lease,uncertainty_m=sigma,
+            envelope_unverified=envelope['speed_scale']<1.,
+            measured_motion=bool(self.status.get('motion_measured',False)),
+            motion_source=self.status.get('motion_source'))
+        return command if lease>0 and any(command) else None
+
     def command(self, result, age_s=0.0, *, lookahead_m=None, alternatives=True,
                 speed_profile_allowed=True):
         """Follow geometry at command time, not at frame-receive time.
@@ -246,6 +256,7 @@ class SteeringControl:
         self.status.pop("envelope", None)
         self.status.pop("prediction", None)
         self.status.pop("handoff", None)
+        self.status.pop("confidence_speed_limit_m_s", None)
         if self.speed_control is not None:
             self.status['speed_profile_control'] = dict(
                 mode='ACTIVE', selected=False, reason='NO_ACCEPTED_PURSUIT'
@@ -335,6 +346,11 @@ class SteeringControl:
         self.status["target_observed"] = bool(
             len(mask) == len(path) and all(mask[max(0, index - 1) : index + 1])
         )
+        persistent_recovery = bool(
+            (result.get("road_model") or {}).get("persistent_history")
+            and (not self.status["target_observed"] or result.get("state") == "PREDICTED"
+                 or result.get("transition_pending") or result.get("partial_boundary_inference"))
+        )
         self.status["latency_prediction"]["point_m"] = point.tolist()
         raw = dict(result, target_m=point)
         x, y = point
@@ -369,6 +385,7 @@ class SteeringControl:
             lookahead_m=lookahead,
         )
         scale = min(scale, envelope["speed_scale"])
+        clearance_limit = envelope.get('speed_limit_m_s')
         if result.get("history_continuity_evidence") is not None:
             candidate = np.asarray(result.get("candidate_path_m", []), float)
             if candidate.ndim != 2 or candidate.shape[1:] != (2,) or len(candidate) < 5:
@@ -386,6 +403,9 @@ class SteeringControl:
                 sensor_transform=transform,
                 lookahead_m=lookahead,
             )
+            shared_limit=shared.get('speed_limit_m_s')
+            if shared_limit is not None:
+                clearance_limit=shared_limit if clearance_limit is None else min(clearance_limit,shared_limit)
             scale = min(scale, shared["speed_scale"])
             self.status["continuation_envelope"] = shared
         # Extra effort is allowed only on a currently measured, supported
@@ -419,32 +439,42 @@ class SteeringControl:
         boost_ready = (
             road_eligible and "body_speed_m_s" in self.status and stable_s >= self.response_s
             and self.status.get("motion_measured", True)
+            and not persistent_recovery
         )
         if self.speed_control is not None:
+            control_confidence,_ = self._forward_quality(result,path,selected,positions)
             resolved_forward_motion = (
                 self.status.get('body_speed_m_s', 0.)
                 * self.status.get('motion_interval_s', 0.)
                 > 2 * self.status.get('motion_sigma_m', float('inf'))
             )
+            measured_standstill=bool(self.status.get('motion_measured')
+                and abs(self.status.get('body_speed_m_s',1.))<=.006
+                and abs(self.status.get('body_yaw_rad_s',1.))<=.025)
             planned = self.speed_control.command(
-                result, path, self.observed_at + age_s,
+                dict(result,control_confidence=control_confidence), path, self.observed_at + age_s,
                 self.status.get('body_speed_m_s'), self.requested + self.trim,
                 support_sigma + prediction_sigma, self.body[0] if self.body else self.width,
-                eligible=(speed_profile_allowed and boost_ready and scale == 1.
-                          and resolved_forward_motion),
+                eligible=(speed_profile_allowed and target_scale == 1.
+                          and self.status.get('motion_measured',False)
+                          and (resolved_forward_motion or measured_standstill)),
                 high_confidence=(boost_ready and observation_quality >= .75
                     and abs(self.lever * (self.requested + self.trim)) <= .18),
+                clearance_limit_m_s=clearance_limit,
             )
             if not speed_profile_allowed:
                 self.speed_control.status['reason'] = 'TASK_OWNS_SPEED'
-            elif not resolved_forward_motion:
+            elif not resolved_forward_motion and not measured_standstill:
                 self.speed_control.status['reason'] = 'MEASURED_FORWARD_SPEED_UNRESOLVED'
             self.status['speed_profile_control'] = self.speed_control.status
+            self.status['confidence_speed_limit_m_s']=self.speed_control.status.get('confidence_ceiling_m_s')
             if planned is not None:
                 self.status.update(envelope=envelope, target_selection='ADAPTIVE_PURSUIT',
                                    target_speed_scale=target_scale,
                                    speed_plan=dict(mode='PROFILE', boost_eligible=boost_ready))
-                return planned
+                return (self._history_output(planned,age_s,support_sigma+prediction_sigma,
+                                             positions[-1],envelope)
+                        if persistent_recovery else planned)
         bend = max(
             abs(self.requested + self.trim),
             self.gain * abs(float(result.get("path_curvature_m_inv", 0.0))),
@@ -462,6 +492,8 @@ class SteeringControl:
             max(self.cruise, self.straight_cruise / (1.0 + load)) if boost_ready else self.cruise
         )
         cruise = max(self.confirmed_cruise, straight_candidate) if boost_ready else self.cruise
+        if persistent_recovery:
+            cruise = self.cruise
         applied_quality = control_quality
         applied_quality_source = quality_source
         if cruise > self.cruise:
@@ -480,10 +512,17 @@ class SteeringControl:
         # law once. Provisional baseline/quality/boost commands are not outputs
         # and used to repeat the same pursuit and curvature arithmetic.
         command = target_command(
-            dict(raw, confidence=applied_quality), self.lever, self.gain, cruise
+            dict(raw, confidence=1. if self.speed_control is not None else applied_quality),
+            self.lever, self.gain, cruise
         )
         if command is None:
             return None
+        if self.speed_control is not None:
+            command=self.speed_control.limit_fallback(command)
+            # Both confidence and clearance have already constrained amplitude.
+            # Preserve only the pursuit-geometry scale; do not apply the old
+            # current-speed-dependent clearance ratio a second time.
+            scale=max(0.,min(1.,target_scale))
         self.status["speed_plan"] = dict(
             baseline_cruise_pwm=self.cruise,
             confirmed_cruise_pwm=self.confirmed_cruise,
@@ -503,6 +542,9 @@ class SteeringControl:
         self.status.update(
             envelope=envelope, target_selection="ADAPTIVE_PURSUIT", target_speed_scale=target_scale
         )
+        if persistent_recovery:
+            output=tuple(round(v*scale) for v in command)
+            return self._history_output(output,age_s,support_sigma+prediction_sigma,positions[-1],envelope)
         if result.get("state") == "PREDICTED" or result.get("transition_pending"):
             # Short dropouts and pending handoffs share the same physical
             # budget. Processing latency already consumes unseen travel; a
@@ -641,6 +683,7 @@ class SteeringControl:
         # The camera cannot see under the chassis. Missing coverage is reported,
         # not fabricated from an extrapolated prefix or treated as a collision.
         scale = 1.0
+        safe_speed = None
         if first_unsafe is not None:
             a = self.deceleration
             t = self.policy.missing_command_s
@@ -655,4 +698,5 @@ class SteeringControl:
             state="FULL" if checked == total else "PARTIAL",
             minimum_clearance_m=None if not math.isfinite(minimum) else minimum,
             first_unsafe_m=first_unsafe,
+            speed_limit_m_s=safe_speed,
         )

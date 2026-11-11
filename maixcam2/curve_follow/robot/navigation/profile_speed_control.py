@@ -10,6 +10,7 @@ import math
 from robot.core.geometry import arc, describe_curve
 from robot.navigation.supported_path import supported_segment
 from robot.navigation.speed_profile import SpeedLimits, plan_speed_profile
+from robot.core.route_confidence import confidence_speed_factor
 
 
 class ProfileSpeedControl:
@@ -64,6 +65,7 @@ class ProfileSpeedControl:
         self.reference = None
         self.updated_at = None
         self.status = dict(mode='ACTIVE', selected=False, reason='NOT_EVALUATED')
+        self.confidence_status = {}
 
     def applied(self, now, wheels):
         self.applied_at = float(now)
@@ -73,11 +75,47 @@ class ProfileSpeedControl:
 
     def fallback(self, reason):
         self.reference = self.updated_at = None
-        self.status = dict(mode='ACTIVE', selected=False, reason=reason)
+        self.status = dict(mode='ACTIVE', selected=False, reason=reason,**self.confidence_status)
         return None
 
+    def limit_fallback(self, command):
+        """Use the same normalized envelope when measured-speed feedback is unavailable."""
+        if not self.confidence_status.get('confidence_valid',False):
+            return (0,0)
+        peak=max(abs(v) for v in command)
+        ceiling=self.maximum_effort*self.confidence_status['envelope_speed_factor']
+        scale=min(1.,ceiling/peak) if peak else 0.
+        return tuple(round(v*scale) for v in command)
+
     def command(self, target, path, now, measured_speed, curvature, sigma, front_margin,
-                eligible, high_confidence=False):
+                eligible, high_confidence=False, *, clearance_limit_m_s=None):
+        try:
+            confidence=float(target.get('control_confidence',target.get('confidence',1.)))
+            length=(target.get('road_model') or {}).get('length_m')
+            if length is None:length=arc(path)[-1]
+            length=float(length)
+            confidence*=min(1.,max(0.,length/.30))
+            factor=confidence_speed_factor(confidence)
+        except (ValueError,TypeError,IndexError):
+            self.confidence_status={}
+            return self.fallback('INVALID_CENTERLINE_CONFIDENCE')
+        self.confidence_status=dict(centerline_confidence=confidence,confidence_speed_factor=factor,
+                                   confidence_ceiling_m_s=self.limits.maximum_m_s*factor,confidence_valid=True)
+        if clearance_limit_m_s is not None:
+            if (isinstance(clearance_limit_m_s,bool)
+                    or not isinstance(clearance_limit_m_s,(int,float))
+                    or not math.isfinite(clearance_limit_m_s) or clearance_limit_m_s<0):
+                self.confidence_status={}
+                return self.fallback('INVALID_CLEARANCE_SPEED_LIMIT')
+            if (target.get('road_model') or {}).get('persistent_history'):
+                # Finish-priority recovery retains a crawl instead of waiting
+                # indefinitely when the chassis already intersects a boundary.
+                clearance_limit_m_s=max(clearance_limit_m_s,
+                    self.limits.maximum_m_s*confidence_speed_factor(0.))
+        envelope_factor=min(factor,1. if clearance_limit_m_s is None else
+                            clearance_limit_m_s/self.limits.maximum_m_s)
+        self.confidence_status.update(clearance_ceiling_m_s=clearance_limit_m_s,
+                                      envelope_speed_factor=envelope_factor)
         if not eligible:
             return self.fallback('EXISTING_PATH_OR_BODY_GATE')
         if (measured_speed is None or not math.isfinite(measured_speed)
@@ -90,7 +128,7 @@ class ProfileSpeedControl:
             return self.fallback('MEASURED_PATH_UNCERTAINTY_REQUIRED')
         sigma = max(sigma, reference_sigma)
         segment, reason = supported_segment(dict(target, control_path_m=path),
-                                            skip_inferred_prefix=True)
+                                            skip_inferred_prefix=True,include_history=True)
         if segment is None:
             return self.fallback(reason)
         curve = describe_curve(segment)
@@ -101,6 +139,8 @@ class ProfileSpeedControl:
             positions, curve['curvature'], self.limits,
             distance_margin_m=front_margin + 2 * sigma,
             initial_speed_m_s=max(0., measured_speed),
+            centerline_confidence=confidence,
+            clearance_limit_m_s=clearance_limit_m_s,
         )
         ratio = self.limits.turn_lever_m * curvature
         if abs(ratio) >= 1 or plan.entry_limit_m_s <= 0:
@@ -113,7 +153,7 @@ class ProfileSpeedControl:
         dt = .05 if self.updated_at is None else now - self.updated_at
         if not 0 < dt < self.maximum_gap_s:
             return self.fallback('CONTROL_GAP')
-        fast_path = bool(high_confidence and positions[-1] >= .40)
+        fast_path = bool(high_confidence and confidence >= .8 and positions[-1] >= .40)
         reference_acceleration = self.limits.acceleration_m_s2 * (
             self.high_confidence_gain if fast_path else 1.)
         previous_reference = max(0., measured_speed) if self.reference is None else self.reference
@@ -143,5 +183,6 @@ class ProfileSpeedControl:
             requested_wheels=list(wheels),
             tracking_gain=tracking_gain, high_confidence_boost=tracking_gain > 1.,
             reference_acceleration_m_s2=reference_acceleration,
+            **self.confidence_status,
         )
         return wheels

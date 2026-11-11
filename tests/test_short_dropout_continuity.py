@@ -137,9 +137,9 @@ class ShortDropoutTests(unittest.TestCase):
             self.assertFalse(result['transition_pending'])
             self.assertFalse(result['observed'])
 
-    def test_green_counterevidence_and_expired_memory_never_authorize_history(self):
+    def test_conservative_mode_still_revokes_contradicted_or_expired_memory(self):
         for kind in ('green', 'expired'):
-            tracker = self.tracker()
+            tracker = self.tracker(enabled=False)
             surface = type('Surface', (), {'contradiction': lambda *args:
                         dict(contradicted=True, visible_samples=20, green_samples=20,
                              longest_green_m=.2)})() if kind == 'green' else None

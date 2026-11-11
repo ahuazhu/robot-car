@@ -619,6 +619,48 @@ class DrivingSessionTests(unittest.TestCase):
         self.assertFalse(s.start_light.armed)
         self.assertEqual(s.link.calls[-1][0], 0)
 
+    def test_observed_partial_route_keeps_short_lease_through_motor_publication(self):
+        from tests.test_persistent_centerline import recorded_calibration,FIXTURE
+        from robot.navigation.tracker import TargetTracker
+        import cv2
+        s=self.session(finish_priority=True);self.start(s)
+        cal=recorded_calibration();tracker=TargetTracker(cal)
+        result,details=tracker.update(cv2.imread(str(FIXTURE/'raw.png')),self.clock.now)
+        s.steering=SteeringControl(tracker.policy,[-.055,0.],[.075,.105,.085],.3,
+                                   cruise=135,calibration=cal)
+        self.clock.now+=.1
+        scene=self.frame(s).details['ground_motion']
+        s.steering.observe(scene,self.clock.now,False)
+        follow=s.steering.command(result,.1)
+        command=s.search.command(result,follow,scene,self.clock.now,active=True,stopped=True)
+        frame=self.frame(s,result=result,details=dict(ground_motion=scene),
+                         command=command,follow_command=follow)
+        s.update(frame)
+        self.assertEqual(result['state'],'OBSERVED')
+        self.assertTrue(result['partial_boundary_inference'])
+        self.assertGreater(s.link.calls[-1][1],s.link.calls[-1][2])
+        self.assertGreater(s.link.calls[-1][3],0.)
+        self.assertLessEqual(s.link.calls[-1][3],.25)
+        self.clock.now+=.1;s.update(self.frame(s),('stop',))
+        self.assertFalse(s.active);self.assertEqual(s.pwm,(0,0))
+
+    def test_route_alignment_reaches_motor_as_leased_pure_rotation(self):
+        for phase in ('ALIGNING',):
+            s=self.session(finish_priority=True);self.start(s);self.clock.now+=.1
+            frame=self.frame(s)
+            frame.result.update(valid=False,observed=False,state='LOST',
+                route_alignment=dict(heading_rad=np.pi/2,distance_m=.1),
+                road_model=dict(persistent_history=True))
+            frame.follow_command=None
+            frame.command=s.search.command(frame.result,None,frame.details['ground_motion'],
+                self.clock.now,active=True,allowed=True)
+            self.assertEqual(s.search.snapshot()['phase'],phase)
+            s.update(frame)
+            self.assertEqual(s.link.calls[-1][1:3],(-97,97))
+            self.assertEqual(s.link.calls[-1][3],.15)
+            self.clock.now+=.1;s.update(self.frame(s),('stop',))
+            self.assertFalse(s.active);self.assertEqual(s.pwm,(0,0))
+
     def test_confirmed_finish_stops_an_active_session_and_does_not_restart(self):
         s = self.session()
         self.start(s)

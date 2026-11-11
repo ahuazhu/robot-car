@@ -24,10 +24,10 @@ class ProfileControlTests(unittest.TestCase):
         self.path = self.target['control_path_m']
 
     def step(self, now=.2, speed=.1, curvature=0., target=None, path=None, eligible=True,
-             high_confidence=False):
+             high_confidence=False, clearance_limit_m_s=None):
         return self.control.command(self.target if target is None else target,
             self.path if path is None else path, now, speed, curvature, .005, .075, eligible,
-            high_confidence=high_confidence)
+            high_confidence=high_confidence,clearance_limit_m_s=clearance_limit_m_s)
 
     def test_enabled_configuration_and_explicit_legacy_rollback(self):
         settings = RuntimeSettings.load(ROOT/'maixcam2/curve_follow', {})
@@ -160,7 +160,7 @@ class ProfileControlTests(unittest.TestCase):
         for dt, acceleration, rise, tracking_gain in (
             (dt, acceleration, rise, tracking_gain) for dt in (.15, .22, .28)
             for acceleration, rise, tracking_gain in (
-                (.3,180,1.),(.4,240,1.),(.4,240,1.5),(.4,320,2.))
+                (.3,180,1.),(.4,240,1.),(.4,240,1.5),(.4,320,2.),(.4,400,2.))
         ):
             self.control = ProfileSpeedControl(
                 replace(self.limits, acceleration_m_s2=acceleration), 163, .4,
@@ -200,16 +200,136 @@ class ProfileControlTests(unittest.TestCase):
         self.assertEqual(task.phase,'HOLD')
         self.assertEqual(task.limit_command(command,state,scene),(0,0))
 
-    def test_stationary_or_unresolved_startup_uses_proven_baseline_effort(self):
+    def test_measured_standstill_can_build_effort_under_the_same_speed_envelope(self):
         steering=SteeringControl(RoadPolicy(),[0.,0.],(.075,.105,.085),.3,
             cruise=120,straight_cruise=163,speed_control=self.control)
         for now in (1.,1.2,1.4,1.6):
             steering.observe(dict(motion(0.,0.),interval_s=.2),now,False)
+            steering.applied(now-.02,(20,20))
             command=steering.command(self.target,.1)
         self.assertTrue(any(command))
-        self.assertFalse(steering.status['speed_profile_control']['selected'])
-        self.assertEqual(steering.status['speed_profile_control']['reason'],
-                         'MEASURED_FORWARD_SPEED_UNRESOLVED')
+        self.assertTrue(self.control.status['selected'])
+        self.assertLessEqual(self.control.status['target_speed_m_s'],self.control.status['ceiling_m_s'])
+        self.assertGreater(max(command),20)
+
+    def test_same_confidence_envelope_limits_feedback_and_no_flow_fallback(self):
+        ceilings=[];peaks=[]
+        for confidence in (.9,.6,.3,.08):
+            self.control.reset();self.control.applied(.1,(90,90))
+            target=dict(self.target,control_confidence=confidence)
+            self.step(target=target,speed=.25,curvature=1.)
+            self.assertTrue(self.control.status['selected'])
+            ceilings.append(self.control.status['ceiling_m_s'])
+            self.assertLessEqual(self.control.status['target_speed_m_s'],ceilings[-1])
+            # No flow switches regulators, but cannot discard the envelope.
+            self.assertIsNone(self.step(target=target,speed=None))
+            wheels=self.control.limit_fallback((100,130))
+            peaks.append(max(wheels))
+            self.assertGreater(min(wheels),0)
+            self.assertAlmostEqual(wheels[0],wheels[1]*100/130,delta=1.)
+        self.assertEqual(ceilings,sorted(ceilings,reverse=True))
+        self.assertEqual(peaks,sorted(peaks,reverse=True))
+        self.assertEqual(peaks[-1],16)
+
+    def test_confidence_recovery_accelerates_without_enabling_low_confidence_boost(self):
+        self.control=ProfileSpeedControl(self.limits,163,.4,high_confidence_gain=2.)
+        self.control.applied(.1,(80,80))
+        self.step(target=dict(self.target,control_confidence=.2),speed=.15,high_confidence=True)
+        low=self.control.status.copy()
+        self.assertFalse(low['high_confidence_boost'])
+        self.control.applied(.3,(60,60))
+        self.step(now=.4,target=dict(self.target,control_confidence=.9),speed=.07)
+        self.assertGreater(self.control.status['target_speed_m_s'],low['target_speed_m_s'])
+        self.assertLessEqual(self.control.status['target_speed_m_s'],
+                             low['target_speed_m_s']+self.limits.acceleration_m_s2*.2+1e-9)
+
+    def test_invalid_confidence_has_no_stale_fallback_envelope(self):
+        self.step()
+        self.assertTrue(any(self.control.limit_fallback((100,100))))
+        self.assertIsNone(self.step(target=dict(self.target,control_confidence=float('nan'))))
+        self.assertEqual(self.control.limit_fallback((100,100)),(0,0))
+
+    def test_persistent_support_keeps_geometry_without_marking_it_observed(self):
+        target=dict(self.target,state='PREDICTED',observed=False,
+                    road_model=dict(persistent_history=True),path_observed_mask=[False]*100,
+                    control_confidence=.3)
+        self.assertIsNotNone(self.step(target=target))
+        self.assertTrue(self.control.status['selected'])
+        self.assertFalse(any(target['path_observed_mask']))
+
+    def test_clearance_cap_survives_low_speed_acceleration_and_flow_dropout(self):
+        for measured in (.02,.08,.2):
+            self.control.reset();self.control.applied(.1,(100,100))
+            self.step(speed=measured,clearance_limit_m_s=.1)
+            self.assertEqual(self.control.status['reason'],'BODY_CLEARANCE')
+            self.assertLessEqual(self.control.status['target_speed_m_s'],.1)
+            self.step(speed=None,clearance_limit_m_s=.1)
+            wheels=self.control.limit_fallback((100,130))
+            self.assertLessEqual(max(wheels),round(163*.1/.3))
+
+    def test_finish_priority_keeps_crawl_when_already_touching_boundary(self):
+        target=dict(self.target,road_model=dict(persistent_history=True))
+        command=self.step(speed=0.,target=target,clearance_limit_m_s=0.)
+        self.assertIsNotNone(command);self.assertTrue(any(command))
+        self.assertAlmostEqual(self.control.status['clearance_ceiling_m_s'],.03)
+        self.assertGreater(self.control.status['target_speed_m_s'],0.)
+        self.control.reset()
+        self.assertIsNone(self.step(speed=0.,clearance_limit_m_s=0.))
+        self.assertEqual(self.control.limit_fallback((100,100)),(0,0))
+
+    def test_recorded_left_and_right_turns_cannot_accelerate_above_body_limit(self):
+        import json,math
+        fixture=json.loads((ROOT/'tests/fixtures/body_clearance_speed_20261111.json').read_text())
+        basis=fixture['calculation_basis']
+        for row in fixture['records']:
+            s=row['steering'];target=row['target'];old=s['speed_profile_control']
+            distance=s['envelope']['first_unsafe_m']
+            a=basis['deceleration_m_s2'];delay=basis['delay_s']
+            cap=math.sqrt((a*delay)**2+2*a*distance)-a*delay
+            self.assertGreater(old['target_speed_m_s'],cap)
+            target=dict(target,control_confidence=old['centerline_confidence'])
+            self.control.reset();self.control.applied(.1,(old['applied_mean_pwm'],)*2)
+            command=self.control.command(target,np.asarray(target['control_path_m']),.2,
+                old['measured_speed_m_s'],s['corrected_curvature_m_inv'],
+                target['road_model']['sigma_m'],.075,True,clearance_limit_m_s=cap)
+            self.assertIsNotNone(command)
+            self.assertLessEqual(self.control.status['target_speed_m_s'],cap+1e-9)
+            self.assertEqual(self.control.status['reason'],'BODY_CLEARANCE')
+
+    def test_steering_passes_clearance_to_planner_without_repeated_ratio_limits(self):
+        from unittest.mock import patch
+        steering=SteeringControl(RoadPolicy(),[0.,0.],(.075,.105,.085),.3,
+            cruise=135,speed_control=self.control)
+        envelope=dict(speed_scale=.5,speed_limit_m_s=.1,first_unsafe_m=.1,
+                      minimum_clearance_m=-.01,coverage=1.,state='FULL')
+        for measured in (True,False):
+            self.control.reset()
+            steering.observe(dict(motion(.1,.02),valid=measured,interval_s=.2),1.,False)
+            steering.applied(.99,(80,80))
+            with patch.object(steering,'envelope',return_value=envelope):
+                command=steering.command(self.target,.1)
+            self.assertTrue(any(command))
+            if measured:
+                self.assertTrue(self.control.status['selected'])
+                self.assertLessEqual(self.control.status['target_speed_m_s'],.1)
+            else:
+                # A single common cap, rather than cap followed by another .5.
+                self.assertEqual(max(command),54)
+
+    def test_handoff_planning_uses_the_stricter_clearance_of_both_routes(self):
+        from unittest.mock import patch
+        steering=SteeringControl(RoadPolicy(),[0.,0.],(.075,.105,.085),.3,
+            cruise=135,speed_control=self.control)
+        target=dict(self.target,history_continuity_evidence={},candidate_path_m=self.path)
+        steering.observe(dict(motion(.1,.02),interval_s=.2),1.,False)
+        steering.applied(.99,(80,80))
+        envelopes=[dict(speed_scale=1.,speed_limit_m_s=.15,minimum_clearance_m=.01),
+                   dict(speed_scale=.4,speed_limit_m_s=.08,minimum_clearance_m=-.01)]
+        with patch.object(steering,'envelope',side_effect=envelopes):
+            command=steering.command(target,.1)
+        self.assertTrue(any(command));self.assertTrue(self.control.status['selected'])
+        self.assertAlmostEqual(self.control.status['clearance_ceiling_m_s'],.08)
+        self.assertLessEqual(self.control.status['target_speed_m_s'],.08)
 
 
 if __name__=='__main__':unittest.main()
