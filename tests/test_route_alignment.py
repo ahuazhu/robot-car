@@ -37,16 +37,17 @@ class RouteAlignmentTests(unittest.TestCase):
         self.assertAlmostEqual(reference['distance_m'],.2)
         search=self.search();result=dict(valid=False,route_alignment=reference)
         command=search.command(result,None,scene(),0.,active=True)
-        self.assertEqual(command,(-60,60));self.assertTrue(search.is_turning())
-        self.assertEqual(search.snapshot()['phase'],'ALIGNING')
-        self.assertEqual(search.snapshot()['lease_s'],.15)
+        self.assertEqual(command,(0,0));self.assertFalse(search.is_turning())
+        self.assertEqual(search.last_hint,1.)
+        self.assertEqual(search.snapshot()['phase'],'SETTLING')
 
-    def test_alignment_uses_same_sign_until_twenty_degrees_then_resumes_follow(self):
+    def test_constrained_follow_wins_over_any_retained_heading(self):
         search=self.search()
         for i,heading in enumerate((90.,45.,25.)):
             r=dict(valid=True,observed=True,state='OBSERVED',observation_confidence=.9,
+                   speed_limit_source='CENTERLINE_CONFIDENCE',control_confidence=.01,
                    route_alignment=dict(heading_rad=math.radians(heading),distance_m=.1))
-            self.assertEqual(search.command(r,(40,40),scene(),i*.2,active=True),(-60,60))
+            self.assertEqual(search.command(r,(2,5),scene(),i*.2,active=True),(2,5))
         r['route_alignment']['heading_rad']=math.radians(10.)
         self.assertEqual(search.command(r,(40,40),scene(),.8,active=True),(40,40))
         self.assertFalse(search.is_turning())
@@ -54,7 +55,8 @@ class RouteAlignmentTests(unittest.TestCase):
     def test_right_heading_and_far_reference_do_not_authorize_wrong_turn(self):
         search=self.search()
         r=dict(valid=False,route_alignment=dict(heading_rad=-math.pi/2,distance_m=.1))
-        self.assertEqual(search.command(r,None,scene(),0.,active=True),(60,-60))
+        self.assertEqual(search.command(r,None,scene(),0.,active=True),(0,0))
+        self.assertEqual(search.last_hint,-1.)
         r['route_alignment']['distance_m']=.9
         search.reset();search.command(r,None,scene(),1.,active=True,stopped=True)
         self.assertNotEqual(search.snapshot()['phase'],'ALIGNING')

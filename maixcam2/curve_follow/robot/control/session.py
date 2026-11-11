@@ -350,9 +350,10 @@ class DrivingSession:
                 else (self.steering.status.get("prediction") or {}).get("lease_s")
             )
         try:
-            self.link.send(2, *compensate_pwm(self.pwm, s.pwm_boost), lease_s=lease)
+            delivered = compensate_pwm(self.pwm, s.pwm_boost)
+            self.link.send(2, *delivered, lease_s=lease)
             self.search.applied(self.clock(), self.pwm)
-            self.steering.applied(self.clock(), self.pwm)
+            self.steering.applied(self.clock(), self.pwm, delivered_wheels=delivered)
             self.next_control = self.clock() + 0.05
             if frame.command is not None and failure is None:
                 self.reason = self._driving_reason(frame)

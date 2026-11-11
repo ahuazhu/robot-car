@@ -94,6 +94,7 @@ class FinishPriorityTests(unittest.TestCase):
                 self.assertIsNotNone(search.scan.began)
 
     def test_rounds_keep_retrying_instead_of_permanent_exhaustion(self):
+        # No usable route means minimum confidence, hence reduced pulse effort.
         search = self.search()
         pulses = []
         for step in range(251):
@@ -107,14 +108,14 @@ class FinishPriorityTests(unittest.TestCase):
         self.assertGreaterEqual(len(pulses), 12)
         self.assertGreaterEqual(search.scan.round_index, 3)
         self.assertEqual(search.scan.total_pulses, len(pulses))
-        self.assertEqual(pulses[:4], [(-30, 30), (30, -30), (30, -30), (-30, 30)])
+        self.assertEqual(pulses[:4], [(-10, 10), (10, -10), (10, -10), (-10, 10)])
         self.assertEqual(pulses[4:8], [tuple(-v for v in p) for p in pulses[:4]])
 
     def test_timeout_retry_requires_new_zero_publication_and_fresh_ack(self):
         search = self.search()
         self.call(search, 0)
         self.call(search, 0.01)
-        self.assertEqual(self.call(search, 0.76), (-30, 30))
+        self.assertEqual(self.call(search, 0.76), (-10, 10))
         self.assertEqual(self.call(search, 6, issued=False), (0, 0))
         self.assertEqual(search.scan.round_index, 2)
         self.assertTrue(search.snapshot()["search_pending"])
@@ -125,7 +126,7 @@ class FinishPriorityTests(unittest.TestCase):
         self.call(search, 8.2, stopped=False)
         self.call(search, 8.3)
         self.assertEqual(self.call(search, 9.04), (0, 0))
-        self.assertEqual(self.call(search, 9.05), (30, -30))
+        self.assertEqual(self.call(search, 9.05), (10, -10))
         self.assertEqual(search.scan.total_pulses, 2)
 
     def test_virtual_edge_block_allows_only_short_counterrotation_not_forward(self):
@@ -134,7 +135,7 @@ class FinishPriorityTests(unittest.TestCase):
         for now in (0, 0.01):
             self.assertEqual(self.call(search, now, result=blocked, follow=(90, 90)), (0, 0))
         command = self.call(search, 0.76, result=blocked, follow=(90, 90))
-        self.assertEqual(command, (-30, 30))
+        self.assertEqual(command, (-10, 10))
         self.assertEqual(search.snapshot()["lease_s"], 0.12)
         self.assertEqual(self.call(search, 0.8, result=blocked, follow=(90, 90)), (0, 0))
 
@@ -153,7 +154,7 @@ class FinishPriorityTests(unittest.TestCase):
                 for now in (0, 0.01, 0.11, 0.21):
                     self.assertEqual(self.call(search, now, moving=moving), (0, 0))
                 command = self.call(search, 0.26, moving=moving)
-                self.assertEqual(command, (-30, 30) if measured else (0, 0))
+                self.assertEqual(command, (-10, 10) if measured else (0, 0))
 
     def test_motion_or_ack_loss_breaks_accelerated_settling(self):
         search = self.search()
@@ -162,14 +163,14 @@ class FinishPriorityTests(unittest.TestCase):
         self.call(search, 0.2, moving=measured_motion(), stopped=False)
         self.call(search, 0.3, moving=measured_motion())
         self.assertEqual(self.call(search, 0.4, moving=measured_motion()), (0, 0))
-        self.assertEqual(self.call(search, 0.55, moving=measured_motion()), (-30, 30))
+        self.assertEqual(self.call(search, 0.55, moving=measured_motion()), (-10, 10))
 
     def test_noisy_visual_motion_cannot_veto_all_turns_after_sent_zero_settles(self):
         search=self.search()
         noisy=motion(True,.05,.10)
         for now in (0.,.1,.4,.74):
             self.assertEqual(self.call(search,now,moving=noisy),(0,0))
-        self.assertEqual(self.call(search,.76,moving=noisy),(-30,30))
+        self.assertEqual(self.call(search,.76,moving=noisy),(-10,10))
         self.assertEqual(search.snapshot()['rest_source'],'ZERO_ACK_FALLBACK')
         self.assertEqual(search.snapshot()['lease_s'],.12)
         self.assertEqual(self.call(search,.8,moving=noisy),(0,0))
@@ -180,7 +181,7 @@ class FinishPriorityTests(unittest.TestCase):
         with patch.object(search,'swept_clear',return_value=True):
             self.assertEqual(self.call(search,0.,moving=motion(True,.1,.1)),(0,0))
         self.assertIsNotNone(search.scan.began)
-        self.assertEqual(self.call(search,.76,moving=motion(True,.1,.1)),(-30,30))
+        self.assertEqual(self.call(search,.76,moving=motion(True,.1,.1)),(-10,10))
 
     def test_task_stop_and_inactive_mission_cancel_all_proposals(self):
         search = self.search()

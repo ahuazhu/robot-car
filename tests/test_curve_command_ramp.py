@@ -7,6 +7,10 @@ from robot.control.controller import CommandRamp, compensate_pwm
 
 
 class CommandRampTimingTests(unittest.TestCase):
+    def assert_wheels_close(self, actual, expected):
+        for a, b in zip(actual, expected):
+            self.assertAlmostEqual(a, b)
+
     def test_faster_restart_reaches_same_effort_sooner_at_different_frame_rates(self):
         for fps, old_rise, new_rise in (
                 (fps, a, b) for fps in (5, 10, 20) for a, b in ((180,240),(240,320),(320,400))):
@@ -45,7 +49,8 @@ class CommandRampTimingTests(unittest.TestCase):
             for frame in range(round(0.6 * fps) + 1):
                 output = ramp.apply((80, 163), frame / fps)
             outputs.append(output)
-        self.assertEqual(outputs, [(57, 117)] * 3)
+        for output in outputs:
+            self.assert_wheels_close(output, (117*80/163,117))
 
     def test_five_fps_reaches_cruise_in_one_second(self):
         ramp = CommandRamp()
@@ -59,14 +64,14 @@ class CommandRampTimingTests(unittest.TestCase):
         for now in (1.3, 1.31, 5.0, 0.9):
             with self.subTest(now=now):
                 ramp = self.settled()
-                self.assertEqual(ramp.apply((80, 163), now), (4, 9))
-                self.assertEqual(ramp.apply((80, 163), now + 0.1), (13, 27))
+                self.assert_wheels_close(ramp.apply((80, 163), now), (9*80/163,9))
+                self.assert_wheels_close(ramp.apply((80, 163), now + 0.1), (27*80/163,27))
 
     def test_fresh_interval_uses_elapsed_time_but_duplicate_time_adds_nothing(self):
         ramp = CommandRamp()
         ramp.apply((163, 163), 0.0)
-        self.assertEqual(ramp.apply((163, 163), 0.28), (59, 59))
-        self.assertEqual(ramp.apply((163, 163), 0.28), (59, 59))
+        self.assert_wheels_close(ramp.apply((163, 163), 0.28), (59.4,59.4))
+        self.assert_wheels_close(ramp.apply((163, 163), 0.28), (59.4,59.4))
 
     def test_zero_missing_and_explicit_reset_start_a_new_ramp(self):
         for stop in (None, (0, 0), "reset"):
@@ -76,7 +81,7 @@ class CommandRampTimingTests(unittest.TestCase):
                     ramp.reset()
                 else:
                     self.assertEqual(ramp.apply(stop, 1.01), (0, 0))
-                self.assertEqual(ramp.apply((80, 163), 1.02), (4, 9))
+                self.assert_wheels_close(ramp.apply((80, 163), 1.02), (9*80/163,9))
 
     def test_deceleration_is_immediate_and_turn_ratio_survives_lower_fps(self):
         for desired in ((80, 163), (163, 80), (0, 163), (163, 0)):
@@ -144,12 +149,12 @@ class CommandRampTimingTests(unittest.TestCase):
     def test_short_rolling_pause_decays_but_stale_pause_cannot_hide_expiry(self):
         ramp = self.settled()
         self.assertEqual(ramp.pause(1.2, rolling=True), (0, 0))
-        self.assertEqual(ramp.apply((80, 163), 1.25), (67, 136))
+        self.assert_wheels_close(ramp.apply((80, 163), 1.25), (136*80/163,136))
         for now, rolling in ((1.3, True), (3.0, True), (1.1, False), (0.9, True)):
             with self.subTest(now=now, rolling=rolling):
                 ramp = self.settled()
                 self.assertEqual(ramp.pause(now, rolling=rolling), (0, 0))
-                self.assertEqual(ramp.apply((80, 163), now + 0.05), (4, 9))
+                self.assert_wheels_close(ramp.apply((80, 163), now + 0.05), (9*80/163,9))
 
 
 if __name__ == "__main__":

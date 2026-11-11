@@ -40,12 +40,12 @@ class BoundedVisualScan:
         self.last_action = False
         self.status = dict(phase="IDLE", reason="", search_pending=False, lease_s=None)
 
-    def start(self, motion, now, stopped, hint):
+    def start(self, motion, now, stopped, hint, *, effort_scale=1.):
         """Enter only after the coordinator verifies task/user permission."""
         self.last_action = False
-        return self._advance(motion, now, stopped, hint)
+        return self._advance(motion, now, stopped, hint, effort_scale)
 
-    def command(self, result, follow, motion, now, *, allowed, stopped, hint):
+    def command(self, result, follow, motion, now, *, allowed, stopped, hint, effort_scale=1.):
         """Continue one scan, including stopped confirmation of a fresh road."""
         self.last_action = False
         # Task ownership cancels rotation, not accepted road following. Finish
@@ -88,7 +88,7 @@ class BoundedVisualScan:
             rounds, pulses = self.round_index, self.total_pulses
             self.reset()
             self.round_index, self.total_pulses = rounds, pulses
-        return self._advance(motion, now, stopped, hint)
+        return self._advance(motion, now, stopped, hint, effort_scale)
 
     def _set_status(self, phase, reason="", lease_s=None):
         self.status = dict(
@@ -187,7 +187,7 @@ class BoundedVisualScan:
             self.rest_since = None
         return True
 
-    def _advance(self, motion, now, stopped, hint):
+    def _advance(self, motion, now, stopped, hint, effort_scale):
         # This is a user-enabled bounded look-around, not verified free space.
         # Four equal opposite PWM pulses do not imply a measured return to yaw.
         if self.began is None:
@@ -264,10 +264,17 @@ class BoundedVisualScan:
             return self._finish("VISUAL SCAN COMPLETED WITHOUT A CONFIRMED PATH", retryable=True)
         if now - self.began + 0.12 > 6.0:
             return self._finish("VISUAL SCAN TIME BUDGET EXHAUSTED", retryable=True)
-        effort = math.floor(min(30.0, self.cruise / 2))
+        scale=float(effort_scale)
+        scale=max(0.,min(1.,scale)) if math.isfinite(scale) else 0.
+        # Confidence controls recovery effort as well as path following. Keep
+        # the same minimum effort as mapped search so a weak route still gets
+        # an active observation attempt, bounded by pulse/rest acknowledgement.
+        maximum=min(30.0,self.cruise/2)
+        effort=math.floor(min(maximum,max(self.cruise/6,maximum*scale)))
         if effort <= 0:
             return self._finish("VISUAL SCAN HAS NO MOTOR EFFORT")
         direction = (self.hint, -self.hint, -self.hint, self.hint)[self.pulse_index]
         self._set_status("SCANNING", lease_s=0.12)
+        self.status.update(effort_scale=scale,pulse_effort_pwm=effort)
         self.status["rest_source"] = "ZERO_ACK_FALLBACK" if not resting else "VISUAL_REST"
         return self._propose((-int(direction * effort), int(direction * effort)), "pulse")

@@ -100,6 +100,7 @@ class TargetTracker:
             self.model.surface_support=1.
         path, support = self.model.support(now, current_only=require_current)
         confidence_profile = support.pop("confidence_profile", [])
+        sigma_profile = support.pop("sigma_profile", [])
         model_ms = (time.perf_counter() - tick) * 1000
         tick = time.perf_counter()
         target = (
@@ -214,6 +215,7 @@ class TargetTracker:
             target_inferred=bool(target is not None and not target_observed),
             path_observed_mask=observed_mask,
             path_confidence=confidence_profile if target else [],
+            path_sigma_m=sigma_profile if target else [],
             control_target_source=("OBSERVED" if target_observed else "HISTORY PREDICTION")
             if target
             else None,
