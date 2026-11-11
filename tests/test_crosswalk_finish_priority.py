@@ -64,6 +64,17 @@ class FinishPriorityCrosswalkTests(unittest.TestCase):
                 self.assertFalse(state['yield_completed'])
                 self.assertTrue(task.allows_road_search())
 
+    def test_valid_predicted_road_keeps_approach_but_real_road_loss_releases_search(self):
+        task=self.task()
+        for now in (0.,.15,.3):
+            task.update(observation(now,.42),motion(),now,True,False,False,True)
+        state=task.update(None,motion(),.45,True,False,False,False,road_available=True)
+        self.assertEqual(state['phase'],'APPROACH')
+        self.assertTrue(any(task.limit_command((100,120),state,motion())))
+        state=task.update(None,motion(),.6,True,False,False,False,road_available=False)
+        self.assertEqual(state['phase'],'RECOVERY_PASSING')
+        self.assertTrue(task.allows_road_search())
+
     def test_uncertainty_recovery_does_not_wait_for_a_zero_command_handshake(self):
         task=self.stuck()
         state=self.advance(task,.15,zero=False)

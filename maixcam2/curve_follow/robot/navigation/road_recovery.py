@@ -344,6 +344,13 @@ class RoadSearch:
         if not active:
             self.reset()
             return follow
+        if (self.finish_priority and result.get('valid')
+                and result.get('speed_limit_source')=='CENTERLINE_CONFIDENCE'
+                and follow is not None and not any(follow)
+                and result.get('invalid_reason')!='BODY ENVELOPE BLOCKED'):
+            # The accepted path controller is braking, not reporting road loss.
+            # A scan must yield to that decision even after a previous pulse.
+            return self._follow(result,follow)
         alignment=result.get("route_alignment") or {}
         heading=alignment.get("heading_rad")
         distance=alignment.get("distance_m")

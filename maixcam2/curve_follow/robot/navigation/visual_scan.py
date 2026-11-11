@@ -6,6 +6,7 @@ It never manufactures a road path or treats opposite pulses as measured yaw.
 
 import math
 from robot.core.stationarity import StationaryEvidence
+from robot.core.road_policy import observation_age
 from robot.navigation.supported_path import supported_segment
 
 
@@ -132,7 +133,7 @@ class BoundedVisualScan:
         if follow is None or not any(abs(float(value)) > 0 for value in follow):
             return False
         quality = float(result.get("observation_confidence") or 0.0)
-        age = float(result.get("age_s") or 0.0)
+        age = observation_age(result)
         return bool(
             result.get("valid")
             and result.get("observed")

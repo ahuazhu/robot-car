@@ -7,8 +7,8 @@
     "maximum_prediction_command_s": 0.25
   },
   "turn_lever_m": 0.15,
-  "steering_gain": 1.05,
-  "cruise_pwm": 135,
+  "steering_gain": 1.15,
+  "cruise_pwm": 145,
   "speed_profile": {
     "mode": "ACTIVE",
     "maximum_m_s": 0.3,
@@ -67,7 +67,7 @@
     "finish_distance_m": 0.4,
     "initial_line_ignore_s": 30.0
   },
-  "confirmed_cruise_pwm": 155,
+  "confirmed_cruise_pwm": 163,
   "road_search": {
     "allow_visual_scan": true,
     "finish_priority": true

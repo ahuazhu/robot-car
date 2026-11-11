@@ -87,6 +87,8 @@ class LocalRoadModel:
             self.pending = apply_ground_motion(self.pending, motion)
 
     def initialize(self, path, now, quality, mode):
+        agreement=(self.observation_agreement
+                   if self.persistent_history and self.path is not None else 1.)
         self.path = np.asarray(path, float).copy()
         count = len(self.path)
         self.seen = np.full(count, now, float)
@@ -98,8 +100,20 @@ class LocalRoadModel:
         self.confidence = quality
         self.retired_support = None
         self.surface_contradicted = False
-        self.observation_agreement = 1.
+        # Confirmation authorizes replacement geometry, not instant recovery
+        # from the innovation that made that replacement uncertain.
+        self.observation_agreement = agreement
         self.surface_support = 1.
+
+    def accept_agreement(self, quality, likelihood=1.):
+        """Decrease immediately; restore trust with independent accepted evidence."""
+        if not self.persistent_history:
+            self.observation_agreement=1.
+        elif likelihood < self.observation_agreement:
+            self.observation_agreement=likelihood
+        else:
+            evidence=min(1.,quality/self.policy.confirmation_evidence)
+            self.observation_agreement+=evidence*(likelihood-self.observation_agreement)
 
     def retire_expired(self, now):
         """Compact expiring conservative support; retain persistent predictions.
@@ -186,7 +200,7 @@ class LocalRoadModel:
         self.mode = measurement["mode"]
         self.last_seen = now
         self.confidence = q
-        self.observation_agreement = 1.
+        self.accept_agreement(q)
         self.reset_pending()
         return True
 
@@ -444,10 +458,12 @@ class LocalRoadModel:
             self.mode = measurement["mode"]
             self.confidence = measurement["confidence"]
             self.last_seen = now
+            likelihood=innovation_likelihood(agreement['distance_m'],agreement['heading_cos'],
+                                            p.association_distance_m) if agreement else 1.
+            self.accept_agreement(measurement['confidence'],likelihood)
         if event["association_kind"] == "UNOBSERVED":
             event["association_kind"] = "OVERLAP" if agreement else "INITIAL"
         event["continuation_allowed"] = False
-        self.observation_agreement = 1.
         self.reset_pending()
         event["observed"] = True
         event["reject"] = None

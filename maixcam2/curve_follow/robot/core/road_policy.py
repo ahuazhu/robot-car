@@ -8,6 +8,12 @@ Calibration and actuator configuration remain separate from image thresholds.
 import math
 from dataclasses import dataclass, fields
 
+
+def observation_age(result):
+    """Age of accepted measurements, separate from the oldest retained tail."""
+    age=(result.get('road_model') or {}).get('model_age_s')
+    return float((result.get('age_s',0.) if age is None else age) or 0.)
+
 MAX_PREDICTION_COMMAND_S = 0.25
 
 
@@ -50,7 +56,7 @@ class RoadPolicy:
     def confirmed_reacquisition(self, result):
         """One shared proof for resuming an already active stopped mission."""
         quality = float(result.get("observation_confidence") or 0.0)
-        age = float(result.get("age_s") or 0.0)
+        age = observation_age(result)
         return bool(
             result.get("valid") and result.get("observed")
             and result.get("state") == "OBSERVED"
