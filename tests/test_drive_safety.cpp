@@ -46,16 +46,19 @@ int main() {
   }
   // The active configured duty cap is accepted in both directions, never clamped.
   // Out-of-range requests must disarm and zero rather than truncate to uint8.
-  for (int duty : {-drive::MAX_PWM,drive::MAX_PWM}) {
+  for (int duty : {-255,-250,-201,201,250,255}) {
     drive::State edge;
     assert(send(edge,1,1,0,0,0));
     assert(send(edge,2,2,duty,-duty,10));
     assert(edge.armed && edge.left==duty && edge.right==-duty);
   }
-  for (int duty : {-drive::MAX_PWM-1,drive::MAX_PWM+1,255,256}) {
+  for (int duty : {-256,256,-99999,99999}) {
     drive::State edge;
     assert(send(edge,1,1,0,0,0));
     assert(!send(edge,2,2,duty,0,10));
+    assert(!edge.armed && edge.left==0 && edge.right==0);
+    assert(send(edge,3,1,0,0,20));
+    assert(!send(edge,4,2,0,duty,30));
     assert(!edge.armed && edge.left==0 && edge.right==0);
   }
   drive::LampBlink lamp;

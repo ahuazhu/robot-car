@@ -8,6 +8,7 @@ effort is fed back after task limits and the motor ramp to prevent windup.
 import math
 
 from robot.core.geometry import arc, describe_curve
+from robot.control.controller import MAX_MOTOR_PWM
 from robot.navigation.supported_path import supported_segment
 from robot.navigation.speed_profile import SpeedLimits, plan_speed_profile
 from robot.core.route_confidence import confidence_speed_factor
@@ -68,7 +69,7 @@ class ProfileSpeedControl:
             config.get('acceleration_m_s2', .30),
             float(p.brake_deceleration_m_s2 or .08), p.command_latency_s,
             settings.turn_lever,
-        ), 200 - settings.pwm_boost, p.speed_response_s,
+        ), MAX_MOTOR_PWM - settings.pwm_boost, p.speed_response_s,
             high_confidence_gain=config.get('high_confidence_gain', 1.),
             controller=config.get('controller','PURE_PURSUIT'),
             angular_acceleration=config.get('angular_acceleration_rad_s2',2.),

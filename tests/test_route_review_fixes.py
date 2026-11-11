@@ -47,7 +47,7 @@ class RouteReviewTests(unittest.TestCase):
         result.update(speed_limit_source='CENTERLINE_CONFIDENCE',
             control_confidence=steering.status['speed_profile_control']['centerline_confidence'])
         self.assertLess(result['control_confidence'],.01)
-        self.assertLessEqual(max(map(abs,follow)),self.settings.confirmed_cruise_pwm*.1+1)
+        self.assertLessEqual(max(map(abs,follow)),steering.speed_control.maximum_effort*.1+1)
         for now in (10.,10.2,11.,20.,70.):
             self.assertEqual(search.command(result,follow,details['ground_motion'],now,
                                            active=True),follow)

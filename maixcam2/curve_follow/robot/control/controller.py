@@ -1,7 +1,7 @@
 import math
 
 # Must match the active UNO firmware; the UART returns applied duty directly.
-MAX_MOTOR_PWM = 200
+MAX_MOTOR_PWM = 255
 
 
 class CommandRamp:

@@ -4,7 +4,7 @@
 #include <string.h>
 
 namespace drive {
-const int MAX_PWM = 200;
+const int MAX_PWM = 255;
 static_assert(MAX_PWM>0 && MAX_PWM<=255,"PWM limit must fit analogWrite duty range");
 const uint32_t WATCHDOG_MS = 350;
 inline uint8_t crc8(const char* s) {

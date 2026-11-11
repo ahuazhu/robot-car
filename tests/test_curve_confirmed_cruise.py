@@ -36,11 +36,11 @@ def replay(result, confirmed=None, measured=True):
 
 
 class ConfirmedCruiseTests(unittest.TestCase):
-    def test_configured_clear_straight_reaches_same_cap(self):
+    def test_configured_clear_straight_keeps_its_existing_duty(self):
         _, old = replay(road(), CONFIG["cruise_pwm"])
         c, new = replay(road())
         self.assertEqual(new, old)
-        self.assertEqual(compensate_pwm(new), (MAX_MOTOR_PWM, MAX_MOTOR_PWM))
+        self.assertEqual(compensate_pwm(new), (200, 200))
         self.assertEqual(c.status["speed_plan"]["confirmed_cruise_pwm"], 163)
 
     def test_supported_bends_gain_effort_without_changing_curvature_or_quality_source(self):
