@@ -7,7 +7,7 @@
     "maximum_prediction_command_s": 0.25
   },
   "turn_lever_m": 0.15,
-  "steering_gain": 0.95,
+  "steering_gain": 1.05,
   "cruise_pwm": 135,
   "speed_profile": {
     "mode": "ACTIVE",
@@ -59,7 +59,7 @@
   "straight_cruise_pwm": 163,
   "search_cruise_pwm": 60,
   "race": {
-    "enabled": true,
+    "enabled": false,
     "laps": 2,
     "marker": "transverse_white_line",
     "basis": "User 2026-11-07: classify the first confirmed counting-line visit by its earliest consistent observation after actual race start. At or before 30 seconds, skip that visit; after 30 seconds, count its measured crossing as lap 1. Later distinct measured crossings count normally. No time-only lap increment.",

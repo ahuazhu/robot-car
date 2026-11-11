@@ -205,7 +205,11 @@ class ProfileSpeedControl:
         if self.controller=='DWPP':
             if measured_yaw_rate is None or not math.isfinite(measured_yaw_rate):
                 return self.fallback('DWPP_MEASURED_YAW_REQUIRED')
-            dt=.05 if self.dwpp_state is None else now-self.dwpp_state[0]
+            # Reacquisition after PWM fallback still has a real control period.
+            # A fixed 50ms seed window repeatedly suppresses turn corrections
+            # on this camera's 150..220ms cycle. Unsent proposals own no time.
+            previous_at=self.applied_at if self.dwpp_state is None else self.dwpp_state[0]
+            dt=.05 if previous_at is None else now-previous_at
         else:
             dt = .05 if self.updated_at is None else now - self.updated_at
         if not 0 < dt < self.maximum_gap_s:

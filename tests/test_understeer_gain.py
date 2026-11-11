@@ -33,12 +33,12 @@ class UndersteerGainTests(unittest.TestCase):
 
     def test_field_gain_strengthens_both_bends_without_changing_straight(self):
         gain=RuntimeSettings.load(ROOT/'maixcam2/curve_follow',{}).steering_gain
-        before_straight,before_command=self.evaluate(0.,.85)
+        before_straight,before_command=self.evaluate(0.,.95)
         after_straight,after_command=self.evaluate(0.,gain)
         self.assertEqual(before_command,after_command)
         for curvature in (-4.,-2.,-1.,1.,2.,4.):
             with self.subTest(curvature=curvature):
-                before,a=self.evaluate(curvature,.85)
+                before,a=self.evaluate(curvature,.95)
                 after,b=self.evaluate(curvature,gain)
                 ratio_a=abs((a[1]-a[0])/sum(a))
                 ratio_b=abs((b[1]-b[0])/sum(b))

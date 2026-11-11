@@ -1,6 +1,7 @@
 """Exercise configuration and a complete preview frame across package boundaries."""
 
 import contextlib
+from dataclasses import replace
 import io
 import json
 from pathlib import Path
@@ -46,6 +47,34 @@ class RuntimeSettingsTests(unittest.TestCase):
 
 
 class ApplicationBoundaryTests(unittest.TestCase):
+    def test_disabled_counting_skips_marker_pipeline_but_keeps_crosswalk_detection(self):
+        with patch.object(application.LapMarkerDetector,'detect',side_effect=AssertionError) as detect, \
+             patch.object(application.LapMarkerDetector,'draw',side_effect=AssertionError) as draw, \
+             patch.object(application.LapCounter,'update',side_effect=AssertionError) as count, \
+             patch.object(application.CrosswalkDetector,'detect',autospec=True,
+                          side_effect=application.CrosswalkDetector.detect) as crosswalk:
+            run=self.run_application(3)
+        detect.assert_not_called();draw.assert_not_called();count.assert_not_called()
+        self.assertEqual(crosswalk.call_count,3)
+        self.assertFalse(run.stream.metrics['laps']['enabled'])
+        self.assertEqual(run.stream.metrics['laps']['detector']['reason'],'DISABLED_FOR_DRIVING_TEST')
+        self.assertEqual(run.stream.metrics['profile_ms']['lap_counter'],0.)
+        self.assertFalse(run.stream.metrics['laps']['complete'])
+
+    def test_counting_pipeline_can_be_restored_with_its_original_enable_switch(self):
+        settings=RuntimeSettings.load(APP_ROOT,{'TARGET_PREVIEW_ONLY':'1'})
+        settings=replace(settings,runtime=dict(settings.runtime,race=dict(
+            settings.runtime['race'],enabled=True)))
+        with patch.object(application.RuntimeSettings,'load',return_value=settings), \
+             patch.object(application.LapMarkerDetector,'detect',autospec=True,
+                          side_effect=application.LapMarkerDetector.detect) as detect, \
+             patch.object(application.LapCounter,'update',autospec=True,
+                          side_effect=application.LapCounter.update) as count:
+            run=self.run_application(2)
+        self.assertEqual(detect.call_count,2)
+        self.assertEqual(count.call_count,2)
+        self.assertTrue(run.stream.metrics['laps']['enabled'])
+
     def run_application(
         self, frames=1, *, show_delay=0.0, touch_actions=None, preview=True,
         camera_intervals=None, debug=False,

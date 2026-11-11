@@ -111,6 +111,8 @@ def main(app_dir):
         vision = TargetTracker(road_cal)
         crosswalk_detector = CrosswalkDetector(vision.pixels, crosswalk_policy)
         lap_detector = LapMarkerDetector(vision.pixels, lap_config)
+        if not laps.enabled:
+            lap_detector.status = dict(enabled=False, reason='DISABLED_FOR_DRIVING_TEST')
         cam = camera.Camera(320, 240, image.Format.FMT_BGR888)
         screen = display.Display()
         touch = touchscreen.TouchScreen()
@@ -148,21 +150,26 @@ def main(app_dir):
             frames += 1
             motor_before = None if preview_only else link.snapshot()
             lap_tick = time.perf_counter()
-            lap_observation = lap_detector.detect(
-                bgr,
-                details,
-                result,
-                captured,
-                motion=details.get("ground_motion"),
-            )
-            lap_finished = laps.update(
-                lap_observation,
-                details.get("ground_motion"),
-                captured,
-                active,
-            )
-            if laps.event:
-                print("LAP EVENT", json.dumps(laps.snapshot()), flush=True)
+            lap_observation, lap_finished = None, False
+            # Temporary driving trials set race.enabled=false: skip the whole
+            # transverse counting-line pipeline, including completion updates.
+            # Crosswalk detection below remains independent and always runs.
+            if laps.enabled:
+                lap_observation = lap_detector.detect(
+                    bgr,
+                    details,
+                    result,
+                    captured,
+                    motion=details.get("ground_motion"),
+                )
+                lap_finished = laps.update(
+                    lap_observation,
+                    details.get("ground_motion"),
+                    captured,
+                    active,
+                )
+                if laps.event:
+                    print("LAP EVENT", json.dumps(laps.snapshot()), flush=True)
             profile_ms["lap_counter"] = round((time.perf_counter() - lap_tick) * 1000, 2)
             crosswalk_tick = time.perf_counter()
             crossing = crosswalk_detector.detect(
@@ -383,8 +390,8 @@ def main(app_dir):
                     inverse=overlay_inverse, include_bird=stream_due,
                 )
                 draw_crosswalk_overlay(out, crossing_state, cal, active=active)
-                lap_detector.draw(out)
                 if laps.enabled:
+                    lap_detector.draw(out)
                     cv2.putText(
                         out, "LAPS %d/%d" % (laps.count, laps.total), (4, 69), 0, 0.45, (0, 255, 255), 1
                     )

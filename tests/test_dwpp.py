@@ -108,10 +108,23 @@ class ControllerIntegrationTests(unittest.TestCase):
 
     def test_proposal_does_not_advance_dynamic_state_before_application(self):
         self.step();first=self.control.status.copy()
-        self.step(now=1.1)
+        self.step(now=1.)
         self.assertEqual(self.control.status['dwpp']['source'],'MEASURED_SEED')
         self.assertEqual(self.control.status['dwpp']['window'],first['dwpp']['window'])
         self.assertIsNone(self.control.dwpp_state)
+
+    def test_reacquisition_uses_actual_applied_control_period_for_turn_window(self):
+        self.control.applied(.8,(80,80))
+        self.step(now=1.,speed=.20,k=2.,yaw=0.)
+        plan=self.control.status
+        self.assertAlmostEqual(plan['dwpp']['dt_s'],.2)
+        self.assertAlmostEqual(plan['dwpp']['window']['w_max'],.4)
+        self.assertGreater(plan['reference_angular_rad_s'],.1)
+        self.assertGreater(plan['effective_curvature_m_inv'],1.)
+        # An obsolete applied command must not enlarge the new window.
+        self.control.reset();self.control.applied(.5,(80,80))
+        self.assertIsNone(self.step(now=1.,speed=.2,k=2.))
+        self.assertEqual(self.control.status['reason'],'CONTROL_GAP')
 
     def test_applied_ramp_scaling_seeds_next_window_and_stop_clears_it(self):
         wheels=self.step()
