@@ -200,6 +200,7 @@ def main(app_dir):
                     and result.get("observed")
                     and result.get("state") == "OBSERVED"
                 ),
+                road_available=bool(result.get('valid') and result.get('control_target_m') is not None),
             )
             crosswalk_ms = (time.perf_counter() - crosswalk_tick) * 1000
             stats[result["mode"]] = stats.get(result["mode"], 0) + 1

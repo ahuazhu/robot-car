@@ -557,7 +557,7 @@ class CrosswalkTask:
         scale = min(1., self.recovery_cruise_pwm / max(abs(v) for v in command))
         return tuple(round(v * scale) for v in command)
 
-    def _resolve_uncertainty(self, now, active, zero_ack, lamp_on, road_ready):
+    def _resolve_uncertainty(self, now, active, zero_ack, lamp_on, road_available):
         # Lack of task evidence never requests a stopped observation period.
         # Lane following / bounded search and the motor supervisor own motion.
         # Only an intentional, located yield stop owns its normal 3.2s dwell.
@@ -590,7 +590,10 @@ class CrosswalkTask:
                     self._issue("CROSSWALK BRAKE LAMP UNVERIFIED")
                 self._continue_unverified("CROSSWALK STOP UNVERIFIED")
             return
-        if self.approach_wait_reason or not road_ready:
+        if self.approach_wait_reason or not road_available:
+            # Road confidence owns the path/speed envelope independently.
+            # A valid zebra pose must not bounce out of approach on each
+            # predicted-road frame while the path controller still follows it.
             self._continue_unverified(self.approach_wait_reason or "CROSSWALK ROAD UNAVAILABLE")
 
     def _position_available(self, now):
@@ -873,10 +876,14 @@ class CrosswalkTask:
 
     def update(
         self, observation, motion, now, active=False, zero_ack=False,
-        lamp_on=False, road_ready=False,
+        lamp_on=False, road_ready=False, *, road_available=None,
     ):
         self._update(observation, motion, now, active, zero_ack, lamp_on, road_ready)
-        self._resolve_uncertainty(now, active, zero_ack, lamp_on, road_ready)
+        # Current observation is required for some stop-proof decisions, while
+        # a valid predicted road can still carry the approach. Genuine road
+        # loss releases recovery/search instead of blocking it indefinitely.
+        self._resolve_uncertainty(now, active, zero_ack, lamp_on,
+            road_ready if road_available is None else bool(road_available))
         return self.snapshot(now)
 
     def _update(

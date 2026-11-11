@@ -29,7 +29,7 @@ class RuntimeSettingsTests(unittest.TestCase):
                 settings.straight_cruise_pwm,
                 settings.pwm_boost,
             ),
-            (135.0, 155.0, 163.0, 37),
+            (145.0, 163.0, 163.0, 37),
         )
         self.assertEqual(settings.runtime["race"]["finish_distance_m"], 0.4)
         self.assertEqual(settings.motor_rise_pwm_s, 400)

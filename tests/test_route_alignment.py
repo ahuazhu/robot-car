@@ -150,8 +150,13 @@ class RouteAlignmentTests(unittest.TestCase):
         model.update(None,1.,stationary=False)
         self.assertEqual(model.observation_agreement,agreement)
         for i in range(4):model.update(measurement(new,.95),1.1+i*.1,stationary=False)
-        self.assertEqual(model.observation_agreement,1.)
+        self.assertLessEqual(model.observation_agreement,agreement+1e-9)
         np.testing.assert_array_equal(model.path,new)
+        # Geometry adoption retains the disagreement. Independent consistent
+        # observations restore trust, instead of one reset making it perfect.
+        for i in range(8):model.update(measurement(new,.95),1.5+i*.1,stationary=False)
+        self.assertGreater(model.observation_agreement,.9)
+        self.assertLess(model.observation_agreement,1.)
 
 
 if __name__=='__main__':unittest.main()

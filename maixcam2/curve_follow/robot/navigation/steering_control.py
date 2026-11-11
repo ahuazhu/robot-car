@@ -246,7 +246,9 @@ class SteeringControl:
             envelope_unverified=envelope['speed_scale']<1.,
             measured_motion=bool(self.status.get('motion_measured',False)),
             motion_source=self.status.get('motion_source'))
-        return command if lease>0 and any(command) else None
+        # A speed-controller brake is still a valid road-following decision.
+        # Discarding its zero would falsely authorize a visual search turn.
+        return command if not any(command) or lease>0 else None
 
     def command(self, result, age_s=0.0, *, lookahead_m=None, alternatives=True,
                 speed_profile_allowed=True):
