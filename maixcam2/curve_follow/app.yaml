@@ -1,7 +1,7 @@
 id: robot_curve_follow
 name: AAA
 name[zh]: AAA
-version: 0.6.96
+version: 0.6.97
 icon: ''
 author: robot-car
 desc: Quadratic centerline tracking, ESP32 authenticated start signal, brake light and crosswalk yielding

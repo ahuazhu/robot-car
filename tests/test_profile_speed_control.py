@@ -35,7 +35,7 @@ class ProfileControlTests(unittest.TestCase):
         self.assertIsNotNone(active)
         self.assertEqual(active.limits.deceleration_m_s2, .2)
         self.assertEqual(active.limits.maximum_m_s, .3)
-        self.assertEqual(active.high_confidence_gain, 1.5)
+        self.assertEqual(active.high_confidence_gain, 2.)
         self.assertIsNone(ProfileSpeedControl.from_settings(replace(settings,
             runtime=dict(settings.runtime, speed_profile={'mode':'LEGACY'}))))
         for config in ({'mode':'ACTVE'}, {'mode':'ACTIVE','maximum_m_s':.4},
@@ -159,7 +159,8 @@ class ProfileControlTests(unittest.TestCase):
     def test_feedback_converges_with_camera_lag_and_motor_deadzone(self):
         for dt, acceleration, rise, tracking_gain in (
             (dt, acceleration, rise, tracking_gain) for dt in (.15, .22, .28)
-            for acceleration, rise, tracking_gain in ((.3,180,1.),(.4,240,1.),(.4,240,1.5))
+            for acceleration, rise, tracking_gain in (
+                (.3,180,1.),(.4,240,1.),(.4,240,1.5),(.4,320,2.))
         ):
             self.control = ProfileSpeedControl(
                 replace(self.limits, acceleration_m_s2=acceleration), 163, .4,

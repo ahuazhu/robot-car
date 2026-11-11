@@ -101,3 +101,5 @@ OPENBLAS_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1 \
 `/status` 提供运行和启动状态，`/vision` 原子发布完整当前帧、任务、道路证据及 `profile_ms`；任务快照每帧采集一次，在状态、日志和绘图之间复用。`/status` 的性能快照截止控制发布时，完整绘图与日志耗时见 `/vision`。`control_pipeline` 已包含算法子阶段，不能重复求和；`frame_period` 还包含帧间等待。预览原图、叠加图、地面投影分别用于检查可见性、识别与几何。
 
 设备日志：`/tmp/robot_curve_follow.log`；桌面启动失败日志：`/maixapp/tmp/last_run.log`。本地设备配置、原始录像和部署证据仅放 `.maixpy/`，不入库。清理前副本在 `.maixpy/cleanup-20261103/before.tar.gz`；源码提交不代表设备已更新，应通过 `/vision` 的 `app_version` 核对实际部署版本。
+
+v0.6.97将`speed_profile.high_confidence_gain`从1.5提高到2.0，合格高置信直路的参考加速由0.60提高到0.80m/s²，正速度差补油也提高约33%；`motor_rise_pwm_s`从240提高到320，使起步和出弯恢复更快。当前测定的最高速度0.30m/s及PWM200继续作为上限，曲率/视距制动约束、横道任务和弱路径恢复档仍生效。本次不扩大高速资格范围。见[参数与验证](../../docs/更积极加速-20261111.md)。
