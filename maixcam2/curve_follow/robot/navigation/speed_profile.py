@@ -41,7 +41,7 @@ class SpeedProfile:
 
 def plan_speed_profile(stations_m, curvature_m_inv, limits, *, stop_at_m=None,
                        distance_margin_m=0.0, initial_speed_m_s=None, centerline_confidence=1.,
-                       clearance_limit_m_s=None):
+                       clearance_limit_m_s=None, exact_curvature_required=True):
     """Plan a forward-only sampled envelope with an explicit zero-speed end.
 
     Each sample is bounded by lateral acceleration and nominal differential
@@ -59,6 +59,11 @@ def plan_speed_profile(stations_m, curvature_m_inv, limits, *, stop_at_m=None,
     initial_speed_m_s optionally fixes a reachable starting speed. If it is
     above the entry envelope, initial_overspeed reports infeasibility instead
     of pretending the vehicle can instantly decelerate to the planned value.
+
+    Exact pure pursuit cannot follow curvature beyond the forward-wheel cone.
+    DWPP may instead select a bounded approximate arc, subsequently checked by
+    the caller's body sweep; it disables only this exact-curvature feasibility
+    constraint. All distance, confidence and braking limits remain in force.
     """
     s = tuple(float(v) for v in stations_m)
     k = tuple(float(v) for v in curvature_m_inv)
@@ -97,7 +102,7 @@ def plan_speed_profile(stations_m, curvature_m_inv, limits, *, stop_at_m=None,
                    (confidence_limit,'CENTERLINE_CONFIDENCE')]
         if clearance_limit_m_s is not None:
             choices.append((clearance_limit_m_s,'BODY_CLEARANCE'))
-        if load > 1.0:
+        if exact_curvature_required and load > 1.0:
             # Forward-only tracking cannot ask the inside wheel to reverse.
             choices.append((0.0, "FORWARD_KINEMATICS"))
         cap, reason = min(choices, key=lambda item: item[0])

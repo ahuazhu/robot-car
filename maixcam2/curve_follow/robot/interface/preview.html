@@ -335,7 +335,6 @@ function updateFieldSummary(s,fresh){
   title=s.reason==='FINISH DISTANCE'?'完赛冲线中':s.reason==='WAIT START LIGHT'?(lamp.permission?'已收到发车信号':'准备等灯中'):'行驶中';
   if(['ROAD SEARCH SCANNING','ROAD SEARCH SETTLING','ROAD SEARCH RETRY_WAIT','REACQUIRING ROAD','VISION WAIT','ROAD SEARCH','ROAD NOT FOUND'].includes(s.reason))title='寻路恢复中';
   if(s.reason==='CAUTIOUS FOLLOW')title='低速巡线中';
-  if(s.reason==='ROAD SEARCH ALIGNING')title='正在对正中线';
   const c=d.crosswalk||{};if(['STOPPING','HOLD','RECOVERY_HOLD'].includes(c.phase))title=c.phase==='STOPPING'?'横道刹停中':c.phase==='RECOVERY_HOLD'?'横道停位待核实':'横道停车礼让';
   if(c.phase==='RECOVERY_PASSING')title='横道低速恢复中';
   detail=lamp.permission?'发车许可已确认，本轮独立巡线。':'小车正在执行本轮任务。';

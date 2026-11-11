@@ -311,7 +311,7 @@ class LocalRoadModel:
             prior, support = self.support(now)
             if self.persistent_history and prior is not None:
                 if agreement is not None:
-                    self.observation_agreement=innovation_likelihood(
+                    likelihood=innovation_likelihood(
                         agreement['distance_m'],agreement['heading_cos'],p.association_distance_m)
                 else:
                     distance,position= support_projection(candidate,prior)
@@ -320,7 +320,11 @@ class LocalRoadModel:
                     old_tangent,_=differential(prior)
                     new_tangent,_=differential(candidate)
                     heading=float(old_tangent[old_index]@new_tangent[nearest])
-                    self.observation_agreement=innovation_likelihood(float(distance[nearest]),heading,p.association_distance_m)
+                    likelihood=innovation_likelihood(float(distance[nearest]),heading,p.association_distance_m)
+                # A conflicting candidate is counterevidence, not accepted
+                # support for the road still being followed. Only an accepted
+                # observation may restore trust through accept_agreement().
+                self.observation_agreement=min(self.observation_agreement,likelihood)
             event["prior_path"] = None if prior is None else prior.tolist()
             # A small current patch inside a valid road is a partial update,
             # not a disconnected replacement. Short samples must not force the
@@ -518,6 +522,7 @@ class LocalRoadModel:
             age_s=float(age[ids].max()),
             blind_distance_m=float(self.travel[ids].max()),
             sigma_m=float(sigma[ids].max()),
+            sigma_profile=sigma[ids].tolist(),
             confidence=float(q[ids].min()),
             confidence_profile=q[ids].tolist(),
             length_m=float(arc(path)[-1]),

@@ -82,6 +82,21 @@ class SpeedProfileTests(unittest.TestCase):
         self.assertEqual(blocked.entry_limit_m_s, 0)
         self.assertEqual(blocked.entry_reason, "FORWARD_KINEMATICS")
 
+    def test_constrained_turn_selection_keeps_other_physical_limits(self):
+        for curvature in (-8.,8.):
+            plan=plan_speed_profile([0,.5,1],[curvature]*3,LIMITS,
+                                    exact_curvature_required=False)
+            self.assertGreater(plan.entry_limit_m_s,0.)
+            self.assertLessEqual(plan.entry_limit_m_s*(1+.15*abs(curvature)),.30)
+            for kwargs in ({'stop_at_m':0.}, {'distance_margin_m':1.},
+                           {'clearance_limit_m_s':0.}):
+                stopped=plan_speed_profile([0,.5,1],[curvature]*3,LIMITS,
+                    exact_curvature_required=False,**kwargs)
+                self.assertEqual(stopped.entry_limit_m_s,0.)
+            cautious=plan_speed_profile([0,.5,1],[curvature]*3,LIMITS,
+                exact_curvature_required=False,centerline_confidence=.08)
+            self.assertAlmostEqual(cautious.entry_limit_m_s,.03)
+
     def test_stop_inserted_exactly_and_margin_not_added_as_extra_travel(self):
         plan = plan_speed_profile([0, 0.3, 0.6, 1], [0] * 4, LIMITS,
                                   stop_at_m=0.415, distance_margin_m=0.015)

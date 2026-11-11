@@ -229,7 +229,7 @@ class ProfileControlTests(unittest.TestCase):
             self.assertAlmostEqual(wheels[0],wheels[1]*100/130,delta=1.)
         self.assertEqual(ceilings,sorted(ceilings,reverse=True))
         self.assertEqual(peaks,sorted(peaks,reverse=True))
-        self.assertEqual(peaks[-1],16)
+        self.assertAlmostEqual(peaks[-1],16.3)
 
     def test_confidence_recovery_accelerates_without_enabling_low_confidence_boost(self):
         self.control=ProfileSpeedControl(self.limits,163,.4,high_confidence_gain=2.)
@@ -265,7 +265,7 @@ class ProfileControlTests(unittest.TestCase):
             self.assertLessEqual(self.control.status['target_speed_m_s'],.1)
             self.step(speed=None,clearance_limit_m_s=.1)
             wheels=self.control.limit_fallback((100,130))
-            self.assertLessEqual(max(wheels),round(163*.1/.3))
+            self.assertLessEqual(max(wheels),163*.1/.3+1e-9)
 
     def test_finish_priority_keeps_crawl_when_already_touching_boundary(self):
         target=dict(self.target,road_model=dict(persistent_history=True))
@@ -314,7 +314,7 @@ class ProfileControlTests(unittest.TestCase):
                 self.assertLessEqual(self.control.status['target_speed_m_s'],.1)
             else:
                 # A single common cap, rather than cap followed by another .5.
-                self.assertEqual(max(command),54)
+                self.assertAlmostEqual(max(command),163*.1/.3)
 
     def test_handoff_planning_uses_the_stricter_clearance_of_both_routes(self):
         from unittest.mock import patch

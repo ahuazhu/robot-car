@@ -42,10 +42,13 @@ class CrosswalkRouteControlTests(unittest.TestCase):
         result=copy.deepcopy(FIXTURE['recovered'][0]['result'])
         result['age_s']=0.;result['road_model']['model_age_s']=.5
         search=self.search(10.)
+        self.assertFalse(search.scan._fresh_follow(result,(20,30)))
         command=search.command(result,(20,30),dict(valid=False),10.,
                                active=True,allowed=True,stopped=True)
-        self.assertNotEqual(command,(20,30))
-        self.assertIsNotNone(search.scan.began)
+        # Historical geometry may still carry a fresh, confidence-constrained
+        # control command. Its acceptance must not relabel the observation fresh.
+        self.assertEqual(command,(20,30))
+        self.assertIsNone(search.scan.began)
 
     def test_accepted_path_brake_cancels_scan_instead_of_rotating(self):
         speed=ProfileSpeedControl(SpeedLimits(.3,.15,.4,.2,.35,.15),163,.4,controller='DWPP')

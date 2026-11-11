@@ -84,8 +84,12 @@ class ProfileSpeedControl:
         self.dwpp_state = None
         self.dwpp_proposal = None
 
-    def applied(self, now, wheels):
+    def applied(self, now, wheels, *, delivered_wheels=None):
         self.applied_at = float(now)
+        self.status.pop('applied_curvature_m_inv',None)
+        # Keep feedback effort in the pre-boost PWM domain. The final integer
+        # wire command supplies its direction/ratio only: a +37 starting boost
+        # is not 37 additional units of this regulator's integrated effort.
         self.applied_mean = max(0., sum(wheels) / 2.)
         if self.controller=='DWPP':
             proposal=self.dwpp_proposal
@@ -98,7 +102,14 @@ class ProfileSpeedControl:
                 if (0<scale<=1.02 and max(abs(a-scale*b) for a,b in zip(wheels,requested))<=1.5):
                     # Command-domain estimate after the shared motor ramp or
                     # task scaling. It is not measured wheel/body velocity.
-                    self.dwpp_state=(float(now),v*min(1.,scale),w*min(1.,scale))
+                    delivered = wheels if delivered_wheels is None else delivered_wheels
+                    total = sum(delivered)
+                    if total > 0 and min(delivered) >= 0:
+                        curvature = ((delivered[1]-delivered[0]) /
+                                     (self.limits.turn_lever_m*total))
+                        linear = v*min(1.,scale)
+                        self.dwpp_state=(float(now),linear,linear*curvature)
+                        self.status['applied_curvature_m_inv']=curvature
         if not any(wheels):
             self.reference = self.updated_at = None
 
@@ -120,7 +131,7 @@ class ProfileSpeedControl:
         requested,v,w=self.dwpp_proposal
         if v<=ceiling:return command
         scale=max(0.,ceiling/v)
-        wheels=tuple(round(x*scale) for x in command)
+        wheels=tuple(x*scale for x in command)
         self.reference=v*scale
         self.dwpp_proposal=(wheels,v*scale,w*scale)
         self.status.update(reason='BODY_CLEARANCE',ceiling_m_s=ceiling,
@@ -136,7 +147,7 @@ class ProfileSpeedControl:
         peak=max(abs(v) for v in command)
         ceiling=self.maximum_effort*self.confidence_status['envelope_speed_factor']
         scale=min(1.,ceiling/peak) if peak else 0.
-        return tuple(round(v*scale) for v in command)
+        return tuple(v*scale for v in command)
 
     def command(self, target, path, now, measured_speed, curvature, sigma, front_margin,
                 eligible, high_confidence=False, *, clearance_limit_m_s=None,
@@ -193,9 +204,11 @@ class ProfileSpeedControl:
             initial_speed_m_s=max(0., measured_speed),
             centerline_confidence=confidence,
             clearance_limit_m_s=clearance_limit_m_s,
+            exact_curvature_required=self.controller!='DWPP',
         )
         ratio = self.limits.turn_lever_m * curvature
-        if abs(ratio) >= 1 or plan.entry_limit_m_s <= 0:
+        if ((self.controller!='DWPP' and abs(ratio) >= 1)
+                or plan.entry_limit_m_s <= 0):
             return self.fallback('FORWARD_PURSUIT_NOT_FEASIBLE')
         # Use the supported-segment entry envelope as an upper bound now. The
         # unseen distance to its first point grants NO extra braking distance;
@@ -254,7 +267,7 @@ class ProfileSpeedControl:
                           actual + gain * (reference - measured_speed) * dt))
         if measured_speed > ceiling and actual > 0:
             mean = min(mean, actual * ceiling / measured_speed)
-        wheels = (round(mean * (1 - ratio)), round(mean * (1 + ratio)))
+        wheels = (mean * (1 - ratio), mean * (1 + ratio))
         self.reference, self.updated_at = reference, now
         self.status = dict(
             mode='ACTIVE',controller=self.controller,selected=True,reason=plan.entry_reason,

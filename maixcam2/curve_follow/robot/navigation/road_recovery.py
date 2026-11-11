@@ -22,6 +22,7 @@ from robot.core.geometry import (
     differential,
 )
 from robot.core.ground_motion import apply_ground_motion
+from robot.core.route_confidence import confidence_speed_factor
 from robot.navigation.visual_scan import BoundedVisualScan
 
 
@@ -85,7 +86,6 @@ class RoadSearch:
         self.leg = 0
         self.targets = []
         self.last_action = False
-        self.aligning = False
         self.awaiting_rest = False
         self._map_proposal = None
         self.finished = False
@@ -331,7 +331,7 @@ class RoadSearch:
         )
         if cautious and follow is not None and any(follow):
             scale = min(1.0, self.cruise / max(abs(value) for value in follow))
-            follow = tuple(round(value * scale) for value in follow)
+            follow = tuple(value * scale for value in follow)
             self.status = dict(
                 phase="CAUTIOUS", reason="RECOVERED PATH" if recovering else "LOW CONFIDENCE PATH",
                 search_pending=True, lease_s=None,
@@ -346,11 +346,17 @@ class RoadSearch:
             return follow
         if (self.finish_priority and result.get('valid')
                 and result.get('speed_limit_source')=='CENTERLINE_CONFIDENCE'
-                and follow is not None and not any(follow)
+                and follow is not None
                 and result.get('invalid_reason')!='BODY ENVELOPE BLOCKED'):
-            # The accepted path controller is braking, not reporting road loss.
-            # A scan must yield to that decision even after a previous pulse.
+            # The accepted path controller owns its constrained motion, whether
+            # braking or crawling. A recovery turn cannot replace that envelope.
             return self._follow(result,follow)
+        effort_scale=1.
+        if self.finish_priority:
+            confidence=result.get('control_confidence')
+            if confidence is None:confidence=result.get('confidence',0.)
+            try:effort_scale=confidence_speed_factor(float(confidence))
+            except (TypeError,ValueError):effort_scale=confidence_speed_factor(0.)
         alignment=result.get("route_alignment") or {}
         heading=alignment.get("heading_rad")
         distance=alignment.get("distance_m")
@@ -358,19 +364,11 @@ class RoadSearch:
             and isinstance(heading,(int,float)) and math.isfinite(heading)
             and isinstance(distance,(int,float)) and math.isfinite(distance)
             and 0 <= distance <= self.policy.maximum_target_m)
-        if directional and abs(heading) > math.radians(20 if self.aligning else 70):
-            # A known route supplies a signed heading error. Rotate to reduce
-            # that error, rather than alternating blind search directions.
-            # Fresh frames renew a short rotation lease; tasks/STOP still win.
-            self.scan.reset();self.began=None;self.aligning=True;self.last_action=True
-            effort=min(float(self.cruise),60.)
-            turn=math.copysign(effort,heading)
-            self.status=dict(phase="ALIGNING",reason="ALIGN TO PREDICTED CENTERLINE",
-                search_pending=True,lease_s=.15,heading_error_rad=heading,
-                route_distance_m=distance,space_source="ROUTE_HEADING",space_verified=False)
-            return (round(-turn),round(turn))
-        if self.aligning:
-            self.reset()
+        if directional and follow is None and abs(heading)>math.radians(20):
+            # A retained heading is an observation hint, not a separate motor
+            # authority. Use the same bounded pulse/rest scan as every other
+            # recovery instead of renewing an unlimited in-place rotation.
+            self.last_hint=math.copysign(1.,heading)
         if self.scan.began is not None:
             if (
                 self.finish_priority and follow is not None and any(follow)
@@ -386,7 +384,8 @@ class RoadSearch:
                 # still applies task limits and the original prediction lease.
                 return self._follow(result, follow, recovering=True)
             command = self.scan.command(
-                result, follow, motion, now, allowed=allowed, stopped=stopped, hint=self.last_hint
+                result, follow, motion, now, allowed=allowed, stopped=stopped, hint=self.last_hint,
+                effort_scale=effort_scale,
             )
             if self.scan.began is None:
                 return self._follow(result, command, recovering=True)
@@ -401,11 +400,11 @@ class RoadSearch:
             return None
         if self.finished:
             if self.finish_priority and self.allow_visual_scan:
-                return self.scan.start(motion, now, stopped, self.last_hint)
+                return self.scan.start(motion, now, stopped, self.last_hint,effort_scale=effort_scale)
             return None
         if self.allow_visual_scan and result.get("invalid_reason") == "BODY ENVELOPE BLOCKED":
             if self.finish_priority:
-                return self.scan.start(motion, now, stopped, self.last_hint)
+                return self.scan.start(motion, now, stopped, self.last_hint,effort_scale=effort_scale)
             self.status = dict(
                 phase="WAIT_EVIDENCE",
                 reason="BODY ENVELOPE BLOCKED",
@@ -423,7 +422,7 @@ class RoadSearch:
         valid = bool(motion and motion.get("valid"))
         if not valid:
             if self.allow_visual_scan:
-                return self.scan.start(motion, now, stopped, self.last_hint)
+                return self.scan.start(motion, now, stopped, self.last_hint,effort_scale=effort_scale)
             self.status = dict(
                 phase="WAIT_EVIDENCE",
                 reason="GROUND MOTION UNVERIFIED",
@@ -433,7 +432,7 @@ class RoadSearch:
             return None
         if not self.swept_clear(0.0):
             if self.allow_visual_scan:
-                return self.scan.start(motion, now, stopped, self.last_hint)
+                return self.scan.start(motion, now, stopped, self.last_hint,effort_scale=effort_scale)
             self.status = dict(
                 phase="WAIT_EVIDENCE",
                 reason="BODY POSE CLEARANCE UNVERIFIED",
@@ -449,7 +448,7 @@ class RoadSearch:
         )
         if self.began is None and not resting:
             if self.finish_priority and self.allow_visual_scan:
-                return self.scan.start(motion, now, stopped, self.last_hint)
+                return self.scan.start(motion, now, stopped, self.last_hint,effort_scale=effort_scale)
             self.status = dict(
                 phase="SETTLING", reason="WAIT FOR MEASURED REST", search_pending=True, lease_s=None
             )
@@ -474,7 +473,7 @@ class RoadSearch:
             if not goals:
                 self.began = None
                 if self.allow_visual_scan:
-                    return self.scan.start(motion, now, stopped, self.last_hint)
+                    return self.scan.start(motion, now, stopped, self.last_hint,effort_scale=effort_scale)
                 self.status = dict(
                     phase="WAIT_EVIDENCE",
                     reason="NO OBSERVABLE SAFE YAW STEP",
@@ -521,7 +520,7 @@ class RoadSearch:
             or not self.swept_clear(remaining)
         ):
             if self.allow_visual_scan:
-                return self.scan.start(motion, now, stopped, self.last_hint)
+                return self.scan.start(motion, now, stopped, self.last_hint,effort_scale=effort_scale)
             self.status = dict(
                 phase="WAIT_EVIDENCE",
                 reason="ROTATION SWEEP NOT INSIDE KNOWN ROAD",
@@ -557,7 +556,7 @@ class RoadSearch:
             return (0, 0)
         if not resting:
             return (0, 0)
-        effort = self.cruise / 2 * min(1.0, abs(remaining) / self.limits.maximum_yaw_rad)
+        effort = self.cruise / 2 * min(1.0, abs(remaining) / self.limits.maximum_yaw_rad)*effort_scale
         effort = max(self.cruise / 6, effort)
         direction = math.copysign(1.0, remaining)
         self.last_action = True

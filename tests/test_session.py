@@ -644,22 +644,39 @@ class DrivingSessionTests(unittest.TestCase):
         self.clock.now+=.1;s.update(self.frame(s),('stop',))
         self.assertFalse(s.active);self.assertEqual(s.pwm,(0,0))
 
-    def test_route_alignment_reaches_motor_as_leased_pure_rotation(self):
-        for phase in ('ALIGNING',):
-            s=self.session(finish_priority=True);self.start(s);self.clock.now+=.1
+    def test_route_heading_uses_bounded_recovery_then_yields_to_constrained_follow(self):
+        s=self.session(finish_priority=True);self.start(s)
+        before=len(s.link.calls)
+        for _ in range(20):
+            self.clock.now+=.1
             frame=self.frame(s)
-            frame.result.update(valid=False,observed=False,state='LOST',
+            frame.result.update(valid=False,observed=False,state='LOST',confidence=.01,
                 route_alignment=dict(heading_rad=np.pi/2,distance_m=.1),
                 road_model=dict(persistent_history=True))
             frame.follow_command=None
             frame.command=s.search.command(frame.result,None,frame.details['ground_motion'],
-                self.clock.now,active=True,allowed=True)
-            self.assertEqual(s.search.snapshot()['phase'],phase)
+                self.clock.now,active=True,allowed=True,stopped=frame.zero_ack)
             s.update(frame)
-            self.assertEqual(s.link.calls[-1][1:3],(-97,97))
-            self.assertEqual(s.link.calls[-1][3],.15)
-            self.clock.now+=.1;s.update(self.frame(s),('stop',))
-            self.assertFalse(s.active);self.assertEqual(s.pwm,(0,0))
+        pulses=[call for call in s.link.calls[before:] if call[0]==2 and any(call[1:3])]
+        self.assertTrue(pulses)
+        self.assertTrue(all(call[1]+call[2]==0 and call[3]==.12 for call in pulses))
+        self.assertLess(max(abs(v) for call in pulses for v in call[1:3]),97)
+        self.clock.now+=.1
+        frame=self.frame(s)
+        frame.result.update(valid=True,observed=False,state='PREDICTED',confidence=.01,
+            route_alignment=dict(heading_rad=np.pi/2,distance_m=.1),
+            road_model=dict(persistent_history=True),
+            speed_limit_source='CENTERLINE_CONFIDENCE',control_confidence=.01)
+        frame.follow_command=(2,5)
+        frame.command=s.search.command(frame.result,frame.follow_command,frame.details['ground_motion'],
+            self.clock.now,active=True,allowed=True,stopped=frame.zero_ack)
+        self.assertEqual(frame.command,frame.follow_command)
+        self.assertFalse(s.search.is_turning())
+        s.update(frame)
+        self.assertGreater(sum(s.pwm),0)
+        self.assertGreaterEqual(min(s.pwm),0)
+        self.clock.now+=.1;s.update(self.frame(s),('stop',))
+        self.assertFalse(s.active);self.assertEqual(s.pwm,(0,0))
 
     def test_confirmed_finish_stops_an_active_session_and_does_not_restart(self):
         s = self.session()

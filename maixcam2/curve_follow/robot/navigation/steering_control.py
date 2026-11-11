@@ -81,9 +81,13 @@ class SteeringControl:
         self.filtered_lookahead = None
         self.lookahead_at = None
 
-    def applied(self, now, wheels):
+    def applied(self, now, wheels, *, delivered_wheels=None):
         if self.speed_control is not None:
-            self.speed_control.applied(now, wheels)
+            self.speed_control.applied(now, wheels, delivered_wheels=delivered_wheels)
+        # Feedback describes the command actually sent after boost/quantization.
+        # The speed regulator separately retains its logical effort units.
+        if delivered_wheels is not None:
+            wheels = delivered_wheels
         moving = max(abs(v) for v in wheels) > 0
         saturated = min(wheels) <= 0 and moving
         expected=self.requested
@@ -91,7 +95,7 @@ class SteeringControl:
         if (plan.get('controller')=='DWPP' and plan.get('selected')
                 and plan.get('effective_curvature_m_inv') is not None):
             # Deliberate dynamic-window turn limiting is not drivetrain bias.
-            expected=plan['effective_curvature_m_inv']-self.trim
+            expected=plan.get('applied_curvature_m_inv',plan['effective_curvature_m_inv'])-self.trim
         self.commands.append((now, expected, moving, saturated, tuple(wheels)))
         self.commands = self.commands[-128:]
 
@@ -212,6 +216,34 @@ class SteeringControl:
             self.speed_observed_at = now
         return max(0.0, now-self.speed_ready_since)
 
+    def _forward_span(self, path, selected, positions):
+        anchor = nearest_forward_point(path, self.policy.forward_min_m)
+        if anchor is None:
+            return None
+        front = self.body[0] if self.body is not None else self.width
+        end = max(selected["position_m"] + front, anchor[1] + self.width + front)
+        first = max(0, int(np.searchsorted(positions, anchor[1])) - 1)
+        last = min(len(path), int(np.searchsorted(positions, end, side="right")) + 1)
+        return slice(first, last)
+
+    def _forward_uncertainty(self, result, path, selected, positions):
+        """Use uncertainty where the controller will drive, retaining old tails.
+
+        A pointwise profile stays attached to the same transported road samples.
+        Without that evidence, preserve the conservative scalar fallback.
+        """
+        fallback = float((result.get("road_model") or {}).get("sigma_m")
+                         or self.policy.observation_sigma_m)
+        try:
+            profile = np.asarray(result.get("path_sigma_m", []), float)
+        except (ValueError, TypeError):
+            return fallback, None
+        span = self._forward_span(path, selected, positions)
+        if (profile.shape != (len(path),) or not np.isfinite(profile).all()
+                or np.any(profile < 0) or span is None):
+            return fallback, None
+        return float(profile[span].max()), profile
+
     def _forward_quality(self, result, path, selected, positions):
         """Keep low quality inside the driven prefix; ignore unrelated tails.
 
@@ -228,14 +260,10 @@ class SteeringControl:
                 or not (0 < original <= 1) or np.any(profile <= 0) or np.any(profile > 1)
                 or abs(float(profile.min())-original) > 1e-6):
             return original, "GLOBAL"
-        anchor = nearest_forward_point(path, self.policy.forward_min_m)
-        if anchor is None:
+        span = self._forward_span(path, selected, positions)
+        if span is None:
             return original, "GLOBAL"
-        front = self.body[0]
-        end = max(selected["position_m"]+front, anchor[1]+self.width+front)
-        first = max(0, int(np.searchsorted(positions, anchor[1]))-1)
-        last = min(len(path), int(np.searchsorted(positions, end, side="right"))+1)
-        quality = float(profile[first:last].min())
+        quality = float(profile[span].min())
         return quality, "FORWARD_PROFILE"
 
     def _history_output(self, command, age_s, sigma, length, envelope):
@@ -379,8 +407,12 @@ class SteeringControl:
         if not math.isfinite(target_scale):
             return None
         scale = max(0.0, min(1.0, target_scale))
-        support_sigma = float(
-            (result.get("road_model") or {}).get("sigma_m") or self.policy.observation_sigma_m
+        support_sigma, sigma_profile = self._forward_uncertainty(result, path, selected, positions)
+        footprint_sigma = (sigma_profile + prediction_sigma
+                           if sigma_profile is not None and observed.shape == path.shape else None)
+        self.status["support_uncertainty"] = dict(
+            scope="FORWARD_PROFILE" if sigma_profile is not None else "GLOBAL",
+            sigma_m=support_sigma, prediction_sigma_m=prediction_sigma,
         )
         envelope = self.envelope(
             path,
@@ -391,6 +423,7 @@ class SteeringControl:
             speed_m_s=self.status.get("speed_upper_m_s"),
             sensor_transform=transform,
             lookahead_m=lookahead,
+            support_sigma_m=footprint_sigma,
         )
         scale = min(scale, envelope["speed_scale"])
         clearance_limit = envelope.get('speed_limit_m_s')
@@ -459,8 +492,11 @@ class SteeringControl:
             measured_standstill=bool(self.status.get('motion_measured')
                 and abs(self.status.get('body_speed_m_s',1.))<=.006
                 and abs(self.status.get('body_yaw_rad_s',1.))<=.025)
+            planning_target = dict(result, control_confidence=control_confidence)
+            if sigma_profile is not None:
+                planning_target["reference_sigma_m"] = support_sigma
             planned = self.speed_control.command(
-                dict(result,control_confidence=control_confidence), path, self.observed_at + age_s,
+                planning_target, path, self.observed_at + age_s,
                 self.status.get('body_speed_m_s'), self.requested + self.trim,
                 support_sigma + prediction_sigma, self.body[0] if self.body else self.width,
                 eligible=(speed_profile_allowed and target_scale == 1.
@@ -487,7 +523,7 @@ class SteeringControl:
                     actual=self.envelope(path,plan['effective_curvature_m_inv'],
                         support_sigma+prediction_sigma,self.width,observed_path=observed,
                         speed_m_s=self.status.get('speed_upper_m_s'),sensor_transform=transform,
-                        lookahead_m=lookahead)
+                        lookahead_m=lookahead,support_sigma_m=footprint_sigma)
                     self.status['dwpp_envelope']=actual
                     limits=[actual.get('speed_limit_m_s')]
                     if result.get('history_continuity_evidence') is not None:
@@ -577,7 +613,7 @@ class SteeringControl:
             envelope=envelope, target_selection="ADAPTIVE_PURSUIT", target_speed_scale=target_scale
         )
         if persistent_recovery:
-            output=tuple(round(v*scale) for v in command)
+            output=tuple(v*scale for v in command)
             return self._history_output(output,age_s,support_sigma+prediction_sigma,positions[-1],envelope)
         if result.get("state") == "PREDICTED" or result.get("transition_pending"):
             # Short dropouts and pending handoffs share the same physical
@@ -612,7 +648,7 @@ class SteeringControl:
             if lease <= 0:
                 return None
             scale = min(scale, prediction_scale)
-        output = tuple(round(v * scale) for v in command) if scale > 0 else None
+        output = tuple(v * scale for v in command) if scale > 0 else None
         if output is not None and any(output):
             return output
         if alternatives:
@@ -640,6 +676,7 @@ class SteeringControl:
         speed_m_s=None,
         sensor_transform=None,
         lookahead_m=None,
+        support_sigma_m=None,
     ):
         if not self.body or len(path) < 5:
             return dict(speed_scale=1.0, coverage=0.0, state="UNCONFIGURED")
@@ -669,6 +706,10 @@ class SteeringControl:
                 pose[:2] += advance @ np.array([[c, s], [-s, c]])
                 pose[2] += theta
             poses.append(pose.copy())
+            # Pose zero must keep the caller's arc; the final pose has no
+            # following advance. Neither needs another pursuit calculation.
+            if i == 0 or i == len(distances_ahead) - 1:
+                continue
             c, s = math.cos(pose[2]), math.sin(pose[2])
             rotation = np.array([[c, -s], [s, c]])
             relative_path = (path - pose[:2]) @ rotation
@@ -678,7 +719,7 @@ class SteeringControl:
                 self.policy.forward_min_m,
                 self.policy.maximum_target_m,
             )
-            if i and selected is not None:
+            if selected is not None:
                 # The first advance must use the caller's selected curvature.
                 # Recomputing at pose zero would silently replace DWPP's
                 # constrained turn with the ideal pursuit before checking it.
@@ -710,7 +751,17 @@ class SteeringControl:
                 & (uv[:, 1] >= self.roi_top)
                 & (uv[:, 1] < 238)
             )
-        clearance = self.width / 2 - distances - sigma
+        corner_sigma = sigma
+        if support_sigma_m is not None:
+            values = np.asarray(support_sigma_m, float)
+            if (values.shape != (len(support),) or not np.isfinite(values).all()
+                    or np.any(values < 0)):
+                raise ValueError("Invalid pointwise road uncertainty")
+            # A projected corner lies on a segment. Use both endpoints' error
+            # bounds, not the worst sample from an unrelated distant tail.
+            right = np.clip(np.searchsorted(support_arc, positions), 1, len(support) - 1)
+            corner_sigma = np.maximum(values[right - 1], values[right])
+        clearance = self.width / 2 - distances - corner_sigma
         checked = int(known.sum())
         total = len(footprint)
         minimum = float(clearance[known].min()) if checked else float("inf")

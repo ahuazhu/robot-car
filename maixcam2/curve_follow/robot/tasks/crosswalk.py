@@ -555,7 +555,7 @@ class CrosswalkTask:
         if command is None or not any(command):
             return command
         scale = min(1., self.recovery_cruise_pwm / max(abs(v) for v in command))
-        return tuple(round(v * scale) for v in command)
+        return tuple(v * scale for v in command)
 
     def _resolve_uncertainty(self, now, active, zero_ack, lamp_on, road_available):
         # Lack of task evidence never requests a stopped observation period.
@@ -643,7 +643,30 @@ class CrosswalkTask:
             return None
         reference = dict(self.track, event_id=self.identity)
         self._transport_observation(reference, motion, now - self.last_update, False)
+        if self.phase == "PASSING" and self.yield_completed and not self._event_localized(now, reference):
+            return None
         return reference
+
+    def _event_localized(self, now, reference=None):
+        """Geometry proximity alone cannot identify a long-unlocalized event.
+
+        Keep continuity through a short occlusion, consistent partial tracking,
+        or a precise transported pose. A served tombstone with none of those
+        cannot lend its permission (or its three-bar template) to a new visit.
+        """
+        reference = self.track if reference is None else reference
+        if reference is None:
+            return False
+        gap = self.policy.confirmation_gap_s
+        if 0 <= now - reference["observed_at"] <= gap:
+            return True
+        partial = self.tracking_observation
+        if (self.tracking_hits and partial is not None
+                and partial.get("event_id") == self.identity
+                and 0 <= now - partial["observed_at"] <= gap):
+            return True
+        return (self.position_at is not None and self.position_at == self.last_update
+                and reference["sigma_m"] <= self.policy.maximum_position_error_m)
 
     def _confirm_tracking(self, observation, motion, dt, now):
         if self.tracking_observation is not None:
@@ -657,6 +680,10 @@ class CrosswalkTask:
             self.tracking_observation = None
             self.tracking_hits = 0
             return observation
+        if self.phase == "PASSING" and self.yield_completed and not self._event_localized(now):
+            self.tracking_observation = None
+            self.tracking_hits = 0
+            return None
         if (self.track is None or self.hits < self.policy.confirmation_frames
                 or observation.get("event_id") != self.identity
                 or np.dot(self.track["normal"], observation["normal"]) < .98
@@ -910,6 +937,18 @@ class CrosswalkTask:
         if valid_motion and motion.get("speed_m_s") is not None:
             self.last_visual_speed = float(motion["speed_m_s"])
         stationary = self.rest.observe(motion, now, active and zero_ack and lamp_on)
+        if not active and self.phase in ("STOPPING", "HOLD", "RECOVERY_HOLD"):
+            # A motor-fault stop preserves the event, unlike explicit STOP.
+            # Inactive camera updates still observe movement, but cannot prove
+            # a continuous armed/red-light dwell. Do not backfill that interval
+            # after rearming, including the unverified zero-ACK fallback clock.
+            self.stationary_since = self.hold_since = self.physical_rest_since = None
+            self.stop_ack_since = None
+            self.stop_evidence = None
+            self.legal_stop_acquired = False
+            self.stopping_since = self.stop_deadline = None
+            self.hold_completed_s = 0.0
+            self.phase = "STOPPING"
         if valid_motion and self.phase in ("STOPPING", "HOLD", "RECOVERY_HOLD"):
             self._advance_stop_evidence(motion, now, stationary)
         if self.track is not None and dt > 0:
@@ -932,6 +971,12 @@ class CrosswalkTask:
                 self.pending_hits = 0
         if observation is not None and not 0 <= now - observation["observed_at"] <= p.observation_max_age_s:
             observation = None
+        # Judge identity from prior evidence before a full detection clears
+        # the partial-tracking accumulator or refreshes the position estimate.
+        unlocalized_passage = (
+            self.phase == "PASSING" and self.yield_completed
+            and not self._event_localized(now)
+        )
         observation = self._confirm_tracking(observation, motion, dt, now)
         matched = False
         if observation is not None:
@@ -940,7 +985,8 @@ class CrosswalkTask:
                 self.observation_association = "NEW"
             else:
                 matched = (
-                    np.dot(self.track["normal"], observation["normal"]) > 0.94
+                    not unlocalized_passage
+                    and np.dot(self.track["normal"], observation["normal"]) > 0.94
                     and abs(self.track["near_m"] - observation["near_m"]) <= p.association_m
                 )
                 if matched:
@@ -962,7 +1008,8 @@ class CrosswalkTask:
                     (self.phase == "PASSING" and self.yield_completed
                      or self.phase == "RECOVERY_PASSING")
                     and (
-                        now - self.track["observed_at"] > p.observation_max_age_s
+                        unlocalized_passage
+                        or now - self.track["observed_at"] > p.observation_max_age_s
                         or self.track["sigma_m"] > p.maximum_position_error_m
                     )
                 ):
@@ -1331,7 +1378,7 @@ class CrosswalkTask:
         )
         self.speed_update = now
         scale = min(1.0, self.speed_pwm / requested) if requested > 0 else 0.0
-        output = tuple(round(value * scale) for value in command)
+        output = tuple(value * scale for value in command)
         if not any(output) and any(command) and self.finish_priority:
             # Braking for an actual yield is handled by STOPPING above. The
             # approach regulator must not become another zero-output latch.

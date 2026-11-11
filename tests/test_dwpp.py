@@ -2,6 +2,7 @@
 from tests.support import ROOT
 from tests.support.driving import road, flow
 from dataclasses import replace
+import math
 import random
 import unittest
 from unittest.mock import patch
@@ -112,6 +113,69 @@ class ControllerIntegrationTests(unittest.TestCase):
         self.assertEqual(self.control.status['dwpp']['source'],'MEASURED_SEED')
         self.assertEqual(self.control.status['dwpp']['window'],first['dwpp']['window'])
         self.assertIsNone(self.control.dwpp_state)
+
+    def test_crawl_wheel_ratio_survives_ramp_boost_and_seeds_actual_wire_ratio(self):
+        curvature=1.896326537271528
+        for sign in (-1.,1.):
+            self.control.reset();self.control.applied(.8,(4,6))
+            target=dict(self.target,control_confidence=.08)
+            logical=self.step(now=1.,speed=.03,k=sign*curvature,
+                              yaw=sign*.03*curvature,target=target)
+            ramp=CommandRamp(400)
+            applied=ramp.apply(logical,1.)
+            wire=compensate_pwm(applied)
+            proxy=(wire[1]-wire[0])/(.15*sum(wire))
+            self.assertEqual(wire,(24,43) if sign>0 else (43,24))
+            self.assertAlmostEqual(proxy,sign*curvature,delta=.01)
+            self.assertAlmostEqual((logical[1]-logical[0])/(.15*sum(logical)),sign*curvature)
+            self.control.applied(1.01,applied,delivered_wheels=wire)
+            _,v,w=self.control.dwpp_state
+            self.assertAlmostEqual(w/v,proxy)
+            self.assertAlmostEqual(self.control.status['applied_curvature_m_inv'],proxy)
+            # The wire's starting boost must not enter regulator integration.
+            self.assertAlmostEqual(self.control.applied_mean,5.)
+            self.control.applied(1.02,(0,0),delivered_wheels=(0,0))
+            self.assertIsNone(self.control.dwpp_state)
+            self.assertNotIn('applied_curvature_m_inv',self.control.status)
+
+    def test_sharp_pursuit_and_sampled_curve_use_constrained_dwpp_not_legacy_jump(self):
+        for sign in (-1.,1.):
+            for target in (self.target,road(sign*8.,start=0.,end=.20,
+                    reference_sigma_m=.005,road_model=dict(persistent_history=True))):
+                self.control.reset();self.control.applied(.8,(70,70))
+                wheels=self.step(now=1.,speed=.12,k=sign*8.,yaw=0.,target=target)
+                self.assertIsNotNone(wheels)
+                self.assertTrue(self.control.status['selected'])
+                self.assertTrue(any(wheels))
+                _,v,w=self.control.dwpp_proposal
+                self.assertLessEqual(abs(w),.4+1e-9)
+                for velocity in (v-.15*w,v+.15*w):
+                    self.assertGreaterEqual(velocity,-1e-9)
+                    self.assertLessEqual(velocity,.3+1e-9)
+                self.assertLess(abs(self.control.status['effective_curvature_m_inv']),8.)
+        legacy=ProfileSpeedControl(self.limits,163,.4,controller='PURE_PURSUIT')
+        legacy.applied(.8,(70,70))
+        self.assertIsNone(legacy.command(self.target,self.target['control_path_m'],1.,.12,
+            8.,.005,.075,True,measured_yaw_rate=0.))
+
+    def test_steering_checks_actual_arc_for_a_goal_beyond_forward_curvature(self):
+        angle=math.radians(40)
+        stations=np.linspace(-.2,.8,100)
+        path=np.c_[stations*math.cos(angle),stations*math.sin(angle)]
+        target=road(reference_sigma_m=.005,road_model=dict(persistent_history=True),
+                    control_path_m=path,path=path,control_target_m=[.1,0.])
+        steering=SteeringControl(RoadPolicy(),[0.,0.],(.075,.105,.085),.3,
+            gain=1.15,cruise=145,speed_control=self.control)
+        steering.observe(flow(),1.,False);steering.applied(.9,(70,70))
+        with patch.object(steering,'envelope',wraps=steering.envelope) as check:
+            command=steering.command(target,.1)
+        self.assertGreater(steering.requested,1/.15)
+        self.assertTrue(self.control.status['selected'])
+        self.assertGreaterEqual(check.call_count,2)
+        self.assertAlmostEqual(check.call_args_list[-1].args[1],
+                               self.control.status['effective_curvature_m_inv'])
+        self.assertIsNotNone(command)
+        self.assertLessEqual(abs(self.control.status['reference_angular_rad_s']),.4+1e-9)
 
     def test_reacquisition_uses_actual_applied_control_period_for_turn_window(self):
         self.control.applied(.8,(80,80))

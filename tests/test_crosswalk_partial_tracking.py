@@ -122,6 +122,43 @@ class PartialCrosswalkTrackingTests(unittest.TestCase):
             self.assertEqual(len(candidate["observed_corners"]), 12)
             reference = candidate
 
+    def test_short_occlusion_then_continuous_partial_tracking_preserves_served_event(self):
+        task = self.begin()
+        task.phase = "PASSING"
+        task.yield_completed = task.yield_verified = True
+        task.update(None, motion(valid=False), .45, True)
+        identity = task.identity
+        for step in range(1, 8):
+            now = .45 + step * .15
+            reference = task.detection_reference(motion(), now)
+            self.assertIsNotNone(reference)
+            obs = self.detector.detect(self.image(range(1, 4)), self.road, now, reference)
+            self.assertIsNotNone(obs)
+            self.assertTrue(obs["tracking_only"])
+            state = task.update(obs, motion(), now, True, True, True, True)
+            self.assertEqual(task.identity, identity)
+            self.assertEqual(state["phase"], "PASSING")
+            self.assertTrue(state["yield_completed"])
+            self.assertIsNone(state["pending_observation"])
+
+    def test_full_view_after_partial_continuity_does_not_replace_served_event(self):
+        task = self.begin()
+        task.phase = "PASSING"
+        task.yield_completed = task.yield_verified = True
+        task.update(None, motion(valid=False), .45, True)
+        for now in (.60, .75):
+            reference = task.detection_reference(motion(), now)
+            obs = self.detector.detect(self.image(range(1, 4)), self.road, now, reference)
+            self.assertIsNotNone(obs)
+            task.update(obs, motion(), now, True, True, True, True)
+        self.assertEqual(task.tracking_hits, 2)
+        state = task.update(self.full_observation(.90), motion(), .90, True, True, True, True)
+        self.assertEqual(task.identity, 1)
+        self.assertEqual(state["phase"], "PASSING")
+        self.assertEqual(state["observation_association"], "MATCHED")
+        self.assertTrue(state["yield_completed"])
+        self.assertIsNone(state["pending_observation"])
+
     def test_partial_from_another_event_or_without_full_confirmation_cannot_authorize(self):
         task = self.begin()
         obs = self.detector.detect(self.image(range(1, 4)), self.road, .45,

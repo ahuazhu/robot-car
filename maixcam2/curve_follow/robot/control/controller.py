@@ -71,7 +71,10 @@ class CommandRamp:
             (max(previous) + increase) / max(desired),
         )
         self.previous = tuple(float(value) * scale for value in command)
-        return tuple(round(value) for value in self.previous)
+        # Preserve the coupled wheel ratio through task/ramp scaling. The
+        # +PWM starting boost amplifies early integer rounding at crawl speed;
+        # quantize once, after that boost, at the actuator boundary instead.
+        return self.previous
 
 
 def can_enable_drive(calibration, runtime, force_preview=False):
@@ -220,7 +223,7 @@ def target_command(result, turn_lever=0.15, steering_gain=1.0, cruise_pwm=60.0):
     load = min(1.0, turn_lever * steering_gain * max(abs(curvature), abs(path_curvature)))
     base = cruise_pwm * math.sqrt(min(1.0, confidence)) / (1.0 + load)
     turn = base * max(-1.0, min(1.0, ratio))
-    return round(base - turn), round(base + turn)
+    return base - turn, base + turn
 
 
 def motion_from_pwm(pwm, turn_lever=0.15, speed_per_pwm=0.0015):
