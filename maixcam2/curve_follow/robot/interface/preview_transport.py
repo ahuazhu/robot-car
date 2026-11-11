@@ -3,6 +3,7 @@ import cv2
 import time, json
 
 from robot import APP_VERSION
+from robot.core.telemetry import dumps as telemetry_dumps
 from robot.control.requests import ControlRequest
 
 LIVE_HTML = Path(__file__).with_name("preview.html").read_text(encoding="utf-8").replace(
@@ -235,7 +236,7 @@ class LiveStream:
                 pass
 
             def send_json(self, code, value):
-                body = json.dumps(value).encode("utf-8")
+                body = telemetry_dumps(value).encode("utf-8")
                 self.send_response(code)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
