@@ -1,0 +1,477 @@
+{
+  "status": "v0.6.118_field_trial_deployed_stopped_road_test_pending",
+  "baseline_version": "0.6.116",
+  "baseline_sha256": "476236f9c2725ceee0095c74178fdf041b859732e5533ec3a3f4c019fde813b6",
+  "notes": [
+    "短测包含起步、通电和滑行，不能将总行程/通电时间直接作为稳态速度曲线。",
+    "实测与光流分开记录；候选参数仅写入独立FIELD_TRIAL配置，未标为已验证。",
+    "80/50两次原始文件顶层requested_pwm误写80/60；逐帧request与UNO ACK均为80/50。保留原记录，审计按实际ACK取值。"
+  ],
+  "trials": [
+    {
+      "run": "20261112-080004-probe_70",
+      "acknowledged_commands": [
+        [
+          70,
+          70
+        ]
+      ],
+      "declared_command": [
+        70,
+        70
+      ],
+      "metadata_matches_ack": true,
+      "requested_limit_s": 1.0,
+      "reason": "POWER TIME REACHED",
+      "aborted": false,
+      "visual_forward_mm": 137.41898237229722,
+      "visual_yaw_deg": 1.6787211897155576,
+      "confirmed_forward_s": 0.9179280650000692,
+      "final_ack": [
+        35,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "run": "20261112-080123-probe_80_40",
+      "acknowledged_commands": [
+        [
+          80,
+          40
+        ]
+      ],
+      "declared_command": [
+        80,
+        40
+      ],
+      "metadata_matches_ack": true,
+      "requested_limit_s": 0.8,
+      "reason": "POWER TIME REACHED",
+      "aborted": false,
+      "visual_forward_mm": 44.19801148931889,
+      "visual_yaw_deg": -26.4052721833237,
+      "confirmed_forward_s": 0.7169798049999372,
+      "final_ack": [
+        31,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "run": "20261112-080250-probe_80_60",
+      "acknowledged_commands": [
+        [
+          80,
+          60
+        ]
+      ],
+      "declared_command": [
+        80,
+        60
+      ],
+      "metadata_matches_ack": true,
+      "requested_limit_s": 0.8,
+      "reason": "POWER TIME REACHED",
+      "aborted": false,
+      "visual_forward_mm": 86.04669359722216,
+      "visual_yaw_deg": -6.499068971115204,
+      "confirmed_forward_s": 0.7071560530002898,
+      "final_ack": [
+        31,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "run": "20261112-080344-probe_80_60",
+      "acknowledged_commands": [
+        [
+          80,
+          60
+        ]
+      ],
+      "declared_command": [
+        80,
+        60
+      ],
+      "metadata_matches_ack": true,
+      "requested_limit_s": 0.8,
+      "reason": "POWER TIME REACHED",
+      "aborted": false,
+      "visual_forward_mm": 96.03921485180412,
+      "visual_yaw_deg": -6.089538395738837,
+      "confirmed_forward_s": 0.7151066429996717,
+      "final_ack": [
+        34,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "run": "20261112-080559-probe_60_80",
+      "acknowledged_commands": [
+        [
+          60,
+          80
+        ]
+      ],
+      "declared_command": [
+        60,
+        80
+      ],
+      "metadata_matches_ack": true,
+      "requested_limit_s": 0.8,
+      "reason": "POWER TIME REACHED",
+      "aborted": false,
+      "visual_forward_mm": 86.7052693946011,
+      "visual_yaw_deg": 9.708608686419204,
+      "confirmed_forward_s": 0.7137956120000126,
+      "final_ack": [
+        31,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "run": "20261112-080925-probe_80_50",
+      "acknowledged_commands": [
+        [
+          80,
+          50
+        ]
+      ],
+      "declared_command": [
+        80,
+        60
+      ],
+      "metadata_matches_ack": false,
+      "requested_limit_s": 0.8,
+      "reason": "POWER TIME REACHED",
+      "aborted": false,
+      "visual_forward_mm": 65.7809748964176,
+      "visual_yaw_deg": -24.200553718004798,
+      "confirmed_forward_s": 0.7217418310001449,
+      "final_ack": [
+        31,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "run": "20261112-081059-probe_80_50",
+      "acknowledged_commands": [
+        [
+          80,
+          50
+        ]
+      ],
+      "declared_command": [
+        80,
+        60
+      ],
+      "metadata_matches_ack": false,
+      "requested_limit_s": 0.8,
+      "reason": "MOTION OR POSE REJECTED",
+      "aborted": true,
+      "visual_forward_mm": 58.451353751243076,
+      "visual_yaw_deg": -28.166581601448414,
+      "confirmed_forward_s": 0.7042477280001549,
+      "final_ack": [
+        33,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "run": "20261112-081822-probe_60",
+      "acknowledged_commands": [
+        [
+          60,
+          60
+        ]
+      ],
+      "declared_command": [
+        60,
+        60
+      ],
+      "metadata_matches_ack": true,
+      "requested_limit_s": 1.2,
+      "reason": "POWER TIME REACHED",
+      "aborted": false,
+      "visual_forward_mm": 96.70042887638358,
+      "visual_yaw_deg": -4.526529565798394,
+      "confirmed_forward_s": 1.103155477999735,
+      "final_ack": [
+        37,
+        0,
+        0,
+        0,
+        0
+      ],
+      "manual": {
+        "run": "20261112-081822-probe_60",
+        "actual_pwm": [
+          60,
+          60
+        ],
+        "left_mm": 110,
+        "right_mm": 105,
+        "observation": "两侧持续转动，起步平顺"
+      },
+      "manual_mean_mm": 107.5,
+      "manual_to_visual_distance_ratio": 1.1116806952058298
+    },
+    {
+      "run": "20261112-082117-probe_70_matched",
+      "acknowledged_commands": [
+        [
+          70,
+          70
+        ]
+      ],
+      "declared_command": [
+        70,
+        70
+      ],
+      "metadata_matches_ack": true,
+      "requested_limit_s": 1.2,
+      "reason": "POWER TIME REACHED",
+      "aborted": false,
+      "visual_forward_mm": 143.33804058294874,
+      "visual_yaw_deg": 0.16889637290988244,
+      "confirmed_forward_s": 1.1000907170000573,
+      "final_ack": [
+        37,
+        0,
+        0,
+        0,
+        0
+      ],
+      "manual": {
+        "run": "20261112-082117-probe_70_matched",
+        "actual_pwm": [
+          70,
+          70
+        ],
+        "left_mm": 160,
+        "right_mm": 161,
+        "observation": "平顺"
+      },
+      "manual_mean_mm": 160.5,
+      "manual_to_visual_distance_ratio": 1.1197306684761033
+    },
+    {
+      "run": "20261112-082428-probe_80_matched",
+      "acknowledged_commands": [
+        [
+          80,
+          80
+        ]
+      ],
+      "declared_command": [
+        80,
+        80
+      ],
+      "metadata_matches_ack": true,
+      "requested_limit_s": 1.2,
+      "reason": "POWER TIME REACHED",
+      "aborted": false,
+      "visual_forward_mm": 179.27803045967062,
+      "visual_yaw_deg": -0.6414418211616882,
+      "confirmed_forward_s": 1.1125131170001623,
+      "final_ack": [
+        38,
+        0,
+        0,
+        0,
+        0
+      ],
+      "manual": {
+        "run": "20261112-082428-probe_80_matched",
+        "actual_pwm": [
+          80,
+          80
+        ],
+        "left_mm": 200,
+        "right_mm": 202,
+        "observation": "平顺"
+      },
+      "manual_mean_mm": 201.0,
+      "manual_to_visual_distance_ratio": 1.1211635886708151
+    },
+    {
+      "run": "20261112-082636-probe_70_to_50",
+      "acknowledged_commands": [
+        [
+          50,
+          50
+        ],
+        [
+          70,
+          70
+        ]
+      ],
+      "declared_command": null,
+      "metadata_matches_ack": false,
+      "requested_limit_s": 1.6,
+      "reason": "POWER TIME REACHED",
+      "aborted": false,
+      "visual_forward_mm": 137.8668327548815,
+      "visual_yaw_deg": -0.4935798401144937,
+      "confirmed_forward_s": 1.491776666000078,
+      "final_ack": [
+        41,
+        0,
+        0,
+        0,
+        0
+      ],
+      "manual": {
+        "run": "20261112-082636-probe_70_to_50",
+        "actual_schedule": [
+          [
+            0,
+            70,
+            70
+          ],
+          [
+            0.7,
+            50,
+            50
+          ],
+          [
+            1.6,
+            0,
+            0
+          ]
+        ],
+        "left_mm": 170,
+        "right_mm": 172,
+        "observation": "用户回复左右170/172mm，平顺；未逐侧单独描述降档后的轮速"
+      },
+      "manual_mean_mm": 171.0,
+      "manual_to_visual_distance_ratio": 1.240327325891552
+    },
+    {
+      "run": "20261112-085123-probe_70_to_80_50",
+      "acknowledged_commands": [
+        [
+          70,
+          70
+        ],
+        [
+          80,
+          50
+        ]
+      ],
+      "requested_schedule": [
+        [
+          0.0,
+          70,
+          70
+        ],
+        [
+          0.7,
+          80,
+          50
+        ],
+        [
+          1.6,
+          0,
+          0
+        ]
+      ],
+      "metadata_matches_ack": true,
+      "requested_limit_s": 1.6,
+      "reason": "POWER TIME REACHED",
+      "aborted": false,
+      "visual_forward_mm": 194.126876730796,
+      "visual_yaw_deg": -9.875791152714449,
+      "confirmed_forward_s": 1.4993932529996528,
+      "final_ack": [
+        47,
+        0,
+        0,
+        0,
+        0
+      ],
+      "user_observation": "后半段右侧持续转动",
+      "measurement_scope": "visual pose is not independent manual distance/angle measurement"
+    },
+    {
+      "run": "20261112-091044-probe_70_to_80_0",
+      "requested_schedule": [
+        [
+          0.0,
+          70,
+          70
+        ],
+        [
+          0.7,
+          80,
+          0
+        ],
+        [
+          1.2,
+          0,
+          0
+        ]
+      ],
+      "acknowledged_commands": [
+        [
+          70,
+          70
+        ],
+        [
+          80,
+          0
+        ]
+      ],
+      "metadata_matches_ack": true,
+      "reason": "POWER TIME REACHED",
+      "aborted": false,
+      "visual_forward_mm": 110.33338439758239,
+      "visual_yaw_deg": -16.842588144303136,
+      "final_ack": [
+        40,
+        0,
+        0,
+        0,
+        0
+      ],
+      "manual_measurement_pending": false,
+      "manual_left_mm": 145,
+      "manual_right_mm": 100,
+      "measurement_point_separation_mm": 170,
+      "manual_mean_longitudinal_mm": 122.5,
+      "manual_yaw_deg": -15.349477017008127,
+      "user_observation": "右侧降至0后很快停稳；确认同一对相距约170mm测量点"
+    }
+  ],
+  "deployment": {
+    "version": "0.6.118",
+    "validation": "FIELD_TRIAL",
+    "bundle_sha256": "4116d10a70107e304d939e2fc243ca0822b0c6b3c8804ae8eb65e84b3990d743",
+    "run": "20261112-092944-install_curve_follow_drive",
+    "active": false,
+    "wire_pwm": [
+      0,
+      0
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "reference_commit": "cea5cd19f1a5d8a16ac5dca7d25730aafb56ee20",
+  "reference_sha256": "1a61e2cbc5bd294918218784c2216b4c344c7e2362119ba5b54fc41356eed707",
+  "fixed_fixture_cases": 18,
+  "random_corridors": 500,
+  "reports_exactly_equal": true,
+  "host_only_50_corridor_benchmark": {
+    "old_median_ms": 3.81914502941072,
+    "new_median_ms": 1.721341977827251
+  }
+}

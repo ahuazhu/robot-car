@@ -1,0 +1,115 @@
+{
+  "source_branch": "experiment/dwpp-v0.6.102",
+  "source_commit": "025eace4ec5905f814d8c8e6c71896ce26424bf1",
+  "source_state": "uncommitted calibration snapshot, 2026-11-12",
+  "active_runtime_modified": false,
+  "raw_trials": [
+    {
+      "path": "raw/20261112-080004-probe_70-device.json",
+      "sha256": "71fe7d400290ab3944249dacf5bd1f3d8f74a915388c2fe2cdf920c44faa0c91",
+      "source": ".maixpy/field-v116-20261112/20261112-080004-probe_70-device.json"
+    },
+    {
+      "path": "raw/20261112-080123-probe_80_40-device.json",
+      "sha256": "71e0033328b77b4e77df2b1c92dfd244b37e82ecb9e68e229c3ed66f5d657dfa",
+      "source": ".maixpy/field-v116-20261112/20261112-080123-probe_80_40-device.json"
+    },
+    {
+      "path": "raw/20261112-080250-probe_80_60-device.json",
+      "sha256": "9f3cbc281743ad74616e2d4af8bcd980f9602f1961be4377078cfd9a45bcb916",
+      "source": ".maixpy/field-v116-20261112/20261112-080250-probe_80_60-device.json"
+    },
+    {
+      "path": "raw/20261112-080344-probe_80_60-device.json",
+      "sha256": "50c2b04c3b3deb574de0145d403911e59e1276a28d689f84c7360c63f621988b",
+      "source": ".maixpy/field-v116-20261112/20261112-080344-probe_80_60-device.json"
+    },
+    {
+      "path": "raw/20261112-080559-probe_60_80-device.json",
+      "sha256": "f2edff7bdc39acebdb4ea91b7b1cf4313d1c37bac4beb2e0f2ec4ce7dc4b5d16",
+      "source": ".maixpy/field-v116-20261112/20261112-080559-probe_60_80-device.json"
+    },
+    {
+      "path": "raw/20261112-080925-probe_80_50-device.json",
+      "sha256": "2367c24bcd0e1388a6e18add091818e7fb8eb4b46af0d7860a0bdc928403829b",
+      "source": ".maixpy/field-v116-20261112/20261112-080925-probe_80_50-device.json"
+    },
+    {
+      "path": "raw/20261112-081059-probe_80_50-device.json",
+      "sha256": "22a77db379fbcfb75a7fb528224e6bb843b32deae6cf813efc6da6dcde28cd4b",
+      "source": ".maixpy/field-v116-20261112/20261112-081059-probe_80_50-device.json"
+    },
+    {
+      "path": "raw/20261112-081822-probe_60-device.json",
+      "sha256": "c1a2942ce454d2e6a89376fd4c9193c715f01233325133ae6a2d60949c3d25b3",
+      "source": ".maixpy/field-v116-20261112/20261112-081822-probe_60-device.json"
+    },
+    {
+      "path": "raw/20261112-082117-probe_70_matched-device.json",
+      "sha256": "c2269d5c7212c727fe639946e95bf7ed4a3397c16f5ffb1530640a4ecf203f86",
+      "source": ".maixpy/field-v116-20261112/20261112-082117-probe_70_matched-device.json"
+    },
+    {
+      "path": "raw/20261112-082428-probe_80_matched-device.json",
+      "sha256": "c5268b447f46040d59c5901a35273e656b40e35b7e90ee1574fec6267cbe7fa3",
+      "source": ".maixpy/field-v116-20261112/20261112-082428-probe_80_matched-device.json"
+    },
+    {
+      "path": "raw/20261112-082636-probe_70_to_50-device.json",
+      "sha256": "9cf5d11a88577c96d168abeed03694a74b17277db65eb46b90cbf807faef7d90",
+      "source": ".maixpy/field-v116-20261112/20261112-082636-probe_70_to_50-device.json"
+    },
+    {
+      "path": "raw/20261112-085123-probe_70_to_80_50-device.json",
+      "sha256": "68a96386fee49cffed88a3f4b5384164143384803aba0d1734bc487eef7f4ee5",
+      "source": ".maixpy/field-v116-20261112/20261112-085123-probe_70_to_80_50-device.json"
+    },
+    {
+      "path": "raw/20261112-091044-probe_70_to_80_0-device.json",
+      "sha256": "48585f3198195258ee842130ce797370cf3e5a5811f01a5d61bead2a8f2a3f40",
+      "source": ".maixpy/field-v116-20261112/20261112-091044-probe_70_to_80_0-device.json"
+    }
+  ],
+  "notes": [
+    "Original payloads are byte-preserved, including two incorrect requested_pwm fields. Use sampled UNO ACK for actual commands.",
+    "Archived deployment status describes historical trials, not this branch.",
+    "Fit/replay is exploratory; runtime parameters are not automatically written."
+  ],
+  "reproduction": {
+    "parameters_and_original_12_trials_identical": true,
+    "additional_trial": "20261112-091044-probe_70_to_80_0",
+    "mixed_replay_passed": 2,
+    "mixed_replay_total": 5,
+    "paired_replay_passed": 2,
+    "paired_replay_total": 3,
+    "all_replays_pass": false
+  },
+  "validation": {
+    "host_native_test_count": 1058,
+    "host_native_tests_pass": true,
+    "runtime_and_camera_calibration_byte_identical_to_v102": true,
+    "deployment_performed": false
+  },
+  "snapshot_files": [
+    {
+      "path": "actuator-fit-review-20261112.json",
+      "sha256": "f269a2dbcb0b7b48fab6884c8a9380658ab7251913c9caa8bd053b63f3cb2f29"
+    },
+    {
+      "path": "actuator-fit-training-20261112.json",
+      "sha256": "231b47515430029155ce1ee74c2afe589f09b4acb53d1411cfbadff7ff6aa6a2"
+    },
+    {
+      "path": "actuator-response-20261112.json",
+      "sha256": "a968559da548b261dbfc4af21fe329c1ac2ca5dd989b148d2933e44285512522"
+    },
+    {
+      "path": "calibration-refit.json",
+      "sha256": "328cd35d3b58f4956f17b00689f3fda04f5a1892b0b548b6a78c30c2e09bfced"
+    },
+    {
+      "path": "surface-equivalence.json",
+      "sha256": "b748f5c715e31df75f54486cb62d17f1a8234e44fb4ca15b5989dcd3a15cdbd0"
+    }
+  ]
+}

@@ -1,0 +1,432 @@
+{
+  "mixed": {
+    "scope": "Exploratory replay in optical coordinates; model selection has seen the replay data, so this is not blind validation",
+    "domain": "mixed_paired_and_stalled",
+    "calibration_verified": false,
+    "assumptions": [
+      "Both sides use a common equivalent-speed curve; independent left-side low-duty behavior is not fully identified",
+      "Cold PWM50 is stationary; rolling PWM50 follows an established PWM70 phase in these specific records",
+      "ACK receive times approximate actuation times; camera/transport delay is fitted separately",
+      "First-order time constant is shared across acceleration and deceleration"
+    ],
+    "fitted": {
+      "knots_m_s": [
+        [
+          50,
+          0.06107289179258365
+        ],
+        [
+          60,
+          0.08460920985722371
+        ],
+        [
+          70,
+          0.12485873444215226
+        ],
+        [
+          80,
+          0.156145348105033
+        ]
+      ],
+      "response_s": 0.16,
+      "ack_to_observation_delay_s": 0.04,
+      "direction_gains": {
+        "left": 1.018206357584557,
+        "right": 1.1328086645555673
+      }
+    },
+    "criteria": {
+      "relative_travel_error": 0.2,
+      "minimum_travel_tolerance_mm": 10,
+      "maximum_yaw_error_deg": 5,
+      "maximum_position_rmse_mm": 15
+    },
+    "trials": [
+      {
+        "run": "20261112-080004-probe_70",
+        "split": "replay",
+        "aborted": false,
+        "forward_actual_mm": 137.60280305854806,
+        "forward_predicted_mm": 120.57035895277652,
+        "forward_error_mm": -17.03244410577154,
+        "position_rmse_mm": 15.555059598600613,
+        "yaw_actual_deg": 1.6787211897155576,
+        "yaw_predicted_deg": 0.0,
+        "yaw_error_deg": -1.6787211897155576,
+        "passes_offline_gate": false
+      },
+      {
+        "run": "20261112-080123-probe_80_40",
+        "split": "fit",
+        "aborted": false,
+        "forward_actual_mm": 47.973548212398576,
+        "forward_predicted_mm": 59.28022960717648,
+        "forward_error_mm": 11.306681394777904,
+        "position_rmse_mm": 6.486174435724557,
+        "yaw_actual_deg": -26.4052721833237,
+        "yaw_predicted_deg": -25.65061679493781,
+        "yaw_error_deg": 0.7546553883858917,
+        "passes_offline_gate": false
+      },
+      {
+        "run": "20261112-080250-probe_80_60",
+        "split": "fit",
+        "aborted": false,
+        "forward_actual_mm": 86.44131848014423,
+        "forward_predicted_mm": 90.08543724132174,
+        "forward_error_mm": 3.644118761177512,
+        "position_rmse_mm": 2.5307902835850564,
+        "yaw_actual_deg": -6.499068971115204,
+        "yaw_predicted_deg": -11.582265077730947,
+        "yaw_error_deg": -5.083196106615743,
+        "passes_offline_gate": false
+      },
+      {
+        "run": "20261112-080344-probe_80_60",
+        "split": "replay",
+        "aborted": false,
+        "forward_actual_mm": 96.32491646526682,
+        "forward_predicted_mm": 91.07847796930507,
+        "forward_error_mm": -5.24643849596175,
+        "position_rmse_mm": 6.854068850611173,
+        "yaw_actual_deg": -6.082564072590588,
+        "yaw_predicted_deg": -11.709940108198692,
+        "yaw_error_deg": -5.627376035608103,
+        "passes_offline_gate": false
+      },
+      {
+        "run": "20261112-080559-probe_60_80",
+        "split": "fit",
+        "aborted": false,
+        "forward_actual_mm": 85.99085725098294,
+        "forward_predicted_mm": 91.03252017157543,
+        "forward_error_mm": 5.041662920592479,
+        "position_rmse_mm": 2.8466681783409475,
+        "yaw_actual_deg": 9.708608686419204,
+        "yaw_predicted_deg": 10.519975240727256,
+        "yaw_error_deg": 0.8113665543080506,
+        "passes_offline_gate": true
+      },
+      {
+        "run": "20261112-080925-probe_80_50",
+        "split": "fit",
+        "aborted": false,
+        "forward_actual_mm": 64.63015809557871,
+        "forward_predicted_mm": 59.69846622894819,
+        "forward_error_mm": -4.931691866630512,
+        "position_rmse_mm": 7.369022410983733,
+        "yaw_actual_deg": -24.200553718004798,
+        "yaw_predicted_deg": -25.831588214680366,
+        "yaw_error_deg": -1.6310344966755703,
+        "passes_offline_gate": true
+      },
+      {
+        "run": "20261112-081059-probe_80_50",
+        "split": "replay",
+        "aborted": true,
+        "forward_actual_mm": 58.50429300781241,
+        "forward_predicted_mm": 58.37349534875013,
+        "forward_error_mm": -0.13079765906227891,
+        "position_rmse_mm": 4.414816223518102,
+        "yaw_actual_deg": -28.168534552189286,
+        "yaw_predicted_deg": -25.258271941487365,
+        "yaw_error_deg": 2.91026261070192,
+        "passes_offline_gate": true
+      },
+      {
+        "run": "20261112-081822-probe_60",
+        "split": "fit",
+        "aborted": false,
+        "forward_actual_mm": 97.22776292446095,
+        "forward_predicted_mm": 96.93142717153917,
+        "forward_error_mm": -0.2963357529217753,
+        "position_rmse_mm": 4.044089688678611,
+        "yaw_actual_deg": -4.526529565798394,
+        "yaw_predicted_deg": 0.0,
+        "yaw_error_deg": 4.526529565798394,
+        "passes_offline_gate": true
+      },
+      {
+        "run": "20261112-082117-probe_70_matched",
+        "split": "fit",
+        "aborted": false,
+        "forward_actual_mm": 143.36563575258327,
+        "forward_predicted_mm": 142.47911742331553,
+        "forward_error_mm": -0.886518329267727,
+        "position_rmse_mm": 3.9746083241294614,
+        "yaw_actual_deg": 0.16889637290988244,
+        "yaw_predicted_deg": 0.0,
+        "yaw_error_deg": -0.16889637290988244,
+        "passes_offline_gate": true
+      },
+      {
+        "run": "20261112-082428-probe_80_matched",
+        "split": "fit",
+        "aborted": false,
+        "forward_actual_mm": 179.26379401377815,
+        "forward_predicted_mm": 180.2422369623833,
+        "forward_error_mm": 0.9784429486051349,
+        "position_rmse_mm": 3.938793646764311,
+        "yaw_actual_deg": -0.6394090977353271,
+        "yaw_predicted_deg": 0.0,
+        "yaw_error_deg": 0.6394090977353271,
+        "passes_offline_gate": true
+      },
+      {
+        "run": "20261112-082636-probe_70_to_50",
+        "split": "fit",
+        "aborted": false,
+        "forward_actual_mm": 137.9331616727855,
+        "forward_predicted_mm": 138.6797821519791,
+        "forward_error_mm": 0.7466204791936049,
+        "position_rmse_mm": 4.358467479786697,
+        "yaw_actual_deg": -0.4935798401144937,
+        "yaw_predicted_deg": 0.0,
+        "yaw_error_deg": 0.4935798401144937,
+        "passes_offline_gate": true
+      },
+      {
+        "run": "20261112-085123-probe_70_to_80_50",
+        "split": "replay",
+        "aborted": false,
+        "forward_actual_mm": 195.07539624060914,
+        "forward_predicted_mm": 178.97037929205973,
+        "forward_error_mm": -16.105016948549405,
+        "position_rmse_mm": 13.379527790739973,
+        "yaw_actual_deg": -9.875791152714449,
+        "yaw_predicted_deg": -16.904734782681082,
+        "yaw_error_deg": -7.028943629966634,
+        "passes_offline_gate": false
+      },
+      {
+        "run": "20261112-091044-probe_70_to_80_0",
+        "split": "replay",
+        "aborted": false,
+        "forward_actual_mm": 111.12901925839336,
+        "forward_predicted_mm": 125.78170863727995,
+        "forward_error_mm": 14.652689378886585,
+        "position_rmse_mm": 8.384214729943627,
+        "yaw_actual_deg": -16.842588144303136,
+        "yaw_predicted_deg": -15.862793979921856,
+        "yaw_error_deg": 0.9797941643812811,
+        "passes_offline_gate": true
+      }
+    ],
+    "all_replays_pass": false
+  },
+  "paired": {
+    "scope": "Exploratory replay in optical coordinates; model selection has seen the replay data, so this is not blind validation",
+    "domain": "paired_forward",
+    "calibration_verified": false,
+    "assumptions": [
+      "Both sides use a common equivalent-speed curve; independent left-side low-duty behavior is not fully identified",
+      "Cold PWM50 is stationary; rolling PWM50 follows an established PWM70 phase in these specific records",
+      "ACK receive times approximate actuation times; camera/transport delay is fitted separately",
+      "First-order time constant is shared across acceleration and deceleration"
+    ],
+    "fitted": {
+      "knots_m_s": [
+        [
+          50,
+          0.06070945607177801
+        ],
+        [
+          60,
+          0.08513009803464816
+        ],
+        [
+          70,
+          0.12566711223040697
+        ],
+        [
+          80,
+          0.15691568120692928
+        ]
+      ],
+      "response_s": 0.16,
+      "ack_to_observation_delay_s": 0.05,
+      "direction_gains": {
+        "left": 1.019822767857156,
+        "right": 0.6902793404848984
+      }
+    },
+    "criteria": {
+      "relative_travel_error": 0.2,
+      "minimum_travel_tolerance_mm": 10,
+      "maximum_yaw_error_deg": 5,
+      "maximum_position_rmse_mm": 15
+    },
+    "trials": [
+      {
+        "run": "20261112-080004-probe_70",
+        "split": "replay",
+        "aborted": false,
+        "forward_actual_mm": 137.60280305854806,
+        "forward_predicted_mm": 121.33881754319225,
+        "forward_error_mm": -16.26398551535581,
+        "position_rmse_mm": 15.606712597720913,
+        "yaw_actual_deg": 1.6787211897155576,
+        "yaw_predicted_deg": 0.0,
+        "yaw_error_deg": -1.6787211897155576,
+        "passes_offline_gate": false
+      },
+      {
+        "run": "20261112-080123-probe_80_40",
+        "split": "out_of_domain",
+        "aborted": false,
+        "forward_actual_mm": 47.973548212398576,
+        "forward_predicted_mm": 59.56557482673405,
+        "forward_error_mm": 11.592026614335477,
+        "position_rmse_mm": 6.521359300011814,
+        "yaw_actual_deg": -26.4052721833237,
+        "yaw_predicted_deg": -15.705493451553226,
+        "yaw_error_deg": 10.699778731770476,
+        "passes_offline_gate": false
+      },
+      {
+        "run": "20261112-080250-probe_80_60",
+        "split": "fit",
+        "aborted": false,
+        "forward_actual_mm": 86.44131848014423,
+        "forward_predicted_mm": 90.548353734442,
+        "forward_error_mm": 4.107035254297772,
+        "position_rmse_mm": 2.8654884681129245,
+        "yaw_actual_deg": -6.499068971115204,
+        "yaw_predicted_deg": -7.080705418145729,
+        "yaw_error_deg": -0.5816364470305251,
+        "passes_offline_gate": true
+      },
+      {
+        "run": "20261112-080344-probe_80_60",
+        "split": "replay",
+        "aborted": false,
+        "forward_actual_mm": 96.32491646526682,
+        "forward_predicted_mm": 91.55098844938865,
+        "forward_error_mm": -4.7739280158781705,
+        "position_rmse_mm": 7.135496344840799,
+        "yaw_actual_deg": -6.082564072590588,
+        "yaw_predicted_deg": -7.159109505749183,
+        "yaw_error_deg": -1.0765454331585944,
+        "passes_offline_gate": true
+      },
+      {
+        "run": "20261112-080559-probe_60_80",
+        "split": "fit",
+        "aborted": false,
+        "forward_actual_mm": 85.99085725098294,
+        "forward_predicted_mm": 91.50410166325098,
+        "forward_error_mm": 5.513244412268026,
+        "position_rmse_mm": 3.309885719878138,
+        "yaw_actual_deg": 9.708608686419204,
+        "yaw_predicted_deg": 10.571493754250987,
+        "yaw_error_deg": 0.8628850678317828,
+        "passes_offline_gate": true
+      },
+      {
+        "run": "20261112-080925-probe_80_50",
+        "split": "out_of_domain",
+        "aborted": false,
+        "forward_actual_mm": 64.63015809557871,
+        "forward_predicted_mm": 59.982695193518595,
+        "forward_error_mm": -4.647462902060112,
+        "position_rmse_mm": 7.619559218928583,
+        "yaw_actual_deg": -24.200553718004798,
+        "yaw_predicted_deg": -15.815474446584329,
+        "yaw_error_deg": 8.385079271420468,
+        "passes_offline_gate": false
+      },
+      {
+        "run": "20261112-081059-probe_80_50",
+        "split": "out_of_domain",
+        "aborted": true,
+        "forward_actual_mm": 58.50429300781241,
+        "forward_predicted_mm": 58.65265996004967,
+        "forward_error_mm": 0.14836695223725826,
+        "position_rmse_mm": 4.755741720101583,
+        "yaw_actual_deg": -28.168534552189286,
+        "yaw_predicted_deg": -15.464787666336793,
+        "yaw_error_deg": 12.703746885852494,
+        "passes_offline_gate": false
+      },
+      {
+        "run": "20261112-081822-probe_60",
+        "split": "fit",
+        "aborted": false,
+        "forward_actual_mm": 97.22776292446095,
+        "forward_predicted_mm": 97.51636217979035,
+        "forward_error_mm": 0.288599255329397,
+        "position_rmse_mm": 3.801191458698724,
+        "yaw_actual_deg": -4.526529565798394,
+        "yaw_predicted_deg": 0.0,
+        "yaw_error_deg": 4.526529565798394,
+        "passes_offline_gate": true
+      },
+      {
+        "run": "20261112-082117-probe_70_matched",
+        "split": "fit",
+        "aborted": false,
+        "forward_actual_mm": 143.36563575258327,
+        "forward_predicted_mm": 143.39030107520992,
+        "forward_error_mm": 0.024665322626654662,
+        "position_rmse_mm": 3.686835937484394,
+        "yaw_actual_deg": 0.16889637290988244,
+        "yaw_predicted_deg": 0.0,
+        "yaw_error_deg": -0.16889637290988244,
+        "passes_offline_gate": true
+      },
+      {
+        "run": "20261112-082428-probe_80_matched",
+        "split": "fit",
+        "aborted": false,
+        "forward_actual_mm": 179.26379401377815,
+        "forward_predicted_mm": 181.1114788662922,
+        "forward_error_mm": 1.8476848525140477,
+        "position_rmse_mm": 3.8638336665068524,
+        "yaw_actual_deg": -0.6394090977353271,
+        "yaw_predicted_deg": 0.0,
+        "yaw_error_deg": 0.6394090977353271,
+        "passes_offline_gate": true
+      },
+      {
+        "run": "20261112-082636-probe_70_to_50",
+        "split": "fit",
+        "aborted": false,
+        "forward_actual_mm": 137.9331616727855,
+        "forward_predicted_mm": 138.93437348146577,
+        "forward_error_mm": 1.0012118086802635,
+        "position_rmse_mm": 4.170798897015672,
+        "yaw_actual_deg": -0.4935798401144937,
+        "yaw_predicted_deg": 0.0,
+        "yaw_error_deg": 0.4935798401144937,
+        "passes_offline_gate": true
+      },
+      {
+        "run": "20261112-085123-probe_70_to_80_50",
+        "split": "replay",
+        "aborted": false,
+        "forward_actual_mm": 195.07539624060914,
+        "forward_predicted_mm": 179.70422881289366,
+        "forward_error_mm": -15.371167427715465,
+        "position_rmse_mm": 13.379133400610941,
+        "yaw_actual_deg": -9.875791152714449,
+        "yaw_predicted_deg": -10.422137457130363,
+        "yaw_error_deg": -0.5463463044159144,
+        "passes_offline_gate": true
+      },
+      {
+        "run": "20261112-091044-probe_70_to_80_0",
+        "split": "out_of_domain",
+        "aborted": false,
+        "forward_actual_mm": 111.12901925839336,
+        "forward_predicted_mm": 126.52945443182465,
+        "forward_error_mm": 15.400435173431287,
+        "position_rmse_mm": 8.506289313555438,
+        "yaw_actual_deg": -16.842588144303136,
+        "yaw_predicted_deg": -9.711261035356031,
+        "yaw_error_deg": 7.131327108947105,
+        "passes_offline_gate": false
+      }
+    ],
+    "all_replays_pass": false
+  }
+}
