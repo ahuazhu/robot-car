@@ -98,16 +98,26 @@ def plan_twist(linear, angular, curvature, ceiling, dt, *, maximum, lever,
             or min(dt,maximum,lever,acceleration,deceleration,
                    angular_acceleration,angular_deceleration)<=0):
         raise ValueError('Invalid DWPP inputs')
-    if linear>maximum+EPS or abs(angular)>maximum/lever+EPS:
-        raise ValueError('DWPP state exceeds static velocity bounds')
+    # Limits constrain the NEXT command. A valid measurement can exceed them;
+    # do not hide overspeed by clamping the sensor before constructing bounds.
     v_min=max(0.,linear-deceleration*dt)
     v_max=min(maximum,ceiling,linear+acceleration*dt)
-    changes=(angular_deceleration,angular_acceleration) if angular>EPS else (
-        (angular_acceleration,angular_deceleration) if angular < -EPS else
-        (angular_acceleration,angular_acceleration))
-    w_min=max(-maximum/lever,angular-changes[0]*dt)
-    w_max=min(maximum/lever,angular+changes[1]*dt)
+    def reverse_bound(value):
+        remaining=dt-abs(value)/angular_deceleration
+        return (abs(value)-angular_deceleration*dt if remaining<=0
+                else -angular_acceleration*remaining)
+    if angular > EPS:
+        low, high = reverse_bound(angular), angular+angular_acceleration*dt
+    elif angular < -EPS:
+        low, high = angular-angular_acceleration*dt, -reverse_bound(angular)
+    else:
+        low, high = -angular_acceleration*dt, angular_acceleration*dt
+    angular_maximum=maximum/lever
+    w_min=max(-angular_maximum,min(angular_maximum,low))
+    w_max=max(-angular_maximum,min(angular_maximum,high))
     overrides=[]
+    if low>angular_maximum or high < -angular_maximum:
+        overrides.append('ANGULAR_SPEED_BRAKING')
     if v_min>v_max:
         # A newly reduced safety envelope cannot be negotiated upward merely
         # because the previous command cannot decelerate to it in one period.

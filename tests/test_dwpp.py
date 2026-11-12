@@ -91,7 +91,7 @@ class VelocityRegionTests(unittest.TestCase):
 
     def test_invalid_inputs_do_not_reach_motor_control(self):
         for inputs in ((.1,0.,float('nan'),.3,.1),(.1,0.,0.,.3,0.),
-                       (.4,0.,0.,.3,.1),(.1,3.,0.,.3,.1),(-.1,0.,0.,.3,.1)):
+                       (.1,float('inf'),0.,.3,.1),(-.1,0.,0.,.3,.1)):
             with self.assertRaises(ValueError):plan_twist(*inputs,**PARAMS)
 
 
@@ -311,5 +311,26 @@ class ControllerIntegrationTests(unittest.TestCase):
                 settings.runtime['speed_profile'],**changes)))
             with self.assertRaises(ValueError):ProfileSpeedControl.from_settings(invalid)
 
+
+
+
+class AdditionalWindowReviewTests(unittest.TestCase):
+    def test_actual_overspeed_is_reported_and_braked_not_rejected_or_hidden(self):
+        for v,w in ((.4,0.),(.15,3.),(.15,-3.),(.6,3.)):
+            s=plan_twist(v,w,0.,.3,.1,**PARAMS)
+            self.assertTrue(s.overrides)
+            self.assertGreaterEqual(min(s.linear-.15*s.angular,s.linear+.15*s.angular),-1e-8)
+            self.assertLessEqual(max(s.linear-.15*s.angular,s.linear+.15*s.angular),.3+1e-8)
+
+    def test_reverse_acceleration_uses_only_time_after_stopping_original_turn(self):
+        # .1rad/s -> rest in .1s, remaining .1s accelerates at .2rad/s².
+        for sign in (-1,1):
+            s=plan_twist(.1,sign*.1,-sign*4.,.3,.2,
+                **dict(PARAMS,angular_acceleration=.2,angular_deceleration=1.))
+            low=-.02 if sign>0 else -.14
+            high=.14 if sign>0 else .02
+            self.assertAlmostEqual(s.window.w_min,low)
+            self.assertAlmostEqual(s.window.w_max,high)
+            self.assertLessEqual(abs(s.angular),.02+1e-8)
 
 if __name__=='__main__':unittest.main()
