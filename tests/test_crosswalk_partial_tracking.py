@@ -77,6 +77,19 @@ class PartialCrosswalkTrackingTests(unittest.TestCase):
                                                  self.road, .30, reference)
                 self.assertIsNone(candidate)
 
+    def test_confirmed_zebra_tracks_independently_of_weak_or_wrong_lane_fit(self):
+        reference=dict(self.full_observation(0.),event_id=7)
+        for road in (dict(self.road,confidence=.05),
+                     dict(path=np.c_[np.zeros(30),np.linspace(.1,.8,30)],confidence=.9),
+                     dict(path=[],confidence=0.)):
+            for indices in (range(1,4),range(4)):
+                found=self.detector.detect(self.image(indices),road,.15,reference)
+                self.assertIsNotNone(found)
+                self.assertTrue(found['tracking_only'])
+                self.assertEqual(found['event_id'],7)
+            self.assertIsNone(self.detector.detect(self.image(range(4),forward=.65),road,.15,reference))
+        self.assertIsNone(self.detector.detect(self.image(range(4)),dict(self.road,confidence=.05),.15))
+
     def test_partial_reacquires_only_after_multiple_matches_without_rearming_event(self):
         task = self.begin()
         identity, hits = task.identity, task.hits
