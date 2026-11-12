@@ -564,7 +564,7 @@ class DrivingSessionTests(unittest.TestCase):
                     self.assertEqual(s.link.calls[-1][3], .22)
                     self.assertEqual(s.reason, 'CAUTIOUS FOLLOW')
 
-    def test_unverified_crosswalk_returns_motor_ownership_to_follow_or_search(self):
+    def test_unserved_crosswalk_keeps_yield_pending_while_follow_or_search_recovers(self):
         fixture=json.loads((ROOT/'tests/fixtures/crosswalk_unverified_20261111.json').read_text())
         config=json.loads((ROOT/'maixcam2/curve_follow/runtime.json').read_text())['crosswalk']
         for mode in ('follow','search'):
@@ -586,7 +586,8 @@ class DrivingSessionTests(unittest.TestCase):
                     scene['travel_m']=0.
                     frame.crosswalk_state=task.update(None,scene,self.clock.now,True,True,True,
                                                       mode=='follow')
-                    self.assertEqual(task.phase,'RECOVERY_PASSING')
+                    self.assertEqual(task.phase,'RECOVERY_APPROACH')
+                    self.assertTrue(frame.crosswalk_state['yield_pending'])
                     follow=(100,120) if mode=='follow' else None
                     frame.command=s.search.command(frame.result,follow,scene,self.clock.now,
                         active=True,allowed=task.allows_road_search(),stopped=True)
@@ -595,7 +596,7 @@ class DrivingSessionTests(unittest.TestCase):
                     if step==1 and mode=='follow':
                         self.assertTrue(any(s.link.calls[-1][1:3]))
                 self.assertTrue(s.active)
-                self.assertEqual(task.phase,'RECOVERY_PASSING')
+                self.assertEqual(task.phase,'RECOVERY_APPROACH')
                 self.assertFalse(task.yield_completed);self.assertFalse(task.yield_verified)
                 moving=[call for call in s.link.calls[before:] if call[0]==2 and any(call[1:3])]
                 self.assertTrue(moving)

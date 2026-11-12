@@ -76,9 +76,13 @@ class SurfacePredictionTests(unittest.TestCase):
                (path(start=.32,end=.35,count=6),.005),
                (path(start=.36,end=.39,count=6),.005),
                (path(),np.linspace(0.,.15,50))]
-        for kwargs in ({},{'unknown':True},{'saturation':0}):
+        # Frozen reports come from the original cea5cd1 scalar implementation,
+        # so batching is checked against an independent pre-change result.
+        fixtures=json.loads((ROOT/'tests/fixtures/surface_corridor_reports_20261112.json').read_text())
+        for fixture in fixtures:
+            kwargs,expected=fixture['conditions'],fixture['expected']
             one=synthetic_surface(**kwargs)
-            expected=[one.contradiction(p,s) for p,s in paths]
+            self.assertEqual([one.contradiction(p,s) for p,s in paths],expected)
             batch=synthetic_surface(**kwargs)
             sample=Mock(wraps=batch._sample);batch._sample=sample
             self.assertEqual(batch.contradictions(paths),expected)
