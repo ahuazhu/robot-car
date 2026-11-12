@@ -1,0 +1,58 @@
+{
+  "plan": [
+    {
+      "id": 1,
+      "left": 220,
+      "right": 70,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 1,
+      "purpose": "补齐缺失组合"
+    },
+    {
+      "id": 2,
+      "left": 255,
+      "right": 70,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 1,
+      "purpose": "补齐缺失组合"
+    },
+    {
+      "id": 3,
+      "left": 255,
+      "right": 70,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 2,
+      "purpose": "补齐缺失组合"
+    },
+    {
+      "id": 4,
+      "left": 220,
+      "right": 70,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 2,
+      "purpose": "补齐缺失组合"
+    }
+  ],
+  "maximum_power_s": 1.2,
+  "maximum_travel_m": 0.3,
+  "cutoff_angle_deg": 20,
+  "warmup_pwm": [
+    80,
+    80
+  ],
+  "warmup_s": 0.3,
+  "warmup_timer_basis": "fresh80/80 ACK plus0.30s and rolling confirmation",
+  "same_surface_battery_confirmed": true,
+  "manual_start_each_trial": true,
+  "prior_batch": "20261112-200031-run_high_range",
+  "restores_installed_version": "0.6.102-backport.1-simple.2",
+  "script_sha256": "33a6f2e7a0e862e60f5a10e73a56ad7a0e8fd31c30769b715fabffa0d14d0f6d",
+  "same_surface_battery_basis": "User confirmed same conditions for preceding batch; continuing session",
+  "run_id": "20261112-203702-run_high_retest",
+  "collector_session_id": 90902,
+  "guard_tests_passed": 8
+}

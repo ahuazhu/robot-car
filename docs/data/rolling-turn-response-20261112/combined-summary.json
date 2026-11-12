@@ -1,0 +1,242 @@
+{
+  "total_trials": 39,
+  "accepted_trials": 20,
+  "excluded_or_pending_trials": 19,
+  "pairs_with_accepted_records": 13,
+  "total_pairs": 14,
+  "coverage": [
+    {
+      "pwm": [
+        140,
+        70
+      ],
+      "accepted_count": 2,
+      "accepted_refs": [
+        {
+          "batch": "first",
+          "trial": "1"
+        },
+        {
+          "batch": "first",
+          "trial": "16"
+        }
+      ],
+      "status": "HAS_ACCEPTED_RECORDS"
+    },
+    {
+      "pwm": [
+        70,
+        140
+      ],
+      "accepted_count": 2,
+      "accepted_refs": [
+        {
+          "batch": "first",
+          "trial": "2"
+        },
+        {
+          "batch": "first",
+          "trial": "15"
+        }
+      ],
+      "status": "HAS_ACCEPTED_RECORDS"
+    },
+    {
+      "pwm": [
+        160,
+        70
+      ],
+      "accepted_count": 2,
+      "accepted_refs": [
+        {
+          "batch": "first",
+          "trial": "14"
+        },
+        {
+          "batch": "high",
+          "trial": "1"
+        }
+      ],
+      "status": "HAS_ACCEPTED_RECORDS"
+    },
+    {
+      "pwm": [
+        70,
+        160
+      ],
+      "accepted_count": 1,
+      "accepted_refs": [
+        {
+          "batch": "high",
+          "trial": "2"
+        }
+      ],
+      "status": "HAS_ACCEPTED_RECORDS"
+    },
+    {
+      "pwm": [
+        180,
+        70
+      ],
+      "accepted_count": 2,
+      "accepted_refs": [
+        {
+          "batch": "first",
+          "trial": "5"
+        },
+        {
+          "batch": "first",
+          "trial": "12"
+        }
+      ],
+      "status": "HAS_ACCEPTED_RECORDS"
+    },
+    {
+      "pwm": [
+        70,
+        180
+      ],
+      "accepted_count": 2,
+      "accepted_refs": [
+        {
+          "batch": "first",
+          "trial": "11"
+        },
+        {
+          "batch": "high",
+          "trial": "3"
+        }
+      ],
+      "status": "HAS_ACCEPTED_RECORDS"
+    },
+    {
+      "pwm": [
+        200,
+        70
+      ],
+      "accepted_count": 1,
+      "accepted_refs": [
+        {
+          "batch": "high",
+          "trial": "18"
+        }
+      ],
+      "status": "HAS_ACCEPTED_RECORDS"
+    },
+    {
+      "pwm": [
+        70,
+        200
+      ],
+      "accepted_count": 2,
+      "accepted_refs": [
+        {
+          "batch": "first",
+          "trial": "9"
+        },
+        {
+          "batch": "high",
+          "trial": "5"
+        }
+      ],
+      "status": "HAS_ACCEPTED_RECORDS"
+    },
+    {
+      "pwm": [
+        220,
+        70
+      ],
+      "accepted_count": 2,
+      "accepted_refs": [
+        {
+          "batch": "retest",
+          "trial": "1"
+        },
+        {
+          "batch": "retest",
+          "trial": "4"
+        }
+      ],
+      "status": "HAS_ACCEPTED_RECORDS"
+    },
+    {
+      "pwm": [
+        70,
+        220
+      ],
+      "accepted_count": 1,
+      "accepted_refs": [
+        {
+          "batch": "high",
+          "trial": "7"
+        }
+      ],
+      "status": "HAS_ACCEPTED_RECORDS"
+    },
+    {
+      "pwm": [
+        240,
+        70
+      ],
+      "accepted_count": 1,
+      "accepted_refs": [
+        {
+          "batch": "high",
+          "trial": "8"
+        }
+      ],
+      "status": "HAS_ACCEPTED_RECORDS"
+    },
+    {
+      "pwm": [
+        70,
+        240
+      ],
+      "accepted_count": 1,
+      "accepted_refs": [
+        {
+          "batch": "high",
+          "trial": "9"
+        }
+      ],
+      "status": "HAS_ACCEPTED_RECORDS"
+    },
+    {
+      "pwm": [
+        255,
+        70
+      ],
+      "accepted_count": 0,
+      "accepted_refs": [],
+      "status": "USER_SKIPPED_PENDING_VERIFICATION"
+    },
+    {
+      "pwm": [
+        70,
+        255
+      ],
+      "accepted_count": 1,
+      "accepted_refs": [
+        {
+          "batch": "high",
+          "trial": "12"
+        }
+      ],
+      "status": "HAS_ACCEPTED_RECORDS"
+    }
+  ],
+  "user_skipped_pwm": [
+    255,
+    70
+  ],
+  "notes": [
+    "255/70 retained as observations but excluded from fitting under original quality rules; user requested to skip further measurement.",
+    "Passing a single trial does not establish repeatability or a full PWM-to-wheel-RPM model.",
+    "Manual measurements are rigid-point final projections, not wheel travel distances."
+  ],
+  "audit_files": [
+    "first-audit.json",
+    "high-audit.json",
+    "retest-audit.json"
+  ]
+}

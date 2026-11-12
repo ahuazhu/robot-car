@@ -1,0 +1,578 @@
+{
+  "schema": 1,
+  "sources": [
+    {
+      "file": "first-audit.json",
+      "sha256": "1201dd75dd46e23ee5e0caab48ac24019578d978ccfa7a3325de191ba04b504c"
+    },
+    {
+      "file": "high-audit.json",
+      "sha256": "8fc9fbe51fc1acb18c7f66a2190a7593fde8725f2609a6c834c225faedd8716f"
+    },
+    {
+      "file": "retest-audit.json",
+      "sha256": "29c4a56cd4830f0b0f7945d18d628c6f80aa56abd8742106e815d2ba6752acdf"
+    },
+    {
+      "file": "straight-anchors.json",
+      "sha256": "e68c6184c4f1122674c6a84941553d4609de7ffbe6c4f302ac2f3a96e51feb82"
+    },
+    {
+      "file": "low-anchors.json",
+      "sha256": "c5688abd47fe2e6b716573f9566808c6093513ce3d1a9a37e733cf7a7aea5b14"
+    }
+  ],
+  "method": "Equal weight per accepted rolling trial; interpolate body v,w inside explicit triangles, then divide w/v. No monotonic curvature fit or extrapolation.",
+  "limitations": [
+    "Inside70 row is directly sampled; other combinations are interpolation estimates.",
+    "Straight anchors use older terminal steady windows, with measured nonzero yaw; battery conditions across dates were not confirmed.",
+    "Lower-domain120/60 and60/120 anchors are old cold-start late windows;140/50 is rolling. They remain distinct from the new inside70 curve.",
+    "255/70 skipped by user and excluded. Optical body motion is not wheel RPM."
+  ],
+  "right": {
+    "nodes": [
+      {
+        "value": [
+          90,
+          90,
+          0.18632158965451112,
+          0.05355754760148108
+        ],
+        "source": [
+          "straight-anchors.json",
+          90
+        ]
+      },
+      {
+        "value": [
+          120,
+          120,
+          0.2261280179513033,
+          0.01968920847484553
+        ],
+        "source": [
+          "straight-anchors.json",
+          120
+        ]
+      },
+      {
+        "value": [
+          150,
+          150,
+          0.25209585756664893,
+          0.039585631119719716
+        ],
+        "source": [
+          "straight-anchors.json",
+          150
+        ]
+      },
+      {
+        "value": [
+          180,
+          180,
+          0.25659062574243136,
+          0.021534542764241008
+        ],
+        "source": [
+          "straight-anchors.json",
+          180
+        ]
+      },
+      {
+        "value": [
+          200,
+          200,
+          0.27704872419542603,
+          0.02049972515999931
+        ],
+        "source": [
+          "straight-anchors.json",
+          200
+        ]
+      },
+      {
+        "value": [
+          140,
+          70,
+          0.2043456700628371,
+          -0.2626414448351121
+        ],
+        "source": [
+          [
+            "first-audit.json",
+            "1"
+          ],
+          [
+            "first-audit.json",
+            "16"
+          ]
+        ]
+      },
+      {
+        "value": [
+          160,
+          70,
+          0.2041784297569617,
+          -0.35024703706961263
+        ],
+        "source": [
+          [
+            "first-audit.json",
+            "14"
+          ],
+          [
+            "high-audit.json",
+            "1"
+          ]
+        ]
+      },
+      {
+        "value": [
+          180,
+          70,
+          0.2301035860885066,
+          -0.41162635186454066
+        ],
+        "source": [
+          [
+            "first-audit.json",
+            "5"
+          ],
+          [
+            "first-audit.json",
+            "12"
+          ]
+        ]
+      },
+      {
+        "value": [
+          200,
+          70,
+          0.23808108247230078,
+          -0.4389556480011474
+        ],
+        "source": [
+          [
+            "high-audit.json",
+            "18"
+          ]
+        ]
+      },
+      {
+        "value": [
+          220,
+          70,
+          0.2295628629049975,
+          -0.5002119318922159
+        ],
+        "source": [
+          [
+            "retest-audit.json",
+            "1"
+          ],
+          [
+            "retest-audit.json",
+            "4"
+          ]
+        ]
+      },
+      {
+        "value": [
+          240,
+          70,
+          0.23618198393271134,
+          -0.49652351530856864
+        ],
+        "source": [
+          [
+            "high-audit.json",
+            "8"
+          ]
+        ]
+      },
+      {
+        "value": [
+          120,
+          60,
+          0.17973245436403504,
+          -0.36466245647176354
+        ],
+        "source": [
+          "low-anchors.json",
+          "4"
+        ],
+        "warmup_s": 0.0
+      },
+      {
+        "value": [
+          140,
+          50,
+          0.20413943378768876,
+          -0.5578591302874643
+        ],
+        "source": [
+          "low-anchors.json",
+          "15"
+        ],
+        "warmup_s": 0.3
+      }
+    ],
+    "triangles": [
+      [
+        5,
+        0,
+        1
+      ],
+      [
+        5,
+        1,
+        2
+      ],
+      [
+        5,
+        2,
+        3
+      ],
+      [
+        5,
+        3,
+        4
+      ],
+      [
+        4,
+        5,
+        6
+      ],
+      [
+        4,
+        6,
+        7
+      ],
+      [
+        4,
+        7,
+        8
+      ],
+      [
+        4,
+        8,
+        9
+      ],
+      [
+        4,
+        9,
+        10
+      ],
+      [
+        11,
+        0,
+        5
+      ],
+      [
+        11,
+        12,
+        5
+      ],
+      [
+        12,
+        5,
+        6
+      ],
+      [
+        12,
+        6,
+        7
+      ],
+      [
+        12,
+        7,
+        8
+      ],
+      [
+        12,
+        8,
+        9
+      ],
+      [
+        12,
+        9,
+        10
+      ]
+    ]
+  },
+  "left": {
+    "nodes": [
+      {
+        "value": [
+          90,
+          90,
+          0.18632158965451112,
+          0.05355754760148108
+        ],
+        "source": [
+          "straight-anchors.json",
+          90
+        ]
+      },
+      {
+        "value": [
+          120,
+          120,
+          0.2261280179513033,
+          0.01968920847484553
+        ],
+        "source": [
+          "straight-anchors.json",
+          120
+        ]
+      },
+      {
+        "value": [
+          150,
+          150,
+          0.25209585756664893,
+          0.039585631119719716
+        ],
+        "source": [
+          "straight-anchors.json",
+          150
+        ]
+      },
+      {
+        "value": [
+          180,
+          180,
+          0.25659062574243136,
+          0.021534542764241008
+        ],
+        "source": [
+          "straight-anchors.json",
+          180
+        ]
+      },
+      {
+        "value": [
+          200,
+          200,
+          0.27704872419542603,
+          0.02049972515999931
+        ],
+        "source": [
+          "straight-anchors.json",
+          200
+        ]
+      },
+      {
+        "value": [
+          140,
+          70,
+          0.19592770273693083,
+          0.3333167200739231
+        ],
+        "source": [
+          [
+            "first-audit.json",
+            "2"
+          ],
+          [
+            "first-audit.json",
+            "15"
+          ]
+        ]
+      },
+      {
+        "value": [
+          160,
+          70,
+          0.19725816596270315,
+          0.4116933874584747
+        ],
+        "source": [
+          [
+            "high-audit.json",
+            "2"
+          ]
+        ]
+      },
+      {
+        "value": [
+          180,
+          70,
+          0.20806019560765332,
+          0.5022528398863649
+        ],
+        "source": [
+          [
+            "first-audit.json",
+            "11"
+          ],
+          [
+            "high-audit.json",
+            "3"
+          ]
+        ]
+      },
+      {
+        "value": [
+          200,
+          70,
+          0.20995276295027915,
+          0.5321536094263994
+        ],
+        "source": [
+          [
+            "first-audit.json",
+            "9"
+          ],
+          [
+            "high-audit.json",
+            "5"
+          ]
+        ]
+      },
+      {
+        "value": [
+          220,
+          70,
+          0.23030853035927681,
+          0.5633211381169525
+        ],
+        "source": [
+          [
+            "high-audit.json",
+            "7"
+          ]
+        ]
+      },
+      {
+        "value": [
+          240,
+          70,
+          0.20980683981686704,
+          0.6229763389966302
+        ],
+        "source": [
+          [
+            "high-audit.json",
+            "9"
+          ]
+        ]
+      },
+      {
+        "value": [
+          255,
+          70,
+          0.22386753677046886,
+          0.5784720170078204
+        ],
+        "source": [
+          [
+            "high-audit.json",
+            "12"
+          ]
+        ]
+      },
+      {
+        "value": [
+          120,
+          60,
+          0.1764627098409893,
+          0.4257521893449742
+        ],
+        "source": [
+          "low-anchors.json",
+          "5"
+        ],
+        "warmup_s": 0.0
+      }
+    ],
+    "triangles": [
+      [
+        5,
+        0,
+        1
+      ],
+      [
+        5,
+        1,
+        2
+      ],
+      [
+        5,
+        2,
+        3
+      ],
+      [
+        5,
+        3,
+        4
+      ],
+      [
+        4,
+        5,
+        6
+      ],
+      [
+        4,
+        6,
+        7
+      ],
+      [
+        4,
+        7,
+        8
+      ],
+      [
+        4,
+        8,
+        9
+      ],
+      [
+        4,
+        9,
+        10
+      ],
+      [
+        4,
+        10,
+        11
+      ],
+      [
+        12,
+        0,
+        5
+      ],
+      [
+        12,
+        5,
+        6
+      ],
+      [
+        12,
+        6,
+        7
+      ],
+      [
+        12,
+        7,
+        8
+      ],
+      [
+        12,
+        8,
+        9
+      ],
+      [
+        12,
+        9,
+        10
+      ],
+      [
+        12,
+        10,
+        11
+      ]
+    ]
+  }
+}

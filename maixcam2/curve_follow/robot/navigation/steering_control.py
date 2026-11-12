@@ -519,26 +519,32 @@ class SteeringControl:
                 plan=self.speed_control.status
                 if (plan.get('controller')=='DWPP' and any(planned)
                         and abs(plan['effective_curvature_m_inv']-(self.requested+self.trim))>1e-9):
-                    # DWPP can choose a different arc when the desired turn is
-                    # not reachable. Check that actual arc, not the ideal one.
-                    actual=self.envelope(path,plan['effective_curvature_m_inv'],
-                        support_sigma+prediction_sigma,self.width,observed_path=observed,
-                        speed_m_s=self.status.get('speed_upper_m_s'),sensor_transform=transform,
-                        lookahead_m=lookahead,support_sigma_m=footprint_sigma)
-                    self.status['dwpp_envelope']=actual
-                    limits=[actual.get('speed_limit_m_s')]
-                    if result.get('history_continuity_evidence') is not None:
-                        actual_candidate=self.envelope(path,plan['effective_curvature_m_inv'],
-                            support_sigma+prediction_sigma,self.width,observed_path=candidate,
+                    # Braking may withdraw outside-wheel compensation and
+                    # restore the baseline arc. Check that arc once as well;
+                    # the baseline's common braking scale preserves it.
+                    for _ in range(2):
+                        checked_curvature=plan['effective_curvature_m_inv']
+                        actual=self.envelope(path,checked_curvature,
+                            support_sigma+prediction_sigma,self.width,observed_path=observed,
                             speed_m_s=self.status.get('speed_upper_m_s'),sensor_transform=transform,
-                            lookahead_m=lookahead)
-                        limits.append(actual_candidate.get('speed_limit_m_s'))
-                    known=[v for v in limits if v is not None]
-                    if known:
-                        cap=min(known)
-                        if (result.get('road_model') or {}).get('persistent_history'):
-                            cap=max(cap,self.speed_control.limits.maximum_m_s*.1)
-                        planned=self.speed_control.constrain_clearance(planned,cap)
+                            lookahead_m=lookahead,support_sigma_m=footprint_sigma)
+                        self.status['dwpp_envelope']=actual
+                        limits=[actual.get('speed_limit_m_s')]
+                        if result.get('history_continuity_evidence') is not None:
+                            actual_candidate=self.envelope(path,checked_curvature,
+                                support_sigma+prediction_sigma,self.width,observed_path=candidate,
+                                speed_m_s=self.status.get('speed_upper_m_s'),sensor_transform=transform,
+                                lookahead_m=lookahead)
+                            limits.append(actual_candidate.get('speed_limit_m_s'))
+                        known=[v for v in limits if v is not None]
+                        if known:
+                            cap=min(known)
+                            if (result.get('road_model') or {}).get('persistent_history'):
+                                cap=max(cap,self.speed_control.limits.maximum_m_s*.1)
+                            planned=self.speed_control.constrain_clearance(planned,cap)
+                        if (not any(planned) or
+                                abs(plan['effective_curvature_m_inv']-checked_curvature)<=1e-9):
+                            break
                 self.status.update(envelope=envelope, target_selection='ADAPTIVE_PURSUIT',
                                    target_speed_scale=target_scale,
                                    speed_plan=dict(mode='DWPP' if plan.get('controller')=='DWPP'

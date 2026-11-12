@@ -13,13 +13,14 @@ from robot.navigation.speed_profile import SpeedLimits, plan_speed_profile
 from robot.core.route_confidence import confidence_speed_factor
 from robot.navigation.dwpp import plan_twist
 from robot.navigation.bend_response import BendResponse
+from robot.control.controller import CommandRamp
 
 
 class ProfileSpeedControl:
     def __init__(self, limits, maximum_effort, response_s, maximum_gap_s=.30,
                  *, high_confidence_gain=1., controller='PURE_PURSUIT',
                  angular_acceleration=2., angular_deceleration=2.,
-                 bend_compensation=False, pwm_boost=37):
+                 bend_compensation=False, pwm_boost=37, motor_rise_pwm_s=180.):
         self.limits = limits
         self.maximum_effort = float(maximum_effort)
         self.response_s = float(response_s)
@@ -38,6 +39,7 @@ class ProfileSpeedControl:
         self.controller=controller
         self.angular_acceleration=float(angular_acceleration)
         self.angular_deceleration=float(angular_deceleration)
+        self.motor_rise_pwm_s=CommandRamp(motor_rise_pwm_s).rise_pwm_s
         if type(bend_compensation) is not bool:
             raise ValueError('bend_compensation must be boolean')
         self.bend_response=(BendResponse(limits.turn_lever_m,pwm_boost)
@@ -80,10 +82,12 @@ class ProfileSpeedControl:
             controller=config.get('controller','PURE_PURSUIT'),
             angular_acceleration=config.get('angular_acceleration_rad_s2',2.),
             angular_deceleration=config.get('angular_deceleration_rad_s2',2.),
-            bend_compensation=config.get('bend_compensation',False),pwm_boost=settings.pwm_boost)
+            bend_compensation=config.get('bend_compensation',False),pwm_boost=settings.pwm_boost,
+            motor_rise_pwm_s=settings.motor_rise_pwm_s)
 
     def reset(self):
         self.applied_at = None
+        self.applied_wheels = (0.,0.)
         self.applied_mean = 0.
         self.reference = None
         self.updated_at = None
@@ -95,6 +99,7 @@ class ProfileSpeedControl:
 
     def applied(self, now, wheels, *, delivered_wheels=None):
         self.applied_at = float(now)
+        self.applied_wheels = tuple(float(value) for value in wheels)
         self.status.pop('applied_curvature_m_inv',None)
         # Keep feedback effort in the pre-boost PWM domain. The final integer
         # wire command supplies its direction/ratio only: a +37 starting boost
@@ -148,37 +153,42 @@ class ProfileSpeedControl:
         """
         if self.controller!='DWPP' or self.dwpp_proposal is None:return command
         requested,v,w=self.dwpp_proposal
-        if v<=ceiling:return command
-        scale=max(0.,ceiling/v)
+        predicted=(self.bend_proposal['estimated_speed_m_s']
+                   if self.bend_proposal is not None else v)
+        if max(v,predicted)<=ceiling:return command
+        scale=max(0.,min(1.,ceiling/v))
         if self.bend_proposal is not None:
-            # Re-solve the mapped pair under the braking ceiling; scaling PWM
-            # would change physical curvature and can enter a motor dead zone.
-            previous=self.bend_proposal
-            base=tuple(x*scale for x in previous['base_wheels'])
-            from robot.control.controller import compensate_pwm
-            target=previous['target_speed_m_s']
-            k=previous['target_yaw_rad_s']/target if target else 0.
-            mapped=self.bend_response.solve(base,compensate_pwm(base,self.bend_response.boost),
-                min(ceiling,target*scale),k,ceiling)
-            self.bend_proposal=mapped
-            wheels=mapped['wheels'] if mapped is not None and not mapped['limited'] else (0.,0.)
-            if not any(wheels):self.bend_proposal=None
-            self.reference=v*scale
-            self.dwpp_proposal=(wheels,v*scale,w*scale)
-            self.status.update(reason='BODY_CLEARANCE',ceiling_m_s=ceiling,
-                target_speed_m_s=v*scale,reference_angular_rad_s=w*scale,
-                requested_wheels=list(wheels),effort_mean_pwm=sum(wheels)/2.,
-                bend_allocation=dict(active=bool(any(wheels)),reason=self.bend_response.last_reason))
-            self.status['dwpp']['overrides'].append('BODY_SWEEP_BRAKING')
-            return wheels
+            # Braking withdraws only the added outside duty. Resume the old
+            # regulator's pair and its selected arc; never solve a new pair or
+            # impose an inside-wheel floor. Steering checks this restored arc.
+            command=self.bend_proposal['base_wheels']
+            self.bend_proposal=None
+            curvature=self.status['dwpp']['selected_curvature_m_inv']
+            w=v*curvature
+            self.status.update(effective_curvature_m_inv=curvature,
+                actuator_model_reason='BODY_CLEARANCE_BASELINE',
+                bend_allocation=dict(active=False,reason='BODY_CLEARANCE_BASELINE'))
         wheels=tuple(x*scale for x in command)
         self.reference=v*scale
         self.dwpp_proposal=(wheels,v*scale,w*scale)
         self.status.update(reason='BODY_CLEARANCE',ceiling_m_s=ceiling,
                            target_speed_m_s=v*scale,reference_angular_rad_s=w*scale,
                            requested_wheels=list(wheels),effort_mean_pwm=sum(wheels)/2.)
-        self.status['dwpp']['overrides'].append('BODY_SWEEP_BRAKING')
+        if 'BODY_SWEEP_BRAKING' not in self.status['dwpp']['overrides']:
+            self.status['dwpp']['overrides'].append('BODY_SWEEP_BRAKING')
         return wheels
+
+    def _bend_effort_limits(self, now, dt):
+        """Reserve only effort the unchanged downstream common ramp can pass."""
+        elapsed=None if self.applied_at is None else now-self.applied_at
+        if (elapsed is None or not 0<=elapsed<CommandRamp.MAX_CONTINUOUS_INTERVAL_S
+                or min(self.applied_wheels)<=0):
+            return None
+        # applied_at is recorded after the ramp/send, and planning precedes the
+        # next ramp. This elapsed interval therefore grants no future time.
+        increase=self.motor_rise_pwm_s*min(dt,elapsed)
+        previous=tuple(abs(value) for value in self.applied_wheels)
+        return dict(peak=max(previous)+increase,sum=sum(previous)+2*increase)
 
     def limit_fallback(self, command):
         """Use the same normalized envelope when measured-speed feedback is unavailable."""
@@ -311,13 +321,25 @@ class ProfileSpeedControl:
         wheels = (mean * (1 - ratio), mean * (1 + ratio))
         bend=None
         if self.bend_response is not None and dwpp_status is not None:
+            # Inspect the currently supported bend near the vehicle, not a
+            # distant opposite turn. This gate affects extra outside duty only.
+            span=front_margin+self.limits.turn_lever_m
+            local=sorted(float(k) for s,k in zip(positions,curve['curvature'])
+                         if s<=span)
+            middle=len(local)//2
+            road_curvature=((local[middle]+local[~middle])/2 if local else 0.)
+            effort_limits=self._bend_effort_limits(now,dt)
+            bend_reason=('BASELINE_GATE' if not bend_allowed else
+                         'STARTUP_OR_LOW_SPEED' if measured_speed<.10 else
+                         'NO_SUPPORTED_BEND' if abs(road_curvature)<1. else
+                         'COUNTER_STEER' if road_curvature*solution.curvature<=0 else
+                         'NO_FRESH_RAMP_BUDGET' if effort_limits is None else None)
             bend=self.bend_response.allocate(wheels,solution.curvature,
-                allowed=bend_allowed and measured_speed>=.10,ceiling=ceiling)
+                allowed=bend_reason is None,ceiling=ceiling,effort_limits=effort_limits)
+            if bend_reason is not None:self.bend_response.last_reason=bend_reason
             if bend is not None:
                 wheels=bend['wheels']
                 self.bend_proposal=bend
-            elif self.bend_response.last_reason=='NO_CONTINUOUS_PAIR_WITHIN_SPEED_CEILING':
-                wheels=(0.,0.)
         self.reference, self.updated_at = reference, now
         self.status = dict(
             mode='ACTIVE',controller=self.controller,selected=True,reason=plan.entry_reason,

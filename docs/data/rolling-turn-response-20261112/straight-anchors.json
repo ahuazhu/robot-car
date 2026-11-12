@@ -1,0 +1,228 @@
+{
+  "anchors": [
+    {
+      "windows": [
+        {
+          "frames": 9,
+          "span_s": 0.23003220500049792,
+          "v": 0.18654116271462315,
+          "yaw": 0.04889075838112122,
+          "pwm_all_confirmed": true,
+          "yaw_regression_residual_deg": 0.09681225055579484
+        },
+        {
+          "frames": 9,
+          "span_s": 0.22458227800052555,
+          "v": 0.1860966882258411,
+          "yaw": 0.058337585564358196,
+          "pwm_all_confirmed": true,
+          "yaw_regression_residual_deg": 0.05948325784676712
+        }
+      ],
+      "eligible": true,
+      "forward_m_s": 0.18632158965451112,
+      "yaw_rad_s": 0.05355754760148108,
+      "pwm": [
+        90,
+        90
+      ],
+      "source": {
+        "path": "straight-90-raw.json",
+        "sha256": "4f27f54f581be7449157237d450c171b9459f8fe045092dd7c1852a24c8023f1"
+      },
+      "method": "Two pre-stop 250ms position/yaw regression windows, span-weighted average; original published v method.",
+      "state": "cold_start_terminal",
+      "previous_steady_window_check": true,
+      "prior_estimated_v": 0.18632158965451112,
+      "ack_window_comparison": {
+        "window_start_s": 0.4025318990006781,
+        "window_end_s": 1.548251252001137,
+        "observed_s": 1.1457559070022398,
+        "frames": 40,
+        "eligible": true,
+        "forward_m_s": 0.18220856816947775,
+        "yaw_rad_s": 0.0316345429526021
+      }
+    },
+    {
+      "windows": [
+        {
+          "frames": 9,
+          "span_s": 0.2197062309996909,
+          "v": 0.22167420711658728,
+          "yaw": 0.030712640114359903,
+          "pwm_all_confirmed": true,
+          "yaw_regression_residual_deg": 0.12821513624120306
+        },
+        {
+          "frames": 7,
+          "span_s": 0.21100567200028308,
+          "v": 0.2307654761902445,
+          "yaw": 0.008211239208705631,
+          "pwm_all_confirmed": true,
+          "yaw_regression_residual_deg": 0.10560693087708209
+        }
+      ],
+      "eligible": true,
+      "forward_m_s": 0.2261280179513033,
+      "yaw_rad_s": 0.01968920847484553,
+      "pwm": [
+        120,
+        120
+      ],
+      "source": {
+        "path": "straight-120-raw.json",
+        "sha256": "1f4491eb759434e1ff82b8e4ea91d2625d6104b635d5b2d8160dcc7d21998b0b"
+      },
+      "method": "Two pre-stop 250ms position/yaw regression windows, span-weighted average; original published v method.",
+      "state": "cold_start_terminal",
+      "previous_steady_window_check": true,
+      "prior_estimated_v": 0.2261280179513033,
+      "ack_window_comparison": {
+        "window_start_s": 0.40292861800026003,
+        "window_end_s": 1.2282332550003048,
+        "observed_s": 0.8253205900009561,
+        "frames": 28,
+        "eligible": true,
+        "forward_m_s": 0.22448029111353712,
+        "yaw_rad_s": 0.023061638982694734
+      }
+    },
+    {
+      "windows": [
+        {
+          "frames": 8,
+          "span_s": 0.23822794900024746,
+          "v": 0.26257529198943674,
+          "yaw": 0.028602758886214923,
+          "pwm_all_confirmed": true,
+          "yaw_regression_residual_deg": 0.1428862533282812
+        },
+        {
+          "frames": 8,
+          "span_s": 0.2039160060003269,
+          "v": 0.2398531002755938,
+          "yaw": 0.05241653722483155,
+          "pwm_all_confirmed": true,
+          "yaw_regression_residual_deg": 0.11253789198031232
+        }
+      ],
+      "eligible": true,
+      "forward_m_s": 0.25209585756664893,
+      "yaw_rad_s": 0.039585631119719716,
+      "pwm": [
+        150,
+        150
+      ],
+      "source": {
+        "path": "straight-150-raw.json",
+        "sha256": "59f7e035ba5d9b4d26dd1921a55ade507fc5da0a05707980b1176f8698a2b516"
+      },
+      "method": "Two pre-stop 250ms position/yaw regression windows, span-weighted average; original published v method.",
+      "state": "cold_start_terminal",
+      "previous_steady_window_check": true,
+      "prior_estimated_v": 0.25209585756664893,
+      "ack_window_comparison": {
+        "window_start_s": 0.4031988040005672,
+        "window_end_s": 1.0205090510007722,
+        "observed_s": 0.6173205079994659,
+        "frames": 20,
+        "eligible": true,
+        "forward_m_s": 0.24826177448396705,
+        "yaw_rad_s": 0.03299631661421375
+      }
+    },
+    {
+      "windows": [
+        {
+          "frames": 10,
+          "span_s": 0.24770185400029732,
+          "v": 0.2619809260204869,
+          "yaw": 0.029961000249632195,
+          "pwm_all_confirmed": true,
+          "yaw_regression_residual_deg": 0.19242978742187555
+        },
+        {
+          "frames": 9,
+          "span_s": 0.20861543499995605,
+          "v": 0.25019039283304495,
+          "yaw": 0.01152929486977663,
+          "pwm_all_confirmed": true,
+          "yaw_regression_residual_deg": 0.1880457037458356
+        }
+      ],
+      "eligible": true,
+      "forward_m_s": 0.25659062574243136,
+      "yaw_rad_s": 0.021534542764241008,
+      "pwm": [
+        180,
+        180
+      ],
+      "source": {
+        "path": "straight-180-raw.json",
+        "sha256": "ef4cabfd1213dc57330659d84397f16751224528105b0f47ba071e1f9f4cd8aa"
+      },
+      "method": "Two pre-stop 250ms position/yaw regression windows, span-weighted average; original published v method.",
+      "state": "cold_start_terminal",
+      "previous_steady_window_check": true,
+      "prior_estimated_v": 0.25659062574243136,
+      "ack_window_comparison": {
+        "window_start_s": 0.40312817500034726,
+        "window_end_s": 1.0259350100004667,
+        "observed_s": 0.6228331070014974,
+        "frames": 23,
+        "eligible": true,
+        "forward_m_s": 0.260055846500918,
+        "yaw_rad_s": 0.023987326580303895
+      }
+    },
+    {
+      "windows": [
+        {
+          "frames": 7,
+          "span_s": 0.22194742600004247,
+          "v": 0.29079343642680017,
+          "yaw": 0.02386470950862868,
+          "pwm_all_confirmed": true,
+          "yaw_regression_residual_deg": 0.16073529976326556
+        },
+        {
+          "frames": 8,
+          "span_s": 0.20832491600049252,
+          "v": 0.26240523574751723,
+          "yaw": 0.016914702163004787,
+          "pwm_all_confirmed": true,
+          "yaw_regression_residual_deg": 0.2202921220281758
+        }
+      ],
+      "eligible": true,
+      "forward_m_s": 0.27704872419542603,
+      "yaw_rad_s": 0.02049972515999931,
+      "pwm": [
+        200,
+        200
+      ],
+      "source": {
+        "path": "straight-200-raw.json",
+        "sha256": "08e31863d48d715dbcae51808e7edf396711b761864b683a4bd57c42bfcc274b"
+      },
+      "method": "Two pre-stop 250ms position/yaw regression windows, span-weighted average; original published v method.",
+      "state": "cold_start_terminal",
+      "previous_steady_window_check": true,
+      "prior_estimated_v": 0.27704872419542603,
+      "ack_window_comparison": {
+        "window_start_s": 0.40392279000025155,
+        "window_end_s": 1.0247461980006847,
+        "observed_s": 0.6208451839984264,
+        "frames": 19,
+        "eligible": true,
+        "forward_m_s": 0.26875053992490233,
+        "yaw_rad_s": 0.026214908436790876
+      }
+    }
+  ],
+  "notes": [
+    "Original November10 terminal steady windows; yaw is measured, not assumed zero.",
+    "Combined with November12 rolling turns as an interpolation estimate. Identical battery state across dates is not established."
+  ]
+}

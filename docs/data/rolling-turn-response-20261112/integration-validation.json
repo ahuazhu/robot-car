@@ -1,0 +1,386 @@
+{
+  "scope": "Counterfactual allocator-only replay of recorded baseline pairs and DWPP curvature/ceiling. Perception, road gate, ramp timing and closed-loop vehicle response are not reconstructed.",
+  "counts": {
+    "SOLVED_OUTSIDE_ONLY": 33,
+    "NO_UNDERSTEER_IN_MODEL": 7,
+    "NO_FEASIBLE_OUTSIDE_IMPROVEMENT": 29,
+    "OUTSIDE_MEASURED_PAIR_DOMAIN": 120,
+    "BEST_FEASIBLE_OUTSIDE_ONLY": 17,
+    "BASELINE_GATE": 2
+  },
+  "changed": 50,
+  "max_added": 80,
+  "boundary_sweeps": [
+    {
+      "direction": -1,
+      "base_outer": 140,
+      "values": [
+        {
+          "inside": 65,
+          "out": 200,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 66,
+          "out": 204,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 67,
+          "out": 208,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 68,
+          "out": 212,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 69,
+          "out": 216,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 70,
+          "out": 220,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 71,
+          "out": 220,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 72,
+          "out": 220,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 73,
+          "out": 220,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 74,
+          "out": 220,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 75,
+          "out": 220,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        }
+      ]
+    },
+    {
+      "direction": -1,
+      "base_outer": 160,
+      "values": [
+        {
+          "inside": 65,
+          "out": 200,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 66,
+          "out": 204,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 67,
+          "out": 208,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 68,
+          "out": 212,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 69,
+          "out": 216,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 70,
+          "out": 220,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 71,
+          "out": 220,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 72,
+          "out": 220,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 73,
+          "out": 220,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 74,
+          "out": 220,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 75,
+          "out": 220,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        }
+      ]
+    },
+    {
+      "direction": -1,
+      "base_outer": 180,
+      "values": [
+        {
+          "inside": 65,
+          "out": 200,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 66,
+          "out": 204,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 67,
+          "out": 208,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 68,
+          "out": 212,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 69,
+          "out": 216,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 70,
+          "out": 220,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 71,
+          "out": 220,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 72,
+          "out": 220,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 73,
+          "out": 220,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 74,
+          "out": 220,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 75,
+          "out": 220,
+          "reason": "BEST_FEASIBLE_OUTSIDE_ONLY"
+        }
+      ]
+    },
+    {
+      "direction": 1,
+      "base_outer": 140,
+      "values": [
+        {
+          "inside": 65,
+          "out": 173,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 66,
+          "out": 168,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 67,
+          "out": 176,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 68,
+          "out": 182,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 69,
+          "out": 188,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 70,
+          "out": 194,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 71,
+          "out": 198,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 72,
+          "out": 224,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 73,
+          "out": 225,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 74,
+          "out": 225,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 75,
+          "out": 226,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        }
+      ]
+    },
+    {
+      "direction": 1,
+      "base_outer": 160,
+      "values": [
+        {
+          "inside": 65,
+          "out": 173,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 66,
+          "out": 168,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 67,
+          "out": 176,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 68,
+          "out": 182,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 69,
+          "out": 188,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 70,
+          "out": 194,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 71,
+          "out": 198,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 72,
+          "out": 224,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 73,
+          "out": 225,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 74,
+          "out": 225,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 75,
+          "out": 226,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        }
+      ]
+    },
+    {
+      "direction": 1,
+      "base_outer": 180,
+      "values": [
+        {
+          "inside": 65,
+          "out": 180,
+          "reason": "NO_UNDERSTEER_IN_MODEL"
+        },
+        {
+          "inside": 66,
+          "out": 182,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 67,
+          "out": 192,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 68,
+          "out": 182,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 69,
+          "out": 188,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 70,
+          "out": 194,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 71,
+          "out": 198,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 72,
+          "out": 224,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 73,
+          "out": 225,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 74,
+          "out": 225,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        },
+        {
+          "inside": 75,
+          "out": 226,
+          "reason": "SOLVED_OUTSIDE_ONLY"
+        }
+      ]
+    }
+  ],
+  "validation": {
+    "full_test_count": 1070,
+    "full_test_status": "passed",
+    "track_test": "pending"
+  }
+}

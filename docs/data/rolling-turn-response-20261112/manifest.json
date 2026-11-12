@@ -1,0 +1,50 @@
+{
+  "sources": [
+    {
+      "file": "first-batch.json",
+      "sha256": "327cbaadd50e2bc222524f97a2c2707cb246fd079283af6ee4d07513b59d4958",
+      "original_source_sha256": "a65221f3fed2e7728aa85aca69e1a8528f25b0b4c84e557af46eaa930e223afc",
+      "run_id": "20261112-193723-run_rolling_batch",
+      "trials": 16,
+      "manual": 16
+    },
+    {
+      "file": "high-batch.json",
+      "sha256": "cb1d1b8bfeb1ff456b4d6bff506830fe893a6eab1f63e1f47e29ade453706d97",
+      "original_source_sha256": "a1c32013aa4dc41dbd543a4f57aa37d8a8483302b94d010d967ee9eaa95891dc",
+      "run_id": "20261112-200031-run_high_range",
+      "trials": 19,
+      "manual": 19
+    },
+    {
+      "file": "retest-batch.json",
+      "sha256": "8c08346b6e9216a3e548281d69c3c0ef558ff530bb0866c9accb842b5344a8d1",
+      "original_source_sha256": "3a3e26bbadf3d1df20ff2af7b543fa2918f020e8d5cb68a2d7f3f10b41aca28a",
+      "run_id": "20261112-203702-run_high_retest",
+      "trials": 4,
+      "manual": 4
+    }
+  ],
+  "surface_battery_same_between_batches_confirmed": true,
+  "restored_version": "0.6.102-backport.1-simple.2",
+  "car_stopped": true,
+  "user_skipped_pwm": [
+    255,
+    70
+  ],
+  "scope": "Rolling paired response, inside70, outside140..255. Manual projections are final rigid-body point displacements, not wheel rotation distances. Completed records are not automatically accepted fit samples.",
+  "model_integration": {
+    "version": "0.6.102-backport.1-simple.4",
+    "table": "maixcam2/curve_follow/robot/navigation/bend_response_data.json",
+    "generator": "maixcam2/curve_follow/tools/fit_bend_response.py",
+    "current_rolling_accepted": 20,
+    "older_straight_anchors": 5,
+    "older_low_differential_anchors": 3,
+    "scope": "Outside-only inverse of interpolated paired PWM -> optical body v,w; inside command preserved; straight, startup and opposite-to-bend corrections use baseline; DWPP reference and road speed limits unchanged.",
+    "limitations": [
+      "Other inside PWM values are interpolation estimates, not directly measured wheel RPM.",
+      "Older anchors have different start conditions and possibly battery state.",
+      "255/70 skipped; no extrapolation beyond mesh; infeasible targets explicitly remain limited."
+    ]
+  }
+}

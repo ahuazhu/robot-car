@@ -1,0 +1,149 @@
+{
+  "plan": [
+    {
+      "id": 1,
+      "left": 140,
+      "right": 70,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 1
+    },
+    {
+      "id": 2,
+      "left": 70,
+      "right": 140,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 1
+    },
+    {
+      "id": 3,
+      "left": 160,
+      "right": 70,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 1
+    },
+    {
+      "id": 4,
+      "left": 70,
+      "right": 160,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 1
+    },
+    {
+      "id": 5,
+      "left": 180,
+      "right": 70,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 1
+    },
+    {
+      "id": 6,
+      "left": 70,
+      "right": 180,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 1
+    },
+    {
+      "id": 7,
+      "left": 200,
+      "right": 70,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 1
+    },
+    {
+      "id": 8,
+      "left": 70,
+      "right": 200,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 1
+    },
+    {
+      "id": 9,
+      "left": 70,
+      "right": 200,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 2
+    },
+    {
+      "id": 10,
+      "left": 200,
+      "right": 70,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 2
+    },
+    {
+      "id": 11,
+      "left": 70,
+      "right": 180,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 2
+    },
+    {
+      "id": 12,
+      "left": 180,
+      "right": 70,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 2
+    },
+    {
+      "id": 13,
+      "left": 70,
+      "right": 160,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 2
+    },
+    {
+      "id": 14,
+      "left": 160,
+      "right": 70,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 2
+    },
+    {
+      "id": 15,
+      "left": 70,
+      "right": 140,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 2
+    },
+    {
+      "id": 16,
+      "left": 140,
+      "right": 70,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 2
+    }
+  ],
+  "maximum_power_s": 1.2,
+  "maximum_travel_m": 0.3,
+  "cutoff_angle_deg": 20,
+  "warmup_pwm": [
+    80,
+    80
+  ],
+  "warmup_s": 0.3,
+  "manual_separation_mm": 170,
+  "restores_installed_version": "0.6.102-backport.1-simple.2",
+  "manual_start_each_trial": true,
+  "run_id": "20261112-193723-run_rolling_batch",
+  "collector_session_id": 4120,
+  "script_sha256": "08a24fc526e486e0ab46f548186b146f899ba8dca31b5e2565c6e9a39bbb6459",
+  "guard_tests_passed": 8,
+  "manual_page_url": "http://10.34.201.209:8000/",
+  "warmup_timer_basis": "First observed fresh80/80 ACK, then0.30s and verified rolling"
+}

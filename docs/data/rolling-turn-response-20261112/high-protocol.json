@@ -1,0 +1,192 @@
+{
+  "plan": [
+    {
+      "id": 1,
+      "left": 160,
+      "right": 70,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 1,
+      "purpose": "补测"
+    },
+    {
+      "id": 2,
+      "left": 70,
+      "right": 160,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 1,
+      "purpose": "补测"
+    },
+    {
+      "id": 3,
+      "left": 70,
+      "right": 180,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 1,
+      "purpose": "补测"
+    },
+    {
+      "id": 4,
+      "left": 200,
+      "right": 70,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 1,
+      "purpose": "补测"
+    },
+    {
+      "id": 5,
+      "left": 70,
+      "right": 200,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 1,
+      "purpose": "补测"
+    },
+    {
+      "id": 6,
+      "left": 220,
+      "right": 70,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 1,
+      "purpose": "高档"
+    },
+    {
+      "id": 7,
+      "left": 70,
+      "right": 220,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 1,
+      "purpose": "高档"
+    },
+    {
+      "id": 8,
+      "left": 240,
+      "right": 70,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 1,
+      "purpose": "高档"
+    },
+    {
+      "id": 9,
+      "left": 70,
+      "right": 240,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 1,
+      "purpose": "高档"
+    },
+    {
+      "id": 10,
+      "left": 255,
+      "right": 70,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 1,
+      "purpose": "高档"
+    },
+    {
+      "id": 11,
+      "left": 70,
+      "right": 255,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 1,
+      "purpose": "高档"
+    },
+    {
+      "id": 12,
+      "left": 70,
+      "right": 255,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 2,
+      "purpose": "高档"
+    },
+    {
+      "id": 13,
+      "left": 255,
+      "right": 70,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 2,
+      "purpose": "高档"
+    },
+    {
+      "id": 14,
+      "left": 70,
+      "right": 240,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 2,
+      "purpose": "高档"
+    },
+    {
+      "id": 15,
+      "left": 240,
+      "right": 70,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 2,
+      "purpose": "高档"
+    },
+    {
+      "id": 16,
+      "left": 70,
+      "right": 220,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 2,
+      "purpose": "高档"
+    },
+    {
+      "id": 17,
+      "left": 220,
+      "right": 70,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 2,
+      "purpose": "高档"
+    },
+    {
+      "id": 18,
+      "left": 200,
+      "right": 70,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 2,
+      "purpose": "补测"
+    },
+    {
+      "id": 19,
+      "left": 70,
+      "right": 160,
+      "warmup_s": 0.3,
+      "optional": false,
+      "repeat": 2,
+      "purpose": "补测"
+    }
+  ],
+  "maximum_power_s": 1.2,
+  "maximum_travel_m": 0.3,
+  "cutoff_angle_deg": 20,
+  "warmup_pwm": [
+    80,
+    80
+  ],
+  "warmup_s": 0.3,
+  "warmup_timer_basis": "fresh80/80 ACK plus0.30s and rolling confirmation",
+  "same_surface_battery_confirmed": true,
+  "manual_start_each_trial": true,
+  "prior_batch": "20261112-193723-run_rolling_batch",
+  "restores_installed_version": "0.6.102-backport.1-simple.2",
+  "run_id": "20261112-200031-run_high_range",
+  "collector_session_id": 38000,
+  "guard_tests_passed": 8,
+  "script_sha256": "39dab608fa570d06badb14042a7924ac516d7263862d6538ef6694db2ae4face"
+}

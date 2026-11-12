@@ -1,0 +1,335 @@
+{
+  "trials": [
+    {
+      "id": "4",
+      "run_id": "20261112-154335-run_batch",
+      "actual_pwm": [
+        120,
+        60
+      ],
+      "warmup_s": 0.0,
+      "reason": "TURN ANGLE REACHED",
+      "aborted": false,
+      "flags": [],
+      "full_trial_eligible_for_static_fit": true,
+      "events": [
+        {
+          "after_start_s": -0.3810770480001793,
+          "pwm": [
+            0,
+            0
+          ]
+        },
+        {
+          "after_start_s": 0.11050897199993415,
+          "pwm": [
+            120,
+            60
+          ]
+        },
+        {
+          "after_start_s": 1.2106466459999865,
+          "pwm": [
+            0,
+            0
+          ]
+        }
+      ],
+      "actual_total_power_s": 1.1001376740000524,
+      "actual_target_power_s": 1.1001376740000524,
+      "stop_request_s": 1.106343797999898,
+      "stop_request_to_zero_ack_s": 0.10430284800008849,
+      "cut_yaw_deg": -20.22758751745379,
+      "flow_final_yaw_deg": -26.553367051612316,
+      "manual_final_yaw_deg": -26.178968704012508,
+      "cut_to_rest_yaw_deg": -6.325779534158525,
+      "visual_forward_integral_m": 0.19692775678267635,
+      "visual_final_pose_m": [
+        0.1871505414429765,
+        -0.06151906574756015
+      ],
+      "manual_midpoint_forward_projection_m": 0.1975,
+      "first_rejection": null,
+      "drive_valid_motion_samples": 87,
+      "drive_total_motion_samples": 87,
+      "motor_errors": [],
+      "max_drive_ack_gap_ms": 73.1,
+      "windows": {
+        "0.2": {
+          "samples": 35,
+          "observed_s": 0.870135177000076,
+          "forward_m_s": 0.17352813741360334,
+          "yaw_rad_s": -0.3696520254781864,
+          "yaw_deg_s": -21.179500948362456,
+          "curvature_optical_m_inv": -2.1302137566147143,
+          "forward_iqr_m_s": [
+            0.10848425492917933,
+            0.2211914496314416
+          ],
+          "yaw_iqr_rad_s": [
+            -0.44572321409892635,
+            -0.28766170129586066
+          ]
+        },
+        "0.3": {
+          "samples": 30,
+          "observed_s": 0.7701332619999951,
+          "forward_m_s": 0.17973245436403504,
+          "yaw_rad_s": -0.36466245647176354,
+          "yaw_deg_s": -20.893619702705145,
+          "curvature_optical_m_inv": -2.028918248304595,
+          "forward_iqr_m_s": [
+            0.11449538319514886,
+            0.2211914496314416
+          ],
+          "yaw_iqr_rad_s": [
+            -0.44572321409892635,
+            -0.28766170129586066
+          ]
+        },
+        "0.4": {
+          "samples": 27,
+          "observed_s": 0.6701313950000878,
+          "forward_m_s": 0.18709688571715338,
+          "yaw_rad_s": -0.36419175739941406,
+          "yaw_deg_s": -20.866650632438795,
+          "curvature_optical_m_inv": -1.9465409913342255,
+          "forward_iqr_m_s": [
+            0.11534031433265977,
+            0.2466944007027219
+          ],
+          "yaw_iqr_rad_s": [
+            -0.4459031665831226,
+            -0.2755440391508776
+          ]
+        }
+      },
+      "linear_pwm_ratio_curvature_m_inv": -2.2222222222222223,
+      "optical_curvature_fraction_of_linear_pwm_ratio": 0.9130132117370677
+    },
+    {
+      "id": "5",
+      "run_id": "20261112-154335-run_batch",
+      "actual_pwm": [
+        60,
+        120
+      ],
+      "warmup_s": 0.0,
+      "reason": "TURN ANGLE REACHED",
+      "aborted": false,
+      "flags": [],
+      "full_trial_eligible_for_static_fit": true,
+      "events": [
+        {
+          "after_start_s": -0.6731626509999842,
+          "pwm": [
+            0,
+            0
+          ]
+        },
+        {
+          "after_start_s": 0.11092629199970361,
+          "pwm": [
+            60,
+            120
+          ]
+        },
+        {
+          "after_start_s": 1.0074430580000353,
+          "pwm": [
+            0,
+            0
+          ]
+        }
+      ],
+      "actual_total_power_s": 0.8965167660003317,
+      "actual_target_power_s": 0.8965167660003317,
+      "stop_request_s": 0.9570118239998919,
+      "stop_request_to_zero_ack_s": 0.05043123400014338,
+      "cut_yaw_deg": 20.13386588504722,
+      "flow_final_yaw_deg": 29.224494274869635,
+      "manual_final_yaw_deg": 26.932543949575095,
+      "cut_to_rest_yaw_deg": 9.090628389822413,
+      "visual_forward_integral_m": 0.13123607784432592,
+      "visual_final_pose_m": [
+        0.13745612794647064,
+        0.011490854775973293
+      ],
+      "manual_midpoint_forward_projection_m": 0.1585,
+      "first_rejection": null,
+      "drive_valid_motion_samples": 116,
+      "drive_total_motion_samples": 117,
+      "motor_errors": [],
+      "max_drive_ack_gap_ms": 73.1,
+      "windows": {
+        "0.2": {
+          "samples": 27,
+          "observed_s": 0.6665170490003247,
+          "forward_m_s": 0.16345080463655598,
+          "yaw_rad_s": 0.4408147644213667,
+          "yaw_deg_s": 25.256825548397952,
+          "curvature_optical_m_inv": 2.696926242740428,
+          "forward_iqr_m_s": [
+            0.0980345650043143,
+            0.206815682582585
+          ],
+          "yaw_iqr_rad_s": [
+            0.2428709756504634,
+            0.5408145164036788
+          ]
+        },
+        "0.3": {
+          "samples": 23,
+          "observed_s": 0.5665099210002549,
+          "forward_m_s": 0.1764627098409893,
+          "yaw_rad_s": 0.4257521893449742,
+          "yaw_deg_s": 24.39380356792172,
+          "curvature_optical_m_inv": 2.4127034529199958,
+          "forward_iqr_m_s": [
+            0.09942843059730364,
+            0.21219181520269578
+          ],
+          "yaw_iqr_rad_s": [
+            0.2428709756504634,
+            0.5408145164036788
+          ]
+        },
+        "0.4": {
+          "samples": 19,
+          "observed_s": 0.4665049500002709,
+          "forward_m_s": 0.18273001274619236,
+          "yaw_rad_s": 0.4259298619503797,
+          "yaw_deg_s": 24.403983458346545,
+          "curvature_optical_m_inv": 2.3309244909974702,
+          "forward_iqr_m_s": [
+            0.10227700671972616,
+            0.21219181520269578
+          ],
+          "yaw_iqr_rad_s": [
+            0.322115896142101,
+            0.49848096484430515
+          ]
+        }
+      },
+      "linear_pwm_ratio_curvature_m_inv": 2.2222222222222223,
+      "optical_curvature_fraction_of_linear_pwm_ratio": 1.0857165538139981
+    },
+    {
+      "id": "15",
+      "run_id": "20261112-154335-run_batch",
+      "actual_pwm": [
+        140,
+        50
+      ],
+      "warmup_s": 0.3,
+      "reason": "POWER TIME REACHED",
+      "aborted": false,
+      "flags": [],
+      "full_trial_eligible_for_static_fit": true,
+      "events": [
+        {
+          "after_start_s": -0.48629234899999574,
+          "pwm": [
+            0,
+            0
+          ]
+        },
+        {
+          "after_start_s": 0.05194451399984246,
+          "pwm": [
+            80,
+            80
+          ]
+        },
+        {
+          "after_start_s": 0.47226692499998535,
+          "pwm": [
+            140,
+            50
+          ]
+        },
+        {
+          "after_start_s": 1.247713936999844,
+          "pwm": [
+            0,
+            0
+          ]
+        }
+      ],
+      "actual_total_power_s": 1.1957694230000016,
+      "actual_target_power_s": 0.7754470119998587,
+      "stop_request_s": 1.2359285349998572,
+      "stop_request_to_zero_ack_s": 0.011785401999986789,
+      "cut_yaw_deg": -18.906474554175055,
+      "flow_final_yaw_deg": -26.027947940498294,
+      "manual_final_yaw_deg": -25.057615418303023,
+      "cut_to_rest_yaw_deg": -7.121473386323237,
+      "visual_forward_integral_m": 0.21447077809893497,
+      "visual_final_pose_m": [
+        0.2097529198263588,
+        -0.03619021457493612
+      ],
+      "manual_midpoint_forward_projection_m": 0.209,
+      "first_rejection": null,
+      "drive_valid_motion_samples": 80,
+      "drive_total_motion_samples": 80,
+      "motor_errors": [],
+      "max_drive_ack_gap_ms": 74.3,
+      "windows": {
+        "0.2": {
+          "samples": 26,
+          "observed_s": 0.5454583799996455,
+          "forward_m_s": 0.1887089898152815,
+          "yaw_rad_s": -0.538101059625079,
+          "yaw_deg_s": -30.830919668034493,
+          "curvature_optical_m_inv": -2.8514860905768256,
+          "forward_iqr_m_s": [
+            0.0790222662792619,
+            0.24249253437067267
+          ],
+          "yaw_iqr_rad_s": [
+            -0.5840525107968596,
+            -0.4352916231304801
+          ]
+        },
+        "0.3": {
+          "samples": 23,
+          "observed_s": 0.44545716599964014,
+          "forward_m_s": 0.20413943378768876,
+          "yaw_rad_s": -0.5578591302874643,
+          "yaw_deg_s": -31.962973728310416,
+          "curvature_optical_m_inv": -2.73273575779413,
+          "forward_iqr_m_s": [
+            0.11973706343176596,
+            0.24249253437067267
+          ],
+          "yaw_iqr_rad_s": [
+            -0.6324730445014339,
+            -0.4352916231304801
+          ]
+        },
+        "0.4": {
+          "samples": 18,
+          "observed_s": 0.34545776899993863,
+          "forward_m_s": 0.19329645342614465,
+          "yaw_rad_s": -0.5612520187336185,
+          "yaw_deg_s": -32.15737191663376,
+          "curvature_optical_m_inv": -2.9035815649254193,
+          "forward_iqr_m_s": [
+            0.09799067064150317,
+            0.2356033698254774
+          ],
+          "yaw_iqr_rad_s": [
+            -0.5840525107968596,
+            -0.44994163674896587
+          ]
+        }
+      },
+      "linear_pwm_ratio_curvature_m_inv": -3.1578947368421053,
+      "optical_curvature_fraction_of_linear_pwm_ratio": 0.8653663233014744
+    }
+  ],
+  "notes": [
+    "120/60 and60/120 are old cold-start late windows;140/50 is rolling. These are approximate lower-domain interpolation anchors, not pooled with the new inside70 curve."
+  ]
+}
