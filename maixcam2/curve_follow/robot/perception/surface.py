@@ -74,23 +74,32 @@ class RoadSurfaceEvidence:
                     green_separator_m=separator["longest_green_m"])
 
     def contradiction(self, path, sigma_m):
-        report = dict(contradicted=False, visible_samples=0, green_samples=0, longest_green_m=0.0)
-        if path is None:
-            return report
-        points = np.asarray(path, float)
-        if (
-            points.ndim != 2
-            or points.shape[1:] != (2,)
-            or len(points) < 2
-            or not np.isfinite(points).all()
-        ):
-            return report
-        sigma = np.broadcast_to(np.asarray(sigma_m, float), (len(points),))
+        return self.contradictions([(path, sigma_m)])[0]
+
+    def contradictions(self, paths):
+        """Sample all current-frame corridors once, retaining each run boundary."""
+        reports = [dict(contradicted=False, visible_samples=0, green_samples=0,
+                        longest_green_m=0.0) for _ in paths]
+        chunks, sigmas, slices = [], [], []
+        offset = 0
+        for i, (path, sigma_m) in enumerate(paths):
+            points = np.asarray(path, float)
+            if (points.ndim != 2 or points.shape[1:] != (2,) or len(points) < 2
+                    or not np.isfinite(points).all()):
+                continue
+            chunks.append(points)
+            sigmas.append(np.broadcast_to(np.asarray(sigma_m, float), (len(points),)))
+            slices.append((i, offset, offset+len(points)))
+            offset += len(points)
+        if not chunks:
+            return reports
+        points, sigma = np.concatenate(chunks), np.concatenate(sigmas)
         definite, visible = self._sample(self._definite_green, points)
-        report["visible_samples"] = int(visible.sum())
+        for i, begin, end in slices:
+            reports[i]['visible_samples'] = int(visible[begin:end].sum())
         valid_sigma = np.isfinite(sigma) & (sigma >= 0)
         if not (visible & valid_sigma & (definite > 0)).any():
-            return report
+            return reports
         if self._green_clearance is None:
             self._green_clearance = (
                 cv2.distanceTransform(self._definite_green.astype(np.uint8), cv2.DIST_L2, 5)
@@ -100,16 +109,13 @@ class RoadSurfaceEvidence:
         # Two grid cells cover remap/discretization near the color boundary;
         # geometry uncertainty adds its own two-sigma margin per road sample.
         green = visible & valid_sigma & (clearance > 2 * sigma + 2 * self.step_m)
-        lengths = [
-            float(np.linalg.norm(np.diff(points[ids], axis=0), axis=1).sum())
-            for ids in contiguous_runs(green)
-            if len(ids) >= 3
-        ]
-        longest = max(lengths, default=0.0)
-        report.update(
-            contradicted=longest + 1e-9 >= self.minimum_segment_m,
-            visible_samples=int(visible.sum()),
-            green_samples=int(green.sum()),
-            longest_green_m=longest,
-        )
-        return report
+        for i, begin, end in slices:
+            # Never join a green run across separate stored corridors.
+            local, mask = points[begin:end], green[begin:end]
+            lengths = [float(np.linalg.norm(np.diff(local[ids], axis=0), axis=1).sum())
+                       for ids in contiguous_runs(mask) if len(ids) >= 3]
+            longest = max(lengths, default=0.0)
+            reports[i].update(contradicted=longest+1e-9 >= self.minimum_segment_m,
+                             visible_samples=int(visible[begin:end].sum()),
+                             green_samples=int(mask.sum()), longest_green_m=longest)
+        return reports

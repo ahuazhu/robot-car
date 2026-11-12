@@ -71,6 +71,21 @@ def synthetic_surface(*, saturation=200, unknown=False):
 
 
 class SurfacePredictionTests(unittest.TestCase):
+    def test_batched_corridors_match_individual_reports_without_joining_runs(self):
+        paths=[(path(),.005),(path(y=.4),.005),(None,.005),
+               (path(start=.32,end=.35,count=6),.005),
+               (path(start=.36,end=.39,count=6),.005),
+               (path(),np.linspace(0.,.15,50))]
+        for kwargs in ({},{'unknown':True},{'saturation':0}):
+            one=synthetic_surface(**kwargs)
+            expected=[one.contradiction(p,s) for p,s in paths]
+            batch=synthetic_surface(**kwargs)
+            sample=Mock(wraps=batch._sample);batch._sample=sample
+            self.assertEqual(batch.contradictions(paths),expected)
+            self.assertLessEqual(sample.call_count,2)
+            self.assertFalse(batch.contradictions(paths)[3]['contradicted'])
+            self.assertFalse(batch.contradictions(paths)[4]['contradicted'])
+
     def model(self):
         model = LocalRoadModel()
         model.initialize(path(), 0.0, 0.9, "TWO EDGES")

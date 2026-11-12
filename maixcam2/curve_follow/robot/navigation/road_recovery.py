@@ -167,19 +167,15 @@ class RoadSearch:
         if surface is not None:
             # Stored search geometry uses the body origin; image evidence uses
             # the calibrated camera-ground coordinates after this frame's motion.
-            self.patches = [
-                patch
-                for patch in self.patches
-                if not surface.contradiction(patch["path"] + self.origin, patch["sigma"])[
-                    "contradicted"
-                ]
-            ]
-            if (
-                self.pose_hint is not None
-                and surface.contradiction(
-                    self.pose_hint["path"] + self.origin, self.pose_hint["sigma"]
-                )["contradicted"]
-            ):
+            candidates = self.patches + ([] if self.pose_hint is None else [self.pose_hint])
+            paths = [(p['path']+self.origin, p['sigma']) for p in candidates]
+            reports = (surface.contradictions(paths)
+                       if hasattr(type(surface), 'contradictions') else
+                       [surface.contradiction(*p) for p in paths])
+            count = len(self.patches)
+            self.patches = [p for p, r in zip(self.patches, reports[:count])
+                            if not r['contradicted']]
+            if self.pose_hint is not None and reports[-1]['contradicted']:
                 self.pose_hint = None
         radius = (
             self.policy.maximum_target_m + math.hypot(max(self.body[:2]), self.body[2])
