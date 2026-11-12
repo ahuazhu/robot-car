@@ -168,13 +168,8 @@ class ProfileSpeedControl:
             # Braking withdraws only the added outside duty. Resume the old
             # regulator's pair and its selected arc; never solve a new pair or
             # impose an inside-wheel floor. Steering checks this restored arc.
-            command=self.bend_proposal['base_wheels']
-            self.bend_proposal=None
-            curvature=self.status['dwpp']['selected_curvature_m_inv']
-            w=v*curvature
-            self.status.update(effective_curvature_m_inv=curvature,
-                actuator_model_reason='BODY_CLEARANCE_BASELINE',
-                bend_allocation=dict(active=False,reason='BODY_CLEARANCE_BASELINE'))
+            command=self.withdraw_bend(command,'BODY_CLEARANCE_BASELINE')
+            _,v,w=self.dwpp_proposal
         wheels=tuple(x*scale for x in command)
         self.reference=v*scale
         self.dwpp_proposal=(wheels,v*scale,w*scale)
@@ -184,6 +179,20 @@ class ProfileSpeedControl:
         if 'BODY_SWEEP_BRAKING' not in self.status['dwpp']['overrides']:
             self.status['dwpp']['overrides'].append('BODY_SWEEP_BRAKING')
         return wheels
+
+    def withdraw_bend(self, command, reason):
+        """Restore the original pair when the proposed arc cannot be verified."""
+        if self.bend_proposal is None:return command
+        command=self.bend_proposal['base_wheels']
+        self.bend_proposal=None
+        _,v,_=self.dwpp_proposal
+        curvature=self.status['dwpp']['selected_curvature_m_inv']
+        self.dwpp_proposal=(command,v,v*curvature)
+        self.status.update(effective_curvature_m_inv=curvature,
+            reference_angular_rad_s=v*curvature,requested_wheels=list(command),
+            effort_mean_pwm=sum(command)/2,actuator_model_reason=reason,
+            bend_allocation=dict(active=False,reason=reason))
+        return command
 
     def _bend_effort_limits(self, now, dt):
         """Reserve only effort the unchanged downstream common ramp can pass."""
@@ -327,6 +336,8 @@ class ProfileSpeedControl:
             mean = min(mean, actual * ceiling / measured_speed)
         wheels = (mean * (1 - ratio), mean * (1 + ratio))
         bend=None
+        bend_ceiling=None
+        bend_speed_reason=None
         if self.bend_response is not None and dwpp_status is not None:
             # Inspect the currently supported bend near the vehicle, not a
             # distant opposite turn. This gate affects extra outside duty only.
@@ -341,11 +352,25 @@ class ProfileSpeedControl:
                          'NO_SUPPORTED_BEND' if abs(road_curvature)<1. else
                          'COUNTER_STEER' if road_curvature*solution.curvature<=0 else
                          'NO_FRESH_RAMP_BUDGET' if effort_limits is None else None)
+            if bend_reason is None:
+                # Keep the original DWPP reference above. A measured body
+                # response must not also satisfy its ideal wheel-speed proxy.
+                # The original arc's clearance cap cannot authorize/reject a
+                # different arc: steering checks the proposed physical arc
+                # before publication and withdraws it if its own cap fails.
+                bend_plan=plan_speed_profile(
+                    positions,curve['curvature'],self.limits,
+                    distance_margin_m=front_margin+2*sigma,
+                    centerline_confidence=confidence,
+                    exact_curvature_required=False,nominal_wheel_limit=False)
+                bend_ceiling=bend_plan.entry_limit_m_s
+                bend_speed_reason=bend_plan.entry_reason
             # This tuning margin changes only the outside-wheel inversion
             # target. The original DWPP pair and speed reference stay intact;
             # steering still checks the resulting physical arc.
             bend=self.bend_response.allocate(wheels,solution.curvature*self.bend_curvature_gain,
-                allowed=bend_reason is None,ceiling=ceiling,effort_limits=effort_limits)
+                allowed=bend_reason is None,ceiling=bend_ceiling,effort_limits=effort_limits,
+                lateral_acceleration=self.limits.lateral_acceleration_m_s2)
             if bend_reason is not None:self.bend_response.last_reason=bend_reason
             if bend is not None:
                 bend['curvature_gain']=self.bend_curvature_gain
@@ -373,6 +398,14 @@ class ProfileSpeedControl:
             self.dwpp_proposal=(wheels,solution.linear,solution.angular)
             if self.bend_response is not None:
                 self.status['actuator_model_reason']=self.bend_response.last_reason
+                self.status['bend_speed_ceiling_m_s']=bend_ceiling
+                self.status['bend_speed_limit_reason']=bend_speed_reason
+                self.status['bend_effort_limits']=effort_limits
+                self.status['actuator_base_wire']=list(self.bend_response.last_base_wire)
+                base_motion=self.bend_response.last_base_motion
+                if base_motion is not None:
+                    self.status['actuator_base_speed_m_s']=base_motion[0]
+                    self.status['actuator_base_curvature_m_inv']=base_motion[1]/base_motion[0]
             if bend is not None:
                 self.status['bend_allocation']=dict(active=True,**{
                     key:value for key,value in bend.items()

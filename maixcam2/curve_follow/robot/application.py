@@ -25,6 +25,53 @@ from robot.core.native_geometry import native_fit_status
 from robot.tasks.crosswalk import CrosswalkDetector, CrosswalkTask, draw_crosswalk_overlay
 
 
+def drive_trace(frame, captured, pwm, motor, steering):
+    """Compact, time-aligned diagnostics; timestamps use the monotonic clock.
+
+    published=[time,L,R] is the latest shared target, not the latest ACK.
+    exchange=[send_time,ACK_time,op,L,R,target_time] belongs to that ACK;
+    watchdog zeroes can therefore differ from the target without ambiguity.
+    motion=[measured,interval,v,w,sigma,feedback_valid] ends at captured and
+    precedes the current frame's publication. Missing values stay null.
+    """
+    motor = motor or {}
+    published, exchange = motor.get('published'), motor.get('exchange')
+    plan = steering.get('speed_profile_control') or {}
+    bend = plan.get('bend_allocation') or {}
+    def number(value):
+        return round(float(value), 6) if value is not None else None
+    return dict(
+        frame=frame, captured=number(captured), pwm=pwm,
+        published=([number(published['at']), *published['pwm']] if published else None),
+        ack=motor.get('ack'),
+        exchange=([number(exchange['sent_at']), number(exchange['ack_at']),
+                   exchange['op'], *exchange['pwm'],
+                   number(exchange['target_published_at'])] if exchange else None),
+        motion=[steering.get('motion_measured', False),
+                number(steering.get('motion_interval_s')),
+                number(steering.get('body_speed_m_s')),
+                number(steering.get('body_yaw_rad_s')),
+                number(steering.get('motion_sigma_m')),
+                steering.get('feedback_valid', False)],
+        model=dict(reason=plan.get('actuator_model_reason'),
+                   base=bend.get('base_wire', plan.get('actuator_base_wire')),
+                   wire=bend.get('wire'),
+                   base_v=number(bend.get('target_speed_m_s',
+                                         plan.get('actuator_base_speed_m_s'))),
+                   base_k=number(bend.get('base_curvature_m_inv',
+                                         plan.get('actuator_base_curvature_m_inv'))),
+                   target_k=number(bend.get('target_curvature_m_inv')),
+                   dwpp_k=number((plan.get('dwpp') or {}).get('selected_curvature_m_inv')),
+                   predicted_v=number(bend.get('estimated_speed_m_s')),
+                   predicted_k=number(bend.get('estimated_curvature_m_inv')),
+                   ceiling=number(plan.get('ceiling_m_s')),
+                   bend_ceiling=number(plan.get('bend_speed_ceiling_m_s')),
+                   limit_reason=plan.get('bend_speed_limit_reason'),
+                   effort=plan.get('bend_effort_limits'),
+                   limited=bend.get('limited')),
+    )
+
+
 def main(app_dir):
     from maix import app, camera, display, image, touchscreen
 
@@ -434,6 +481,12 @@ def main(app_dir):
                  crossing_view.get("legal_stop_acquired")) if active else None
             )
             log_engaged = active or start_light.armed
+            if not preview_only and (log_engaged or last_log_engaged):
+                # After command publication, once per frame; no UART-loop I/O
+                # and no explicit flush. CONTROL retains its existing cadence.
+                print('DRIVE_TRACE ' + telemetry_dumps(
+                    drive_trace(frames, captured, applied_pwm, metrics['motor'], steering_state),
+                    separators=(',', ':')))
             if (
                 now >= next_log
                 or log_engaged != last_log_engaged

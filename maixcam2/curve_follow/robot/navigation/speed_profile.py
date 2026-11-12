@@ -41,7 +41,8 @@ class SpeedProfile:
 
 def plan_speed_profile(stations_m, curvature_m_inv, limits, *, stop_at_m=None,
                        distance_margin_m=0.0, initial_speed_m_s=None, centerline_confidence=1.,
-                       clearance_limit_m_s=None, exact_curvature_required=True):
+                       clearance_limit_m_s=None, exact_curvature_required=True,
+                       nominal_wheel_limit=True):
     """Plan a forward-only sampled envelope with an explicit zero-speed end.
 
     Each sample is bounded by lateral acceleration and nominal differential
@@ -64,6 +65,9 @@ def plan_speed_profile(stations_m, curvature_m_inv, limits, *, stop_at_m=None,
     DWPP may instead select a bounded approximate arc, subsequently checked by
     the caller's body sweep; it disables only this exact-curvature feasibility
     constraint. All distance, confidence and braking limits remain in force.
+
+    Calibrated body-motion allocation can omit the ideal outer-wheel bound;
+    the ordinary reference planner keeps it. All chassis limits still apply.
     """
     s = tuple(float(v) for v in stations_m)
     k = tuple(float(v) for v in curvature_m_inv)
@@ -98,8 +102,10 @@ def plan_speed_profile(stations_m, curvature_m_inv, limits, *, stop_at_m=None,
         load = abs(limits.turn_lever_m * curvature)
         lateral = math.sqrt(limits.lateral_acceleration_m_s2 / abs(curvature)) if curvature else math.inf
         wheel = limits.maximum_m_s / (1.0 + load)
-        choices = [(limits.maximum_m_s, "MAXIMUM_SPEED"), (lateral, "CURVATURE"), (wheel, "OUTER_WHEEL"),
+        choices = [(limits.maximum_m_s, "MAXIMUM_SPEED"), (lateral, "CURVATURE"),
                    (confidence_limit,'CENTERLINE_CONFIDENCE')]
+        if nominal_wheel_limit:
+            choices.insert(2,(wheel, "OUTER_WHEEL"))
         if clearance_limit_m_s is not None:
             choices.append((clearance_limit_m_s,'BODY_CLEARANCE'))
         if exact_curvature_required and load > 1.0:

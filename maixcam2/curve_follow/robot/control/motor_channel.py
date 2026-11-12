@@ -14,7 +14,8 @@ def _motor_error(state, message):
     state["error"].value = data
 
 
-def _motor_exchange(transport, state, op, left=0, right=0):
+def _motor_exchange(transport, state, op, left=0, right=0, *, published_at=None):
+    sent_at = time.monotonic()
     ack = transport.send(op, left, right)
     now = time.monotonic()
     with state["lock"]:
@@ -32,6 +33,9 @@ def _motor_exchange(transport, state, op, left=0, right=0):
             v[14] = 0.0
         v[4] = now
         v[7:12] = ack[:5]
+        # Keep the completed exchange paired with its ACK. A newer target may
+        # already be published while this UART exchange is in flight.
+        v[15:20] = (sent_at, op, left, right, published_at or 0.0)
         state["lamp"].value = ack[5] if len(ack) == 6 else 0
         if op == 2:
             if v[6]:
@@ -95,7 +99,7 @@ def _motor_worker(transport, state, connection, closed, period, fresh_seconds, s
                     if age < fresh_seconds and (not lease_until or now < lease_until)
                     else (0, 0)
                 )
-                _motor_exchange(transport, state, 2, *output)
+                _motor_exchange(transport, state, 2, *output, published_at=published)
                 next_drive = time.monotonic() + period
                 if lease_until and output != (0, 0):
                     next_drive = min(next_drive, lease_until)
@@ -118,7 +122,7 @@ class MotorChannel:
         # uses POSIX TTY calls only, never inherited Maix camera or display APIs.
         ctx = multiprocessing.get_context("fork")
         self.state = dict(
-            values=ctx.RawArray("d", 15),
+            values=ctx.RawArray("d", 20),
             error=ctx.RawArray("c", 256),
             lock=ctx.Lock(),
             lamp=ctx.RawValue("i", 0),
@@ -147,6 +151,11 @@ class MotorChannel:
             armed=bool(v[0]),
             confirmed_forward_s=v[13],
             ack=[int(x) for x in v[7:12]],
+            published=(dict(at=v[3], pwm=[int(v[1]), int(v[2])])
+                       if v[0] and v[3] else None),
+            exchange=dict(sent_at=v[15], ack_at=v[4], op=int(v[16]),
+                          pwm=[int(v[17]), int(v[18])],
+                          target_published_at=v[19] or None) if v[15] else None,
             error=error,
             brake_lamp_supported=bool(lamp_flags & 1),
             brake_lamp_on=bool(lamp_flags & 2),

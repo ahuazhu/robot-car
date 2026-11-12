@@ -30,6 +30,8 @@ class BendResponse:
             self.banks[direction] = (np.linalg.inv(matrices), nodes[triangles, 2:],
                                      int(max(nodes[:, 0])))
         self.last_reason = 'NOT_EVALUATED'
+        self.last_base_wire = None
+        self.last_base_motion = None
 
     def _predict(self, pairs, direction):
         pairs = np.asarray(pairs, float).reshape(-1, 2)
@@ -55,13 +57,17 @@ class BendResponse:
         motion = self.predict(wire)
         return motion[1]/motion[0] if motion is not None and motion[0] > 0 else None
 
-    def allocate(self, wheels, curvature, *, allowed, ceiling=None, effort_limits=None):
+    def allocate(self, wheels, curvature, *, allowed, ceiling=None, effort_limits=None,
+                 lateral_acceleration=None):
         self.last_reason = 'BASELINE_GATE'
         wire = compensate_pwm(wheels, self.boost)
+        self.last_base_wire = wire
+        self.last_base_motion = None
         if (not allowed or not math.isfinite(curvature) or abs(curvature) < 1.
                 or min(wire) <= 0 or (wire[1]-wire[0])*curvature <= 0):
             return None
         base_motion = self.predict(wire)
+        self.last_base_motion = base_motion
         if base_motion is None:
             self.last_reason = 'OUTSIDE_MEASURED_PAIR_DOMAIN'
             return None
@@ -85,6 +91,8 @@ class BendResponse:
         valid &= direction*k > direction*base_k+1e-9
         if ceiling is not None:
             valid &= motion[:, 0] <= ceiling+1e-9
+        if lateral_acceleration is not None:
+            valid &= motion[:, 0]*np.abs(motion[:, 1]) <= lateral_acceleration+1e-9
         if effort_limits is not None:
             valid &= np.max(logical, axis=1) <= effort_limits['peak']+1e-9
             valid &= np.sum(logical, axis=1) <= effort_limits['sum']+1e-9

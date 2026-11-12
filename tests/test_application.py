@@ -285,6 +285,38 @@ class ApplicationBoundaryTests(unittest.TestCase):
                 if line.startswith('CONTROL ')]
         self.assertEqual([entry['frame'] for entry in logs], [1,2,4])
 
+    def test_compact_drive_trace_keeps_every_engaged_frame_and_stop_transition(self):
+        run = self.run_application(5, preview=False, touch_actions={2:'start',4:'stop'})
+        lines = [line for line in run.output.splitlines() if line.startswith('DRIVE_TRACE ')]
+        traces = [json.loads(line[len('DRIVE_TRACE '):]) for line in lines]
+        self.assertEqual([r['frame'] for r in traces], [2,3,4])
+        self.assertTrue(all(len(line.encode()) < 1024 for line in lines))
+        # The fake link has no timing telemetry: do not invent a send timestamp.
+        self.assertTrue(all(r['published'] is None and r['exchange'] is None for r in traces))
+        self.assertEqual(traces[-1]['pwm'], [0,0])
+        self.assertNotIn('DRIVE_TRACE ', self.run_application(2).output)
+
+    def test_drive_trace_distinguishes_new_publication_old_ack_and_failed_model_input(self):
+        motor = dict(published=dict(at=12.1,pwm=[160,70]),ack=[8,1,140,70,0],
+                     exchange=dict(sent_at=12.,ack_at=12.05,op=2,pwm=[140,70],
+                                   target_published_at=11.9))
+        steering = dict(motion_measured=True,motion_interval_s=.2,
+                        body_speed_m_s=.18,body_yaw_rad_s=-.3,motion_sigma_m=.002,
+                        feedback_valid=False,speed_profile_control=dict(
+                            actuator_model_reason='NO_FEASIBLE_OUTSIDE_IMPROVEMENT',
+                            actuator_base_wire=[160,70],actuator_base_speed_m_s=.21,
+                            actuator_base_curvature_m_inv=-1.7,ceiling_m_s=.2,
+                            bend_speed_ceiling_m_s=.22,bend_speed_limit_reason='BASELINE',
+                            bend_effort_limits=dict(peak=170.,sum=220.)))
+        trace=application.drive_trace(10,12.08,[160,70],motor,steering)
+        self.assertEqual(trace['published'],[12.1,160,70])
+        self.assertEqual(trace['exchange'],[12.,12.05,2,140,70,11.9])
+        self.assertEqual(trace['motion'],[True,.2,.18,-.3,.002,False])
+        self.assertEqual(trace['model']['base'],[160,70])
+        self.assertEqual(trace['model']['base_v'],.21)
+        self.assertIsNone(trace['model']['wire'])
+        self.assertLess(len(application.telemetry_dumps(trace,separators=(',',':'))),1024)
+
     def test_published_vision_frame_is_complete_before_http_can_read_it(self):
         run = self.run_application(4)
         self.assertEqual([p["frame"] for p in run.stream.publications], [1, 2, 3, 4])

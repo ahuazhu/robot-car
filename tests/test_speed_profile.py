@@ -82,6 +82,50 @@ class SpeedProfileTests(unittest.TestCase):
         self.assertEqual(blocked.entry_limit_m_s, 0)
         self.assertEqual(blocked.entry_reason, "FORWARD_KINEMATICS")
 
+    def test_measured_body_envelope_removes_only_nominal_outer_wheel_cap(self):
+        for curvature, expected, reason in ((.5, .30, 'MAXIMUM_SPEED'),
+                                           (2., math.sqrt(.15 / 2), 'CURVATURE')):
+            with self.subTest(curvature=curvature):
+                old = plan_speed_profile([0, 2, 3], [curvature] * 3, LIMITS)
+                explicit = plan_speed_profile([0, 2, 3], [curvature] * 3, LIMITS,
+                                             nominal_wheel_limit=True)
+                measured = plan_speed_profile([0, 2, 3], [curvature] * 3, LIMITS,
+                                             nominal_wheel_limit=False)
+                self.assertEqual(old, explicit)
+                self.assertGreater(measured.entry_limit_m_s, old.entry_limit_m_s)
+                self.assertAlmostEqual(measured.entry_limit_m_s, expected)
+                self.assertEqual(measured.entry_reason, reason)
+
+    def test_measured_body_envelope_keeps_confidence_clearance_and_braking(self):
+        cases = ((dict(centerline_confidence=.4), .15, 'CENTERLINE_CONFIDENCE'),
+                 (dict(clearance_limit_m_s=.12), .12, 'BODY_CLEARANCE'),
+                 (dict(stop_at_m=0.), 0., 'STOP_POINT'),
+                 (dict(distance_margin_m=3.), 0., 'SUPPORT_END'))
+        for kwargs, expected, reason in cases:
+            with self.subTest(kwargs=kwargs):
+                plan = plan_speed_profile([0, 2, 3], [2.] * 3, LIMITS,
+                                         nominal_wheel_limit=False, **kwargs)
+                self.assertAlmostEqual(plan.entry_limit_m_s, expected)
+                self.assertEqual(plan.entry_reason, reason)
+        # Removing the ideal wheel model grants no extra road or reaction time.
+        for kwargs in ({}, dict(stop_at_m=.3), dict(distance_margin_m=.1)):
+            old = plan_speed_profile([0, .2, .4], [2.] * 3, LIMITS, **kwargs)
+            measured = plan_speed_profile([0, .2, .4], [2.] * 3, LIMITS,
+                                         nominal_wheel_limit=False, **kwargs)
+            self.assertEqual(measured.entry_limit_m_s, old.entry_limit_m_s)
+            self.assertEqual(measured.entry_reason, old.entry_reason)
+            self.assertEqual(measured.stations_m, old.stations_m)
+            self.assertEqual(measured.speeds_m_s, old.speeds_m_s)
+
+    def test_nominal_wheel_cap_option_does_not_change_forward_only_permission(self):
+        blocked = plan_speed_profile([0, 2, 3], [7.] * 3, LIMITS,
+                                     nominal_wheel_limit=False)
+        self.assertEqual(blocked.entry_limit_m_s, 0.)
+        self.assertEqual(blocked.entry_reason, 'FORWARD_KINEMATICS')
+        bounded = plan_speed_profile([0, 2, 3], [7.] * 3, LIMITS,
+            nominal_wheel_limit=False, exact_curvature_required=False)
+        self.assertAlmostEqual(bounded.entry_limit_m_s, math.sqrt(.15 / 7))
+
     def test_constrained_turn_selection_keeps_other_physical_limits(self):
         for curvature in (-8.,8.):
             plan=plan_speed_profile([0,.5,1],[curvature]*3,LIMITS,

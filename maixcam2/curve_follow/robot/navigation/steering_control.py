@@ -461,17 +461,20 @@ class SteeringControl:
         observation_quality = float(
             result.get("observation_confidence", result.get("confidence", 0.0))
         )
-        road_eligible = (
+        observed_pursuit = (
             result.get("state") == "OBSERVED"
             and result.get("observed", False)
             and observation_quality >= self.policy.confirmation_quality
             and not result.get("transition_pending")
             and self.status["target_observed"]
             and selected["mode"] == "LOOKAHEAD"
+            and self.observed_at is not None
+        )
+        road_eligible = (
+            observed_pursuit
             and envelope["speed_scale"] == 1.0
             and envelope.get("minimum_clearance_m") is not None
             and envelope["minimum_clearance_m"] > 0.0
-            and self.observed_at is not None
         )
         # The elapsed road-observation proof is maintained independently of
         # pursuit/envelope feasibility; every boost still needs road_eligible.
@@ -482,6 +485,14 @@ class SteeringControl:
             and self.status.get("motion_measured", True)
             and not persistent_recovery
         )
+        # Extra turning is distinct from permission to accelerate on a clear
+        # baseline arc. Its calibrated arc receives its own body check below.
+        bend_ready = (
+            observed_pursuit and "body_speed_m_s" in self.status
+            and stable_s >= self.response_s and self.status.get("motion_measured",False)
+            and not persistent_recovery
+        )
+        self.status['bend_eligible']=bend_ready
         if self.speed_control is not None:
             control_confidence,_ = self._forward_quality(result,path,selected,positions)
             resolved_forward_motion = (
@@ -506,7 +517,7 @@ class SteeringControl:
                     and abs(self.lever * (self.requested + self.trim)) <= .18),
                 clearance_limit_m_s=clearance_limit,
                 measured_yaw_rate=self.status.get('body_yaw_rad_s'),
-                bend_allowed=(boost_ready and not result.get('transition_pending')),
+                bend_allowed=bend_ready,
             )
             if not speed_profile_allowed:
                 self.speed_control.status['reason'] = 'TASK_OWNS_SPEED'
@@ -518,7 +529,8 @@ class SteeringControl:
             if planned is not None:
                 plan=self.speed_control.status
                 if (plan.get('controller')=='DWPP' and any(planned)
-                        and abs(plan['effective_curvature_m_inv']-(self.requested+self.trim))>1e-9):
+                        and (plan.get('bend_allocation',{}).get('active')
+                             or abs(plan['effective_curvature_m_inv']-(self.requested+self.trim))>1e-9)):
                     # Braking may withdraw outside-wheel compensation and
                     # restore the baseline arc. Check that arc once as well;
                     # the baseline's common braking scale preserves it.
@@ -529,6 +541,7 @@ class SteeringControl:
                             speed_m_s=self.status.get('speed_upper_m_s'),sensor_transform=transform,
                             lookahead_m=lookahead,support_sigma_m=footprint_sigma)
                         self.status['dwpp_envelope']=actual
+                        checked_envelopes=[actual]
                         limits=[actual.get('speed_limit_m_s')]
                         if result.get('history_continuity_evidence') is not None:
                             actual_candidate=self.envelope(path,checked_curvature,
@@ -536,6 +549,14 @@ class SteeringControl:
                                 speed_m_s=self.status.get('speed_upper_m_s'),sensor_transform=transform,
                                 lookahead_m=lookahead)
                             limits.append(actual_candidate.get('speed_limit_m_s'))
+                            checked_envelopes.append(actual_candidate)
+                        if (plan.get('bend_allocation',{}).get('active') and any(
+                                e.get('minimum_clearance_m') is None
+                                or not math.isfinite(e['minimum_clearance_m'])
+                                for e in checked_envelopes)):
+                            planned=self.speed_control.withdraw_bend(
+                                planned,'BODY_CLEARANCE_UNOBSERVED')
+                            continue
                         known=[v for v in limits if v is not None]
                         if known:
                             cap=min(known)

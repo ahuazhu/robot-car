@@ -188,6 +188,14 @@ class SearchLeaseTests(unittest.TestCase):
             self.assertTrue(any(e[1:] == (2, 0, 0) and e[0] > moving[-1][0] for e in events))
             self.assertTrue(c.snapshot()["armed"])
             self.assertIsNone(c.snapshot()["error"])
+            snapshot = c.snapshot()
+            self.assertEqual(snapshot['published']['pwm'], [-55,55])
+            self.assertEqual(snapshot['exchange']['pwm'], [0,0])
+            self.assertEqual(snapshot['exchange']['op'], 2)
+            self.assertEqual(snapshot['exchange']['target_published_at'],
+                             snapshot['published']['at'])
+            self.assertLessEqual(snapshot['exchange']['sent_at'],
+                                 snapshot['exchange']['ack_at'])
             c.send(2, 35, 35)
             time.sleep(0.06)
             self.assertTrue(any(e[1:] == (2, 35, 35) for e in t.events))

@@ -113,6 +113,55 @@ class BendResponseTests(unittest.TestCase):
         self.assertAlmostEqual(b.applied_mean,base)
         self.assertAlmostEqual(b.status['applied_curvature_m_inv'],b.status['bend_allocation']['estimated_curvature_m_inv'])
 
+    def test_measured_outside_response_can_exceed_old_wheel_proxy_without_retargeting_dwpp(self):
+        baseline, measured = self.control(False, gain=1.05), self.control(True, gain=1.05)
+        for control in (baseline, measured):
+            control.applied(.1, (80., 80.))
+        original = self.step(baseline, k=-2.46)
+        improved = self.step(measured, k=-2.46)
+        allocation = measured.status['bend_allocation']
+        self.assertEqual(measured.status['dwpp'], baseline.status['dwpp'])
+        self.assertEqual(measured.status['target_speed_m_s'], baseline.status['target_speed_m_s'])
+        self.assertEqual(measured.status['regulator_effort_mean_pwm'],
+                         baseline.status['regulator_effort_mean_pwm'])
+        self.assertEqual(allocation['base_wire'], list(compensate_pwm(original)))
+        self.assertEqual(compensate_pwm(improved)[1], compensate_pwm(original)[1])
+        self.assertGreater(compensate_pwm(improved)[0], compensate_pwm(original)[0])
+        self.assertGreater(allocation['estimated_speed_m_s'], measured.status['ceiling_m_s'])
+        self.assertLessEqual(allocation['estimated_speed_m_s'],
+                             measured.status['bend_speed_ceiling_m_s'])
+        self.assertLessEqual(measured.status['bend_speed_ceiling_m_s'], .30)
+        self.assertLess(abs(allocation['estimated_curvature_m_inv'] - allocation['target_curvature_m_inv']),
+                        abs(allocation['base_curvature_m_inv'] - allocation['target_curvature_m_inv']))
+
+    def test_measured_outside_response_retains_candidate_lateral_acceleration_bound(self):
+        model = BendResponse(.15, 37)
+        unrestricted = model.allocate(logical((140, 70)), -3., allowed=True, ceiling=.30)
+        bounded = model.allocate(logical((140, 70)), -3., allowed=True, ceiling=.30,
+                                 lateral_acceleration=.08)
+        self.assertIsNotNone(bounded)
+        self.assertGreater(unrestricted['estimated_speed_m_s'] * abs(unrestricted['estimated_yaw_rad_s']), .08)
+        self.assertLessEqual(bounded['estimated_speed_m_s'] * abs(bounded['estimated_yaw_rad_s']), .08)
+        self.assertEqual(bounded['wire'][1], 70)
+        self.assertGreater(bounded['wire'][0], 140)
+        self.assertLess(bounded['wire'][0], unrestricted['wire'][0])
+
+    def test_candidate_clearance_can_reject_added_pwm_even_above_old_proxy(self):
+        control = self.control(gain=1.05)
+        control.applied(.1, (80., 80.))
+        command = self.step(control, k=-2.46)
+        allocation = control.status['bend_allocation']
+        self.assertGreater(allocation['estimated_speed_m_s'], control.status['ceiling_m_s'])
+        base = control.bend_proposal['base_wheels']
+        reference = control.status['target_speed_m_s']
+        # This is the proposed arc's actual clearance cap, evaluated after
+        # allocation; it is not the original arc's pre-allocation proxy.
+        delivered = control.constrain_clearance(command, .10)
+        self.assertEqual(delivered, tuple(wheel * .10 / reference for wheel in base))
+        self.assertFalse(control.status['bend_allocation']['active'])
+        self.assertIsNone(control.bend_proposal)
+        self.assertAlmostEqual(control.status['target_speed_m_s'], .10)
+
     def test_startup_low_speed_untrusted_and_counter_steer_match_baseline(self):
         for k,speed,allowed,road_k in ((0,.2,True,None),(-2,.08,True,None),(-2,.2,False,None),(-2,.2,True,2)):
             a,b=self.control(False),self.control(True)
