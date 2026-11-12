@@ -146,7 +146,8 @@ async function fieldScenarios(){
   const selected=e.context.document.querySelectorAll('.view-controls button.selected');
   assert.equal(selected.length,1);assert.equal(selected[0].dataset.view,'annotated');
   for(const name of ['diagnostics-panel','advanced-panel']){assert.equal(e.elements[name].tagName,'DETAILS');assert.equal(e.elements[name].open,false)}
-  assert.equal(e.elements['direct-start'].closest('details').id,'advanced-panel');
+  assert.equal(e.elements['direct-start'].closest('details'),null);
+  assert.equal(e.elements['direct-start'].closest('.mission-actions'),e.elements.stop.closest('.mission-actions'));
   assert.equal(e.elements.start.closest('details'),null);assert.equal(e.elements['target-laps'].closest('details'),null);
   assert.equal(e.dom.all.filter(element=>element.tagName==='BUTTON'&&element.getAttribute('onclick')==="control('stop')").length,1);
   assert.equal(e.context.document.querySelectorAll('input[type="range"]').length,0,'drag on the image; no duplicate slider controls');
@@ -636,7 +637,7 @@ async function initialLampStateScenarios(){
  {
   const e=setup();await flush();const input=e.elements[id];
   assert.equal(input.tagName,'SELECT');assert.equal(input.value,'OFF');assert.equal(input.disabled,false);
-  assert.equal(input.closest('details'),null);assert.equal(input.closest('.run-setting'),e.elements.start.closest('.run-setting'));
+  assert.equal(input.closest('details'),null);assert.equal(input.closest('.mission-bar'),e.elements.start.closest('.mission-bar'));
   assert.ok(e.dom.all.indexOf(e.elements['target-laps'])<e.dom.all.indexOf(input));assert.ok(e.dom.all.indexOf(input)<e.dom.all.indexOf(e.elements.start));
   assert.deepEqual(input.children.filter(c=>c.tagName==='OPTION').map(c=>c.value),['OFF','ON']);
   assert.match(input.children.find(c=>c.value==='ON').textContent,/已亮/,'ON is an explicit initial condition chosen by the operator');
@@ -767,7 +768,9 @@ async function main(){
  }
  {
   const e=setup();await flush();e.fetcher=async()=>{const s=e.defaultData();s.ready=false;s.readiness.direct_start_ready=false;s.readiness.blocked_by=['UNO_EMERGENCY_STOP'];return s};await e.context.updateStatus();
-  assert.equal(e.elements['direct-start'].disabled,true);
+  assert.equal(e.elements['direct-start'].disabled,false);
+  await e.click('direct-start');assert.match(e.elements.notice.textContent,/UNO急停尚未解除/);
+  assert.equal(e.posts('/control').length,0,'a visible manual action cannot bypass startup checks');
   assert.match(e.elements.status.textContent,/UNO急停尚未解除/);
   assert.match(e.elements.diagnostics.textContent,/UNO急停尚未解除/);
  }
@@ -794,6 +797,37 @@ async function main(){
   assert.match(e.elements['crosswalk-status'].textContent,/上次横道：合法停位与停留已验证/);
   e.fetcher=async()=>{const s=e.defaultData();s.readiness.crosswalk={mode:'yield',phase:'APPROACH',observation:{near_m:.3},hold_elapsed_s:0,yield_completed:false,yield_verified:false};return s};await e.context.updateStatus();
   assert.doesNotMatch(e.elements['crosswalk-status'].textContent,/上次横道|合法停位与停留已验证/);
+ }
+ {
+  const e=setup();await flush();loadedESP(e);const server=e.defaultData();
+  e.fetcher=async(url,options)=>{
+   if(url==='/control'){
+    const action=JSON.parse(options.body).action;
+    if(action==='stop'){server.active=false;server.reason='STOPPED';server.generation++;}
+    else if(action==='start_now'){server.active=true;server.reason='FOLLOW';}
+    return e.response({message:'已接收'},202);
+   }
+   return server;
+  };
+  await e.click('direct-start');assert.equal(e.elements['direct-start'].disabled,true);
+  await e.click('stop');assert.equal(e.elements['direct-start'].disabled,false);
+  assert.equal(e.evaluate('roiDirty'),false,'STOP must not create an unsaved lamp edit');
+  await e.click('direct-start');
+  assert.deepEqual(e.posts('/control').map(r=>r.body.action),['start_now','stop','start_now']);
+ }
+ {
+  const e=setup();await flush();loadedESP(e);dragBound(e,'left',140);
+  const server=e.defaultData();server.ready=false;server.readiness.direct_start_ready=false;
+  server.readiness.blocked_by=['ROAD_UNOBSERVED'];
+  e.fetcher=async url=>url==='/control'?e.response({message:'停车已接收'},202):server;
+  await e.click('stop');assert.equal(e.elements['direct-start'].disabled,false);
+  const sent=e.posts('/control').length;await e.click('direct-start');
+  assert.equal(e.posts('/control').length,sent,'unready clicking only explains the blocker');
+  assert.match(e.elements.notice.textContent,/暂不能启动/);
+  assert.equal(e.evaluate('roiDirty'),true,'real unsaved lamp edits survive STOP');
+  server.ready=true;server.readiness.direct_start_ready=true;server.readiness.blocked_by=[];
+  await e.context.updateStatus();assert.equal(e.posts('/control').length,sent,'readiness never starts automatically');
+  await e.click('direct-start');assert.equal(e.posts('/control').at(-1).body.action,'start_now');
  }
  await fieldScenarios();
  await lampSignalScenarios();
