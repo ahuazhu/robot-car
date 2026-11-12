@@ -129,7 +129,9 @@ def plan_speed_profile(stations_m, curvature_m_inv, limits, *, stop_at_m=None,
     for i in range(len(s) - 2, -1, -1):
         speeds[i] = min(speeds[i], math.sqrt(speeds[i + 1] ** 2 + 2.0 * deceleration * (s[i + 1] - s[i])))
     speeds[0] = min(speeds[0], entry)
-    overspeed = initial_speed_m_s is not None and initial_speed_m_s > entry + 1e-9
+    # Comparisons against a NumPy clearance limit otherwise leak np.bool_
+    # into both live status and the control log. The public field is a bool.
+    overspeed = bool(initial_speed_m_s is not None and initial_speed_m_s > entry + 1e-9)
     if initial_speed_m_s is not None:
         speeds[0] = min(speeds[0], initial_speed_m_s)
     for i in range(1, len(s)):

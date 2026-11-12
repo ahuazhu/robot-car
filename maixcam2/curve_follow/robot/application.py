@@ -1,10 +1,11 @@
 """Parametric curve following. Preview is the default; current-pose calibration required."""
 
-import os, time, json
+import os, time
 from contextlib import ExitStack
 import cv2
 import numpy as np
 from robot import APP_VERSION
+from robot.core.telemetry import dumps as telemetry_dumps
 from robot.navigation.tracker import TargetTracker
 from robot.interface.road_overlay import render_target
 from robot.control.drive_link import DriveLink, PreviewLink
@@ -77,7 +78,7 @@ def main(app_dir):
     )
     speed_observer = SpeedObserver(settings, enabled=steering.speed_control is None)
     backend = native_fit_status()
-    print("GEOMETRY_BACKEND", json.dumps(backend), flush=True)
+    print("GEOMETRY_BACKEND", telemetry_dumps(backend), flush=True)
     cv2.setNumThreads(1)
     duration, preview_only = settings.duration_s, settings.preview_only
     link = PreviewLink() if preview_only else MotorChannel(DriveLink())
@@ -118,7 +119,7 @@ def main(app_dir):
         touch = touchscreen.TouchScreen()
         touch.clear()
         device_screen = DeviceScreen(screen.width(), screen.height())
-        print("DEVICE_SCREEN", json.dumps(device_screen.snapshot()), flush=True)
+        print("DEVICE_SCREEN", telemetry_dumps(device_screen.snapshot()), flush=True)
         print(
             "CURVE FOLLOW v%s | ESP32 start signal | preview_only=%s | calibrated=%s | no session time limit"
             % (APP_VERSION, preview_only, calibrated),
@@ -169,7 +170,7 @@ def main(app_dir):
                     active,
                 )
                 if laps.event:
-                    print("LAP EVENT", json.dumps(laps.snapshot()), flush=True)
+                    print("LAP EVENT", telemetry_dumps(laps.snapshot()), flush=True)
             profile_ms["lap_counter"] = round((time.perf_counter() - lap_tick) * 1000, 2)
             crosswalk_tick = time.perf_counter()
             crossing = crosswalk_detector.detect(
@@ -444,7 +445,7 @@ def main(app_dir):
             ):
                 print(
                     "CONTROL",
-                    json.dumps(
+                    telemetry_dumps(
                         {
                             "active": active,
                             "reason": reason,
@@ -492,7 +493,7 @@ def main(app_dir):
     finally:
         print(
             "TARGET_SUMMARY",
-            json.dumps(dict(frames=frames, observed=observed_frames, modes=stats)),
+            telemetry_dumps(dict(frames=frames, observed=observed_frames, modes=stats)),
             flush=True,
         )
         with ExitStack() as cleanup:
