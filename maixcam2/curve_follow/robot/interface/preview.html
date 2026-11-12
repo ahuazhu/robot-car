@@ -70,6 +70,17 @@ h1{margin:0;font-size:25px;letter-spacing:.02em}
 .roi-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .text-button{padding:6px 10px;min-height:34px;font-size:12px;background:transparent}
 .roi-status{padding:0 16px 12px;font-size:12px;color:var(--yellow);margin:0}
+.experiment-card{margin-top:18px;border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:14px 16px}
+.experiment-header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.experiment-header h2{margin:0;font-size:16px}
+.experiment-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:16px;margin:12px 0}
+.experiment-option{display:flex;gap:10px;align-items:flex-start;cursor:pointer}
+.experiment-option input{width:20px;height:20px;flex:none;margin:3px 0;accent-color:var(--blue)}
+.experiment-option strong{display:block;font-size:14px}
+.experiment-option small{display:block;font-size:12px;margin-top:4px}
+.experiment-option input:disabled+span{opacity:.65}
+.experiment-card p{font-size:12px;color:var(--muted)}
+#experiment-status{color:var(--yellow)}
 .support-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:18px}
 details{border:1px solid var(--line);border-radius:12px;background:#101a2a;overflow:hidden}
 summary{cursor:pointer;padding:13px 16px;color:var(--muted);font-size:13px;font-weight:600}
@@ -159,6 +170,13 @@ h1{font-size:21px}
 <div class="camera-foot"><span id="lamp-mode" class="pill">读取灯面设置</span><div class="roi-actions"><button id="roi-cancel" class="text-button" onclick="cancelROIEdit()" disabled>撤销调整</button><button id="roi-auto" class="text-button" onclick="selectAutomaticROI()" disabled>自动定位</button></div></div>
 <p id="roi-status" class="roi-status">直接拖动黄线框住灯面，ARM 时一起保存。</p></section>
 </div>
+<section id="experiment-card" class="experiment-card" aria-labelledby="experiment-title">
+<div class="experiment-header"><h2 id="experiment-title">巡线实验</h2><button id="experiment-reset" class="text-button" onclick="restoreExperimentBaseline()" disabled>恢复 v0.7.1 基线</button></div>
+<div class="experiment-options">
+<label class="experiment-option"><input id="experiment-motion-gap-hold" type="checkbox" disabled><span><strong>短暂测速丢失时保持转向</strong><small>只处理测速短暂中断：短时保持最近已下发的转向输出，不加速。</small></span></label>
+<label class="experiment-option"><input id="experiment-crosswalk-recovery-dwpp" type="checkbox" disabled><span><strong>横道恢复阶段使用 DWPP</strong><small>只在已完成横道停留时间、且没有下一横道约束时接管恢复阶段；不代表停位已验证。</small></span></label>
+</div><p>两个选项独立生效，既有转向增益和标定模型不变。全部关闭即 v0.7.1 基线；程序重启后全关，STOP 保留已生效选择。</p>
+<p id="experiment-status" role="status" aria-live="polite">等待读取实验设置；停车且取消 ARM 后可修改。</p></section>
 <div class="support-grid"><details id="diagnostics-panel"><summary>状态与诊断</summary><div class="details-body"><p id="status">正在连接…</p><p id="lap-status"></p><p id="start-light-status"></p><p id="crosswalk-status"></p><p id="diagnostics"></p></div></details>
 <details id="advanced-panel"><summary>调试与说明</summary><div class="details-body"><p>选择准备时灯态，框好灯面并设置圈数后按“准备等灯”。OFF：等待亮灯后再熄灭；ON：仅在已确认当前灯亮时选择，建立基准后等待熄灭。识别到熄灯信号后自动出发。</p><div class="debug-actions"><button onclick="connectMaixPreview()">重连巡线画面</button></div><p>手动测试启动会跳过信号灯，请确认场地允许。</p><p class="legend"><b class="yellow">黄：左边界</b> · <b class="blue">蓝：右边界</b> · <b class="green">绿：中线</b> · <b class="orange">橙：预测</b> · 红十字：追踪点</p><p>横道停稳亮红灯满3.2秒后通行。计满圈数后继续巡线40cm再停车；道路与通信异常仍会触发保护。</p></div></details></div>
 
@@ -173,6 +191,8 @@ let initialLampState="OFF",lockedInitialLampState=null,initialLampGeneration=nul
 let lampConfiguration=null,roiDraft=[100,40,100,80],roiDirty=false,roiDrag=null;
 let roiRemotePending=false,preparationPending=false,preparationError='',roiSubmitted=null,lastPreparation={};
 let lockedROI=null,lockedGeneration=null,roiScanBusy=false,roiScanRequest=null,roiScanError='';
+let experimentState={motion_gap_hold:false,crosswalk_recovery_dwpp:false,pending:false,revision:0,error:null};
+let experimentKnown=false,experimentRequest=null,experimentError='',serverZeroPWM=false;
 const roiBounds=['left','right','top','bottom'];
 function validLampBox(a){return Array.isArray(a)&&a.length===4&&a.every(Number.isInteger)&&a[0]>=0&&a[1]>=0&&a[2]>=16&&a[3]>=16&&a[0]+a[2]<=320&&a[1]+a[3]<=240;}
 function candidateLampBox(lamp){const c=lamp.candidate_hint;return c&&c.valid===true&&Number.isInteger(c.age_ms)&&c.age_ms>=0&&c.age_ms<=2500&&validLampBox(c.roi)?c.roi:null;}
@@ -182,7 +202,7 @@ function selectedLampConfiguration(){
  return {manual:true,roi:(lockedROI||roiDraft).slice()};
 }
 function lampFrameReady(){return Date.now()<statusExpiresAt&&!espVideo.hidden&&Date.now()-espFrameAt<2000&&!!espLamp.connected&&!!lampConfiguration;}
-function canEditLamp(){return lampFrameReady()&&!lockedROI&&!serverActive&&!serverArmed&&!busy&&!preparationPending&&!roiRemotePending&&!roiScanBusy;}
+function canEditLamp(){return lampFrameReady()&&!lockedROI&&!serverActive&&!serverArmed&&!busy&&!preparationPending&&!roiRemotePending&&!roiScanBusy&&!experimentsBlocking();}
 function canPrepareLamp(){
  if(!lampConfiguration)return espLamp.enabled===false;
  return lampFrameReady()&&validLampBox(lockedROI||roiDraft)&&!roiScanBusy&&!!(lockedROI||roiDirty||lampConfiguration.manual||candidateLampBox(espLamp));
@@ -362,6 +382,52 @@ function updateFieldSummary(s,fresh){
 const directButton=document.getElementById('direct-start'),startButton=document.getElementById('start'),statusBox=document.getElementById('status'),notice=document.getElementById('notice');
 const lapsInput=document.getElementById('target-laps'),lapsError='请输入1–100之间的整数圈数。';
 const initialLampInput=document.getElementById('initial-lamp-state');
+const experimentInputs={motion_gap_hold:document.getElementById('experiment-motion-gap-hold'),crosswalk_recovery_dwpp:document.getElementById('experiment-crosswalk-recovery-dwpp')};
+function experimentsBlocking(){return !experimentKnown||!!experimentRequest||experimentState.pending;}
+function canEditExperiments(){
+ return Date.now()<statusExpiresAt&&experimentKnown&&!serverActive&&!serverArmed&&serverZeroPWM&&!busy&&!preparationPending&&!roiRemotePending&&!roiScanBusy&&!experimentsBlocking();
+}
+function syncExperiments(){
+ const editable=canEditExperiments(),fresh=Date.now()<statusExpiresAt;
+ for(const [key,input] of Object.entries(experimentInputs)){input.checked=experimentState[key];input.disabled=!editable;}
+ document.getElementById('experiment-reset').disabled=!editable;
+ const enabled=Object.keys(experimentInputs).filter(key=>experimentState[key]).length;
+ const confirmed=enabled===0?'已生效：v0.7.1 基线（全部关闭）':`已生效：${enabled} 项实验；勾选项为设备已确认设置`;
+ const waiting=experimentError?`请求结果未确认：${experimentError}；等待设备确认，或用 STOP 取消。`:'设置等待设备确认；勾选项仍为已生效值，确认前不能启动。';
+ document.getElementById('experiment-status').textContent=!fresh?'连接待确认；保留上次已确认设置，暂不能修改。':!experimentKnown?'设备尚未提供实验设置，等待最新状态。':experimentRequest||experimentState.pending?waiting:experimentError||experimentState.error?`设置未完成：${experimentError||experimentState.error}`:confirmed+(editable?'。':'；请先 STOP，取消 ARM 并等待其他准备完成。');
+}
+function receiveExperiments(s,fresh){
+ if(!fresh)return;
+ const x=s.experiments;
+ experimentKnown=!!x&&typeof x.motion_gap_hold==='boolean'&&typeof x.crosswalk_recovery_dwpp==='boolean'&&typeof x.pending==='boolean'&&Number.isInteger(x.revision)&&x.revision>=0&&(x.error===null||typeof x.error==='string');
+ if(!experimentKnown)return;
+ experimentState={...x};
+ if(experimentRequest&&experimentRequest.responseDone&&s.generation!==experimentRequest.generation&&!x.pending){
+  const request=experimentRequest;
+  const applied=x.error===null&&x.revision>request.revision&&Object.keys(experimentInputs).every(key=>x[key]===request.flags[key]);
+  experimentRequest=null;
+  if(applied)experimentError='';
+  else if(!experimentError&&!x.error)experimentError='实验设置未生效，已保留设备确认设置。';
+ }
+}
+async function submitExperiments(flags){
+ if(!canEditExperiments()){syncExperiments();return;}
+ const request={generation,revision:experimentState.revision,flags:{...flags},responseDone:false};experimentRequest=request;experimentError='';
+ const revision=++controlRevision;statusExpiresAt=0;syncControls();
+ let rejected=false;
+ try{
+  const r=await fetch('/experiments',{method:'POST',headers:{'Content-Type':'application/json','X-Control-Token':token},body:JSON.stringify({generation:request.generation,flags}),signal:AbortSignal.timeout(2500)});
+  const result=await r.json();if(revision!==controlRevision)return;
+  if(!r.ok){rejected=true;throw Error(result.message||result.error||'实验设置未被接受');}
+  request.responseDone=true;
+ }catch(e){if(revision===controlRevision){experimentError=e.message;request.responseDone=true;if(rejected)experimentRequest=null;}}
+ finally{if(revision===controlRevision){await updateStatus();syncControls();}}
+}
+for(const [key,input] of Object.entries(experimentInputs))input.addEventListener('change',()=>{
+ const flags={motion_gap_hold:experimentState.motion_gap_hold,crosswalk_recovery_dwpp:experimentState.crosswalk_recovery_dwpp};flags[key]=input.checked;
+ return submitExperiments(flags);
+});
+function restoreExperimentBaseline(){return submitExperiments({motion_gap_hold:false,crosswalk_recovery_dwpp:false});}
 initialLampInput.value=initialLampState;
 initialLampInput.addEventListener('change',()=>{
  if(!initialLampInput.disabled&&validInitialLampState(initialLampInput.value))initialLampState=initialLampInput.value;
@@ -369,12 +435,13 @@ initialLampInput.addEventListener('change',()=>{
 });
 function syncControls(){
  const fresh=Date.now()<statusExpiresAt;
- directButton.disabled=!fresh||serverActive||serverArmed||busy||roiScanBusy||preparationPending||roiRemotePending;
- startButton.disabled=!fresh||!canStart||busy||preparationPending||roiRemotePending||!canPrepareLamp();
- lapsInput.disabled=!fresh||!serverLapsEnabled||busy||serverActive||serverArmed||preparationPending||roiScanBusy;
- initialLampInput.disabled=!fresh||busy||serverActive||serverArmed||preparationPending||roiScanBusy||roiRemotePending||lockedInitialLampState!==null;
+ const experimentLock=experimentsBlocking();
+ directButton.disabled=!fresh||serverActive||serverArmed||busy||roiScanBusy||preparationPending||roiRemotePending||experimentLock;
+ startButton.disabled=!fresh||!canStart||busy||preparationPending||roiRemotePending||!canPrepareLamp()||experimentLock;
+ lapsInput.disabled=!fresh||!serverLapsEnabled||busy||serverActive||serverArmed||preparationPending||roiScanBusy||experimentLock;
+ initialLampInput.disabled=!fresh||busy||serverActive||serverArmed||preparationPending||roiScanBusy||roiRemotePending||lockedInitialLampState!==null||experimentLock;
  initialLampInput.value=lockedInitialLampState||initialLampState;
- syncROIControls();renderLampSignalState();
+ syncROIControls();renderLampSignalState();syncExperiments();
  if(!fresh){
   document.getElementById('connection-state').textContent='连接待确认';document.getElementById('connection-state').dataset.tone='bad';
   document.getElementById('mission-state').textContent=busy?'正在发送准备请求':'连接待确认 · 状态未知';
@@ -404,6 +471,8 @@ async function updateStatus(){
   const fresh=Number.isFinite(age)&&s.age_ms>=0&&age>=0&&age<1000;
   statusExpiresAt=fresh?Date.now()+1000-age:0;
   serverActive=!!s.active;serverArmed=!!s.readiness?.start_light?.armed;
+  serverZeroPWM=s.left===0&&s.right===0;
+  receiveExperiments(s,fresh);
   serverLapsEnabled=s.readiness?.laps?.enabled!==false;
   if(fresh&&lockedROI&&generation!==lockedGeneration&&!serverActive&&!serverArmed)releaseROI(s.reason!=='LAPS COMPLETE');
   lastPreparation=s.preparation||{};
@@ -483,7 +552,7 @@ async function updateStatus(){
 }
 async function control(action){
  const starting=action==='start'||action==='start_now';
- if(starting&&(preparationPending||roiRemotePending||roiScanBusy||busy||Date.now()>=statusExpiresAt||(action==='start_now'?(serverActive||serverArmed):(!canStart||!canPrepareLamp()))))return;
+ if(starting&&(experimentsBlocking()||preparationPending||roiRemotePending||roiScanBusy||busy||Date.now()>=statusExpiresAt||(action==='start_now'?(serverActive||serverArmed):(!canStart||!canPrepareLamp()))))return;
  if(action==='start_now'&&!canDirect){notice.textContent='暂不能启动：'+(directBlockers||'请确认道路与电机状态，停稳后重试。');return;}
  const payload={action,generation};
  if(starting){
@@ -505,7 +574,7 @@ async function control(action){
    lockedInitialLampState=initialMode;initialLampGeneration=generation;
   }
   busy=true;roiDrag=null;
- }else if(action==='stop'){releaseInitialLampState();releaseROI(true);busy=false;roiSubmitted=null;roiDrag=null;roiScanBusy=false;roiScanRequest=null;}
+ }else if(action==='stop'){releaseInitialLampState();releaseROI(true);busy=false;roiSubmitted=null;roiDrag=null;roiScanBusy=false;roiScanRequest=null;experimentRequest=null;experimentError='';}
  // STOP or a later operation invalidates old polls and late control responses.
  const revision=++controlRevision;statusExpiresAt=0;syncControls();
  notice.textContent=action==='stop'?'正在发送停车请求…':payload.lamp_configuration?'正在保存灯面并准备等灯…':'正在发送启动请求…';

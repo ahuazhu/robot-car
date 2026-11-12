@@ -25,7 +25,7 @@ from robot.core.native_geometry import native_fit_status
 from robot.tasks.crosswalk import CrosswalkDetector, CrosswalkTask, draw_crosswalk_overlay
 
 
-def drive_trace(frame, captured, pwm, motor, steering):
+def drive_trace(frame, captured, pwm, motor, steering, experiments=None):
     """Compact, time-aligned diagnostics; timestamps use the monotonic clock.
 
     published=[time,L,R] is the latest shared target, not the latest ACK.
@@ -42,6 +42,8 @@ def drive_trace(frame, captured, pwm, motor, steering):
         return round(float(value), 6) if value is not None else None
     return dict(
         frame=frame, captured=number(captured), pwm=pwm,
+        experiments=dict(experiments or {}),
+        motion_gap_hold=steering.get('motion_gap_hold', plan.get('motion_gap_hold')),
         published=([number(published['at']), *published['pwm']] if published else None),
         ack=motor.get('ack'),
         exchange=([number(exchange['sent_at']), number(exchange['ack_at']),
@@ -177,6 +179,7 @@ def main(app_dir):
             now = time.monotonic()
             if duration and now - began >= duration:
                 break
+            session.prepare_frame()
             read_began = time.monotonic()
             frame = cam.read()
             camera_read_at = time.monotonic()
@@ -256,7 +259,9 @@ def main(app_dir):
             steering_tick = time.monotonic()
             steering.observe(details["ground_motion"], captured, allow_feedback=active)
             command = steering.command(result, age_s=time.monotonic() - captured,
-                                       speed_profile_allowed=crosswalk_task.allows_speed_profile())
+                                       speed_profile_allowed=crosswalk_task.allows_speed_profile(
+                                           recovery_dwpp=session.experiments['crosswalk_recovery_dwpp']),
+                                       motion_gap_hold=session.experiments['motion_gap_hold'])
             if (
                 command is None
                 and (steering.status.get("envelope") or {}).get("first_unsafe_m") == 0
@@ -380,11 +385,13 @@ def main(app_dir):
                 steering=steering_state,
                 crosswalk=crossing_view,
                 speed_profile_shadow=speed_shadow,
+                experiments=dict(session.experiments),
             )
             metrics = dict(
                 device_screen=device_screen.snapshot(),
                 frame=frames,
                 app_version=APP_VERSION,
+                experiments=dict(session.experiments),
                 geometry_backend=backend,
                 frame_received_at=captured,
                 read_ms=round((captured - read_began) * 1000, 1),
@@ -485,7 +492,8 @@ def main(app_dir):
                 # After command publication, once per frame; no UART-loop I/O
                 # and no explicit flush. CONTROL retains its existing cadence.
                 print('DRIVE_TRACE ' + telemetry_dumps(
-                    drive_trace(frames, captured, applied_pwm, metrics['motor'], steering_state),
+                    drive_trace(frames, captured, applied_pwm, metrics['motor'], steering_state,
+                                session.experiments),
                     separators=(',', ':')))
             if (
                 now >= next_log
@@ -501,6 +509,7 @@ def main(app_dir):
                     telemetry_dumps(
                         {
                             "active": active,
+                            "experiments": dict(session.experiments),
                             "reason": reason,
                             "recovery": recovery_state,
                             "target": target_state,

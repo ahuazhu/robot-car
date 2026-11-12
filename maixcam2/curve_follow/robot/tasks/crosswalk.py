@@ -1328,10 +1328,27 @@ class CrosswalkTask:
         return (self.track is None or self.phase in ("RECOVERY_APPROACH", "RECOVERY_PASSING")
                 or self.phase == "PASSING" and self.pending_track is None)
 
-    def allows_speed_profile(self):
+    def _completed_recovery_passage(self):
+        # This permits ordinary path-speed planning after the existing dwell;
+        # it neither grants a verified yield nor retires the uncertain event.
+        return bool(
+            self.policy.mode == "yield"
+            and self.phase == "RECOVERY_PASSING"
+            and self.track is not None
+            and self.pending_track is None
+            and math.isfinite(self.hold_completed_s)
+            and self.hold_completed_s >= self.policy.hold_s
+            and not self.policy.blockers()
+            and not self.failure
+        )
+
+    def allows_speed_profile(self, *, recovery_dwpp=False):
         # Preserve v0.6.102 task ownership; only the pending-yield lifecycle
-        # is backported, not the later unified driving architecture.
-        return self.track is None or (self.phase == "PASSING" and self.pending_track is None)
+        # is backported by default. The experiment releases only a completed
+        # recovery passage, never an approach or a following pending crossing.
+        return (self.track is None
+                or self.phase == "PASSING" and self.pending_track is None
+                or recovery_dwpp and self._completed_recovery_passage())
 
     def supervision_command(self, road_command, processing_ms, budget_ms):
         # A planned zero-speed dwell needs fresh vision, but no steering target.
@@ -1344,7 +1361,8 @@ class CrosswalkTask:
             return (0, 0)
         return road_command
 
-    def limit_command(self, command, snapshot, motion):
+    def limit_command(self, command, snapshot, motion, *, recovery_dwpp=False,
+                      speed_profile_selected=False):
         p = self.policy
         if p.mode != "yield":
             return command
@@ -1352,6 +1370,14 @@ class CrosswalkTask:
             return (0, 0)
         if self.phase in ("STOPPING", "HOLD", "RECOVERY_HOLD"):
             return (0, 0)
+        if (recovery_dwpp and speed_profile_selected
+                and self._completed_recovery_passage()):
+            # The caller must identify this frame's accepted DWPP command,
+            # including its road/braking/body limits. A legacy fallback or a
+            # search command still retains the original recovery effort cap.
+            # The served event owns no new stopping distance; a pending event
+            # immediately returns to the normal approach logic below.
+            return command
         if self.phase in ("RECOVERY_APPROACH", "RECOVERY_PASSING") and self.pending_track is None:
             return self._recovery_command(command)
         if command is None or self.track is None:

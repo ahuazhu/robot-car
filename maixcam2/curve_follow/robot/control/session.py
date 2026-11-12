@@ -10,6 +10,7 @@ import json
 import time
 
 from robot.control.requests import ControlRequest
+from robot.control.experiments import baseline_experiments
 from robot.control.controller import (
     assess_vision_command,
     compensate_pwm,
@@ -62,6 +63,7 @@ class DrivingSession:
         self.recovery = recovery
         self.clock = clock
         self.active = False
+        self.experiments = baseline_experiments()
         self.pwm = (0, 0)
         self.link_ok = False
         self.consecutive = 0
@@ -83,6 +85,15 @@ class DrivingSession:
         except RuntimeError as exc:
             self.reason = "UNO NOT CONNECTED"
             print(self.reason, str(exc), flush=True)
+
+    def prepare_frame(self):
+        """Apply parked-only experiment changes before perception/control runs."""
+        flags = self.control.apply_experiments(active=self.active, armed=self.start_light.armed)
+        if flags != self.experiments:
+            self.experiments = flags
+            # No previous run's controller state may be reused after switching.
+            self.steering.reset()
+            print("CONTROL_EXPERIMENTS", json.dumps(flags), flush=True)
 
     def task_blockers(self, motor):
         if self.settings.crosswalk_policy.mode != "yield":
@@ -170,6 +181,7 @@ class DrivingSession:
                         else "ESP32_SIGNAL",
                         start_light=self.start_light.snapshot(),
                         total_laps=self.laps.total,
+                        experiments=dict(self.experiments),
                     )
                 ),
                 flush=True,
@@ -309,7 +321,14 @@ class DrivingSession:
             self.reason = {"VISION_WAIT": "VISION WAIT", "ROAD_SEARCH": "ROAD SEARCH"}.get(
                 self.recovery.phase, "REACQUIRING ROAD"
             )
-        command = self.crosswalk.limit_command(frame.command, frame.crosswalk_state, motion)
+        plan = self.steering.status.get("speed_profile_control") or {}
+        selected = bool(plan.get("selected") and plan.get("controller") == "DWPP"
+                        and frame.follow_command is not None
+                        and frame.command == frame.follow_command and not self.search.is_turning())
+        command = self.crosswalk.limit_command(
+            frame.command, frame.crosswalk_state, motion,
+            recovery_dwpp=self.experiments["crosswalk_recovery_dwpp"],
+            speed_profile_selected=selected)
         failure = self.crosswalk.failure or failure
         if failure and failure != "ROAD NOT FOUND":
             self.stop(failure)

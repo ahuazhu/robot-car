@@ -66,7 +66,7 @@ function makeDOM(markup){
 function setup(options={}){
  let now=1000000,nextId=0;const timers=new Map(),docEvents={},windowEvents={};
  const dom=makeDOM(html),elements=dom.elements;
- const data=()=>({generation:0,age_ms:0,active:false,ready:true,reason:'TEST',left:0,right:0,preparation:{pending:false,phase:'IDLE',error:null,request_id:0},readiness:{arm_start_light_ready:true,direct_start_ready:true,laps:{enabled:false,total_laps:2},start_light:{enabled:true,armed:false,connected:true,phase:'DISARMED',initial_lamp_state:'OFF',peer_url:'http://10.0.0.2/',search_roi:[96,8,128,112],target_locked:false,required_frames:4,lamp_configuration:{manual:true,roi:[139,51,63,61]},configuration_update:{pending:false,state:'IDLE',error:'',request_id:0}}}});
+ const data=()=>({generation:0,age_ms:0,active:false,ready:true,reason:'TEST',left:0,right:0,experiments:{motion_gap_hold:false,crosswalk_recovery_dwpp:false,pending:false,revision:0,error:null},preparation:{pending:false,phase:'IDLE',error:null,request_id:0},readiness:{arm_start_light_ready:true,direct_start_ready:true,laps:{enabled:false,total_laps:2},start_light:{enabled:true,armed:false,connected:true,phase:'DISARMED',initial_lamp_state:'OFF',peer_url:'http://10.0.0.2/',search_roi:[96,8,128,112],target_locked:false,required_frames:4,lamp_configuration:{manual:true,roi:[139,51,63,61]},configuration_update:{pending:false,state:'IDLE',error:'',request_id:0}}}});
  const env={elements,dom,requests:[],fetcher:async()=>data(),storage:new Map(Object.entries(options.storage||{}))};
  const document={hidden:false,getElementById:id=>{assert.ok(elements[id],id);return elements[id]},querySelectorAll:selector=>dom.all.filter(e=>dom.matches(e,selector)),querySelector:selector=>dom.all.find(e=>dom.matches(e,selector))??null,createElement:tag=>dom.node(tag,{}),addEventListener:(k,fn)=>docEvents[k]=fn};
  const window={addEventListener:(k,fn)=>windowEvents[k]=fn};
@@ -712,6 +712,117 @@ async function initialLampStateScenarios(){
  console.log('initial lamp state default, atomic submission, mode locks and restored mission state passed');
 }
 
+async function experimentScenarios(){
+ const ids=['experiment-motion-gap-hold','experiment-crosswalk-recovery-dwpp'];
+ const flags=(a,b)=>({motion_gap_hold:a,crosswalk_recovery_dwpp:b});
+ const shown=e=>ids.map(id=>e.elements[id].checked);
+ const toggle=(e,index,value)=>{const input=e.elements[ids[index]];input.checked=value;return input.events.change({target:input});};
+ function assertLocked(e){for(const id of [...ids,'experiment-reset'])assert.equal(e.elements[id].disabled,true,id);assertStopUsable(e);}
+ {
+  const e=setup({storage:{motion_gap_hold:'true',crosswalk_recovery_dwpp:'true'}});await flush();
+  assert.equal(e.elements['experiment-card'].closest('details'),null);assert.equal(visible(e.elements['experiment-card']),true);
+  assert.deepEqual(shown(e),[false,false]);assert.match(e.elements['experiment-status'].textContent,/v0.7.1 基线/);
+  assert.match(e.elements['experiment-card'].textContent,/既有转向增益和标定模型不变/);
+  assert.match(e.elements['experiment-card'].textContent,/STOP 保留/);
+  assert.match(e.elements['experiment-card'].textContent,/已完成横道停留时间/);assert.match(e.elements['experiment-card'].textContent,/不代表停位已验证/);assert.doesNotMatch(e.elements['experiment-card'].textContent,/已完成停车礼让/);
+  assert.equal(cssRule('.experiment-options')['grid-template-columns'],'repeat(auto-fit,minmax(min(100%,240px),1fr))','grid minimum shrinks to the card width on narrow screens');
+ }
+ for(const wanted of [flags(false,false),flags(true,false),flags(false,true),flags(true,true)]){
+  const e=setup();await flush();loadedESP(e);const server=e.defaultData();
+  e.fetcher=async(url,options)=>{
+   if(url==='/experiments'){const p=JSON.parse(options.body);assert.deepEqual(p,{generation:0,flags:wanted});server.generation++;server.experiments.pending=true;return e.response({message:'已排队'},202);}
+   return server;
+  };
+  await e.context.submitExperiments(wanted);
+  assert.deepEqual(shown(e),[false,false],'202 must not optimistically display requested flags');assertLocked(e);
+  assert.equal(e.elements.start.disabled,true);assert.equal(e.elements['direct-start'].disabled,true);
+  await e.context.control('start');await e.context.control('start_now');assert.equal(e.posts('/control').length,0);
+  await e.context.restoreExperimentBaseline();assert.equal(e.posts('/experiments').length,1,'no competing experiment request');
+  assert.match(e.elements['experiment-status'].textContent,/等待设备确认/);
+  server.experiments={...wanted,pending:false,revision:1,error:null};await e.context.updateStatus();
+  assert.deepEqual(shown(e),[wanted.motion_gap_hold,wanted.crosswalk_recovery_dwpp]);assert.equal(e.elements[ids[0]].disabled,false);
+  assert.equal(e.elements['direct-start'].disabled,false);assert.equal(e.posts('/experiments')[0].headers['X-Control-Token'],'__CONTROL_TOKEN__');
+  assert.deepEqual([...e.storage.keys()],['race-console-view-v1'],'experiment choices are never persisted in browser storage');
+ }
+ {
+  const e=setup();await flush();const server=e.defaultData();server.experiments={...flags(true,true),pending:false,revision:2,error:null};
+  e.fetcher=async(url,options)=>{if(url==='/experiments'){server.generation++;server.experiments={...JSON.parse(options.body).flags,pending:false,revision:server.experiments.revision+1,error:null};return e.response({},202);}return server;};
+  await e.context.updateStatus();const image=e.elements.video.src;
+  await e.click('experiment-reset');assert.deepEqual(e.posts('/experiments')[0].body.flags,flags(false,false));assert.deepEqual(shown(e),[false,false]);assert.equal(e.elements.video.src,image,'baseline reset does not reload the page or stream');
+  await toggle(e,0,true);assert.deepEqual(shown(e),[true,false]);await toggle(e,1,true);assert.deepEqual(shown(e),[true,true]);
+  server.generation=0;server.experiments={...flags(false,false),pending:false,revision:0,error:null};await e.context.updateStatus();assert.deepEqual(shown(e),[false,false],'fresh restart state clears prior experiment choices');
+ }
+ for(const mutate of [s=>s.active=true,s=>s.readiness.start_light.armed=true,s=>s.left=1,s=>s.right=1,s=>s.age_ms=1000,s=>s.preparation.pending=true,s=>s.preparation.phase='ARM_QUEUED',s=>s.readiness.start_light.configuration_update.pending=true,s=>s.experiments.pending=true,s=>delete s.experiments]){
+  const e=setup();await flush();await replaceStatus(e,mutate);assertLocked(e);await toggle(e,0,true);await e.context.restoreExperimentBaseline();assert.equal(e.posts('/experiments').length,0);assert.deepEqual(shown(e),[false,false]);
+ }
+ {
+  const e=setup();await flush();const server=e.defaultData();server.experiments.motion_gap_hold=true;e.fetcher=async()=>server;await e.context.updateStatus();
+  e.fetcher=async()=>{throw Error('network unavailable')};await e.context.updateStatus();assertLocked(e);assert.deepEqual(shown(e),[true,false],'connection loss preserves confirmed selection');await toggle(e,1,true);assert.equal(e.posts('/experiments').length,0);
+ }
+ {
+  const e=setup();await flush();await replaceStatus(e,s=>{s.ready=false;s.reason='UNO NOT CONNECTED';s.readiness.direct_start_ready=false;s.readiness.blocked_by=['UNO_DISCONNECTED'];});
+  assert.equal(e.elements[ids[0]].disabled,false,'stopped configuration does not need powered motors');
+ }
+ for(const code of [400,409]){
+  const e=setup();await flush();e.fetcher=async url=>url==='/experiments'?e.response({message:'请先停车'},code):e.defaultData();
+  await toggle(e,0,true);assert.deepEqual(shown(e),[false,false]);assert.equal(e.elements[ids[0]].disabled,false);assert.match(e.elements['experiment-status'].textContent,/请先停车/);assertStopUsable(e);
+ }
+ {
+  const e=setup();await flush();const server=e.defaultData();e.fetcher=async url=>{
+   if(url==='/experiments'){server.generation++;server.experiments={...flags(true,false),pending:false,revision:1,error:null};throw Error('回执丢失');}return server;
+  };
+  await toggle(e,0,true);assert.deepEqual(shown(e),[true,false]);assert.equal(e.elements[ids[0]].disabled,false);assert.match(e.elements['experiment-status'].textContent,/已生效/);assert.doesNotMatch(e.elements['experiment-status'].textContent,/回执丢失|未完成/,'fresh applied status resolves an uncertain POST result');
+ }
+ for(const result of [
+  {...flags(true,false),pending:false,revision:0,error:null},
+  {...flags(false,true),pending:false,revision:1,error:null},
+  {...flags(true,false),pending:false,revision:1,error:'设置已取消'},
+  {...flags(false,false),pending:false,revision:0,error:null}
+ ]){
+  const e=setup();await flush();const server=e.defaultData();e.fetcher=async url=>{
+   if(url==='/experiments'){server.generation++;server.experiments=result;throw Error('回执丢失');}return server;
+  };
+  await toggle(e,0,true);assert.equal(e.elements[ids[0]].disabled,false,'fresh settled server state releases the request lock');
+  assert.match(e.elements['experiment-status'].textContent,/未完成/);assert.doesNotMatch(e.elements['experiment-status'].textContent,/已生效/,'only matching flags plus an increased revision and no server error establish success');
+ }
+ {
+  const e=setup();await flush();const server=e.defaultData();e.fetcher=async url=>{
+   if(url==='/experiments'){server.generation+=2;return e.response({message:'排队后被另一页面 STOP 取消'},202);}return server;
+  };
+  await e.click('experiment-reset');assert.match(e.elements['experiment-status'].textContent,/未生效/,'a cancelled no-op must not masquerade as an applied revision');assert.deepEqual(shown(e),[false,false]);
+ }
+ {
+  const e=setup();await flush();const server=e.defaultData();e.fetcher=async(url,options)=>{
+   if(url==='/experiments')throw Error('请求超时');
+   if(url==='/control'){assert.equal(JSON.parse(options.body).action,'stop');server.generation++;return e.response({},202);}return server;
+  };
+  await toggle(e,0,true);assertLocked(e);assert.equal(e.elements['direct-start'].disabled,true,'unknown POST result must not unlock starting');
+  await e.click('stop');assert.deepEqual(shown(e),[false,false]);assert.equal(e.elements[ids[0]].disabled,false);
+ }
+ {
+  const e=setup();await flush();const server=e.defaultData();server.experiments.motion_gap_hold=true;let release;
+  e.fetcher=async(url,options)=>{
+   if(url==='/experiments'){server.generation++;server.experiments.pending=true;return new Promise(resolve=>release=resolve);}
+   if(url==='/control'){assert.equal(JSON.parse(options.body).action,'stop');server.generation++;server.experiments.pending=false;return e.response({},202);}return server;
+  };
+  await e.context.updateStatus();const posting=toggle(e,1,true);await flush();assertLocked(e);assert.deepEqual(shown(e),[true,false]);
+  await e.click('stop');assert.deepEqual(shown(e),[true,false],'STOP preserves previously applied flags');assert.equal(e.elements[ids[0]].disabled,false);
+  release(e.response({message:'旧设置已排队'},202));await posting;assert.deepEqual(shown(e),[true,false]);assert.equal(e.elements[ids[0]].disabled,false,'late POST cannot relock after STOP');
+ }
+ {
+  const e=setup();await flush();const server=e.defaultData();let release;
+  e.fetcher=async()=>new Promise(resolve=>release=resolve);const polling=e.context.updateStatus();await flush();
+  e.fetcher=async(url,options)=>{if(url==='/control'){server.generation++;return e.response({},202);}return server;};await e.click('stop');
+  const obsolete=e.defaultData();obsolete.experiments={...flags(true,true),pending:true,revision:99,error:null};release(obsolete);await polling;
+  assert.deepEqual(shown(e),[false,false],'poll issued before STOP cannot overwrite confirmed flags');await e.context.updateStatus();assert.equal(e.elements[ids[0]].disabled,false);
+ }
+ {
+  const e=setup();await flush();loadedESP(e);let release;e.fetcher=async(url,options)=>url==='/control'?new Promise(resolve=>release=resolve):e.defaultData();
+  const starting=e.click('direct-start');await flush();assertLocked(e);await toggle(e,0,true);assert.equal(e.posts('/experiments').length,0);release(e.response({},202));await starting;
+ }
+ console.log('experiment combinations, server confirmation, baseline reset, locks and STOP race scenarios passed');
+}
+
 async function main(){
  {
   const e=setup();await flush();const image=e.elements['esp-video'];assert.ok(image.hasAttribute('src'));image.onload();
@@ -832,6 +943,7 @@ async function main(){
  await fieldScenarios();
  await lampSignalScenarios();
  await initialLampStateScenarios();
+ await experimentScenarios();
  console.log('13 preview connection scenarios passed');
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

@@ -80,6 +80,8 @@ class SteeringControl:
         self.observed_at = None
         self.filtered_lookahead = None
         self.lookahead_at = None
+        self._motion_prediction_valid = False
+        self._motion_prediction_age_s = None
 
     def applied(self, now, wheels, *, delivered_wheels=None):
         if self.speed_control is not None:
@@ -101,6 +103,8 @@ class SteeringControl:
 
     def observe(self, motion, now, allow_feedback=True):
         self.observed_at = now
+        self._motion_prediction_valid = bool(motion.get('prediction_valid'))
+        self._motion_prediction_age_s = motion.get('prediction_age_s')
         measured = bool(motion.get("valid"))
         self.status = dict(trim_m_inv=self.trim, feedback_valid=False, motion_measured=measured)
         if not measured and not motion.get("prediction_valid"):
@@ -279,7 +283,7 @@ class SteeringControl:
         return command if not any(command) or lease>0 else None
 
     def command(self, result, age_s=0.0, *, lookahead_m=None, alternatives=True,
-                speed_profile_allowed=True):
+                speed_profile_allowed=True,motion_gap_hold=False):
         """Follow geometry at command time, not at frame-receive time.
 
         Extrapolate ONLY valid measured body twist over the measured processing
@@ -289,6 +293,14 @@ class SteeringControl:
         whether this command can be sent.
         """
         point = result.get("control_target_m", result.get("target_m"))
+        self.status.pop('motion_gap_hold',None)
+        if self.speed_control is not None and not motion_gap_hold:
+            self.speed_control.cancel_motion_gap_hold()
+        if motion_gap_hold:
+            self.status['motion_gap_hold']=dict(active=False,
+                reason='MEASURED_MOTION' if self.status.get('motion_measured') else 'NO_ACCEPTED_PURSUIT',
+                prediction_age_s=self._motion_prediction_age_s,
+                maximum_age_s=self.policy.maximum_prediction_command_s)
         self.status.pop("envelope", None)
         self.status.pop("prediction", None)
         self.status.pop("handoff", None)
@@ -309,6 +321,9 @@ class SteeringControl:
         if not math.isfinite(age_s) or age_s < 0:
             return None
         if age_s > self.policy.missing_command_s:
+            if motion_gap_hold:
+                self.status['motion_gap_hold']['reason']='COMMAND_EXPIRED'
+                if self.speed_control is not None:self.speed_control.cancel_motion_gap_hold()
             return None
         receive_point = np.asarray(point, float)
         self.status["receive_curvature_m_inv"] = (
@@ -506,30 +521,57 @@ class SteeringControl:
             planning_target = dict(result, control_confidence=control_confidence)
             if sigma_profile is not None:
                 planning_target["reference_sigma_m"] = support_sigma
-            planned = self.speed_control.command(
-                planning_target, path, self.observed_at + age_s,
-                self.status.get('body_speed_m_s'), self.requested + self.trim,
-                support_sigma + prediction_sigma, self.body[0] if self.body else self.width,
-                eligible=(speed_profile_allowed and target_scale == 1.
-                          and self.status.get('motion_measured',False)
-                          and (resolved_forward_motion or measured_standstill)),
-                high_confidence=(boost_ready and observation_quality >= .75
-                    and abs(self.lever * (self.requested + self.trim)) <= .18),
-                clearance_limit_m_s=clearance_limit,
-                measured_yaw_rate=self.status.get('body_yaw_rad_s'),
-                bend_allowed=bend_ready,
-            )
+            eligible=(speed_profile_allowed and target_scale == 1.
+                      and self.status.get('motion_measured',False)
+                      and (resolved_forward_motion or measured_standstill))
+            planned=None
+            holding=False
+            if motion_gap_hold and not self.status.get('motion_measured',False):
+                prediction_age=self._motion_prediction_age_s
+                gap_reason=('TASK_OWNS_SPEED' if not speed_profile_allowed else
+                    'CURRENT_ROAD_NOT_CONFIRMED' if not observed_pursuit or persistent_recovery else
+                    'PURSUIT_SPEED_REDUCED' if target_scale!=1. else
+                    'NO_VALID_MOTION_PREDICTION' if not self._motion_prediction_valid else
+                    'MOTION_PREDICTION_EXPIRED' if not isinstance(prediction_age,(int,float))
+                        or not math.isfinite(prediction_age) or prediction_age<0
+                        or prediction_age>=self.policy.maximum_prediction_command_s else None)
+                if gap_reason is None:
+                    planned,details=self.speed_control.hold_motion_gap(
+                        planning_target,path,self.observed_at+age_s,self.requested+self.trim,
+                        support_sigma+prediction_sigma,self.body[0] if self.body else self.width,
+                        self.policy.maximum_prediction_command_s,captured=self.observed_at)
+                    self.status['motion_gap_hold'].update(details)
+                    holding=planned is not None
+                else:
+                    self.status['motion_gap_hold']['reason']=gap_reason
+            if not holding:
+                planned = self.speed_control.command(
+                    planning_target, path, self.observed_at + age_s,
+                    self.status.get('body_speed_m_s'), self.requested + self.trim,
+                    support_sigma + prediction_sigma, self.body[0] if self.body else self.width,
+                    eligible=eligible,
+                    high_confidence=(boost_ready and observation_quality >= .75
+                        and abs(self.lever * (self.requested + self.trim)) <= .18),
+                    clearance_limit_m_s=clearance_limit,
+                    measured_yaw_rate=self.status.get('body_yaw_rad_s'),
+                    bend_allowed=bend_ready,
+                    hold_source_at=(self.observed_at if motion_gap_hold and eligible
+                        and observed_pursuit and not persistent_recovery and resolved_forward_motion
+                        and self.status.get('body_speed_m_s',0.)>=.10 else None),
+                )
             if not speed_profile_allowed:
                 self.speed_control.status['reason'] = 'TASK_OWNS_SPEED'
-            elif not resolved_forward_motion and not measured_standstill:
+            elif not holding and not resolved_forward_motion and not measured_standstill:
                 self.speed_control.status['reason'] = 'MEASURED_FORWARD_SPEED_UNRESOLVED'
+            if motion_gap_hold:
+                self.speed_control.status['motion_gap_hold']=dict(self.status['motion_gap_hold'])
             self.status['speed_profile_control'] = self.speed_control.status
             self.status['confidence_speed_limit_m_s']=self.speed_control.status.get('confidence_ceiling_m_s')
             self.status.pop('dwpp_envelope',None)
             if planned is not None:
                 plan=self.speed_control.status
                 if (plan.get('controller')=='DWPP' and any(planned)
-                        and (plan.get('bend_allocation',{}).get('active')
+                        and (holding or plan.get('bend_allocation',{}).get('active')
                              or abs(plan['effective_curvature_m_inv']-(self.requested+self.trim))>1e-9)):
                     # Braking may withdraw outside-wheel compensation and
                     # restore the baseline arc. Check that arc once as well;
@@ -550,6 +592,28 @@ class SteeringControl:
                                 lookahead_m=lookahead)
                             limits.append(actual_candidate.get('speed_limit_m_s'))
                             checked_envelopes.append(actual_candidate)
+                        if holding:
+                            required_speed=max(plan['target_speed_m_s'],
+                                (self.speed_control.bend_proposal or {}).get('estimated_speed_m_s',0.))
+                            unknown=any(e.get('minimum_clearance_m') is None
+                                or not math.isfinite(e['minimum_clearance_m']) for e in checked_envelopes)
+                            tighter=any(v is not None and v<required_speed-1e-9 for v in limits)
+                            if unknown or tighter:
+                                reason=('CURRENT_CLEARANCE_UNOBSERVED' if unknown
+                                        else 'CURRENT_CLEARANCE_LIMIT')
+                                self.status['motion_gap_hold'].update(active=False,reason=reason)
+                                # Refresh the original fallback's current
+                                # confidence/body cap; never retain an old cap.
+                                self.speed_control.command(planning_target,path,
+                                    self.observed_at+age_s,self.status.get('body_speed_m_s'),
+                                    self.requested+self.trim,support_sigma+prediction_sigma,
+                                    self.body[0] if self.body else self.width,eligible=False,
+                                    clearance_limit_m_s=clearance_limit)
+                                self.speed_control.status['reason']='MOTION_GAP_'+reason
+                                self.speed_control.status['motion_gap_hold']=dict(self.status['motion_gap_hold'])
+                                self.status['speed_profile_control']=self.speed_control.status
+                                planned=None
+                                break
                         if (plan.get('bend_allocation',{}).get('active') and any(
                                 e.get('minimum_clearance_m') is None
                                 or not math.isfinite(e['minimum_clearance_m'])
@@ -566,13 +630,14 @@ class SteeringControl:
                         if (not any(planned) or
                                 abs(plan['effective_curvature_m_inv']-checked_curvature)<=1e-9):
                             break
-                self.status.update(envelope=envelope, target_selection='ADAPTIVE_PURSUIT',
-                                   target_speed_scale=target_scale,
-                                   speed_plan=dict(mode='DWPP' if plan.get('controller')=='DWPP'
-                                                   else 'PROFILE', boost_eligible=boost_ready))
-                return (self._history_output(planned,age_s,support_sigma+prediction_sigma,
-                                             positions[-1],envelope)
-                        if persistent_recovery else planned)
+                if planned is not None:
+                    self.status.update(envelope=envelope, target_selection='ADAPTIVE_PURSUIT',
+                                       target_speed_scale=target_scale,
+                                       speed_plan=dict(mode='DWPP' if plan.get('controller')=='DWPP'
+                                                       else 'PROFILE', boost_eligible=boost_ready))
+                    return (self._history_output(planned,age_s,support_sigma+prediction_sigma,
+                                                 positions[-1],envelope)
+                            if persistent_recovery else planned)
         bend = max(
             abs(self.requested + self.trim),
             self.gain * abs(float(result.get("path_curvature_m_inv", 0.0))),

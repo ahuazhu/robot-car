@@ -103,8 +103,12 @@ class ProfileSpeedControl:
         self.dwpp_state = None
         self.dwpp_proposal = None
         self.bend_proposal = None
+        self._gap_hold_proposal = None
+        self._gap_hold = None
 
     def applied(self, now, wheels, *, delivered_wheels=None):
+        hold_source,self._gap_hold_proposal=self._gap_hold_proposal,None
+        self._gap_hold=None
         self.applied_at = float(now)
         self.applied_wheels = tuple(float(value) for value in wheels)
         self.status.pop('applied_curvature_m_inv',None)
@@ -140,16 +144,118 @@ class ProfileSpeedControl:
                         linear = v*min(1.,scale)
                         self.dwpp_state=(float(now),linear,linear*curvature)
                         self.status['applied_curvature_m_inv']=curvature
+                        # Only an unchanged, actually published measured plan
+                        # may bridge one later gap. A held plan cannot rearm it.
+                        if (hold_source is not None
+                                and max(abs(a-b) for a,b in zip(wheels,requested))<1e-6
+                                and (bend is None or list(delivered)==bend['wire'])):
+                            saved=dict(self.status)
+                            saved['dwpp']=dict(saved['dwpp'],overrides=list(saved['dwpp']['overrides']))
+                            saved.update(effective_curvature_m_inv=curvature,
+                                reference_angular_rad_s=linear*curvature)
+                            self._gap_hold=dict(source_at=hold_source,wheels=tuple(wheels),
+                                state=saved,bend=None if bend is None else dict(bend))
         if not any(wheels):
             self.reference = self.updated_at = None
 
     def fallback(self, reason):
+        self._gap_hold_proposal=self._gap_hold=None
         self.bend_proposal=None
         self.reference = self.updated_at = None
         self.dwpp_proposal=self.dwpp_state=None
         self.status = dict(mode='ACTIVE',controller=self.controller,selected=False,
                            reason=reason,**self.confidence_status)
         return None
+
+    def cancel_motion_gap_hold(self):
+        self._gap_hold_proposal=self._gap_hold=None
+
+    def hold_motion_gap(self, target, path, now, curvature, sigma, front_margin,
+                        maximum_age_s, *, captured):
+        """Recheck one already delivered pair without speed feedback or allocation.
+
+        The age gate selects an old input; it does not create a new motor lease.
+        Steering still checks this pair's actual arc against the current road.
+        """
+        saved,self._gap_hold=self._gap_hold,None
+        self._gap_hold_proposal=None
+        details=dict(active=False,reason='NO_APPLIED_MEASURED_PLAN',
+                     source_age_s=None,decision_age_s=None,maximum_age_s=maximum_age_s)
+        if saved is None:return None,details
+        # GroundMotion's existing prediction window is checked at capture.
+        # Command processing freshness and applied-plan age remain separate.
+        age=captured-saved['source_at']
+        details.update(source_age_s=age,decision_age_s=now-saved['source_at'])
+        if not 0<age<maximum_age_s:
+            details['reason']='MEASURED_PLAN_EXPIRED'
+            return None,details
+        state=saved['state']
+        held_curvature=state['effective_curvature_m_inv']
+        if (curvature*held_curvature<=0
+                and max(abs(curvature),abs(held_curvature))>1e-8):
+            details['reason']='TURN_INTENT_CHANGED'
+            return None,details
+        if (self.dwpp_state is None or self.applied_at is None
+                or not 0<=now-self.applied_at<self.maximum_gap_s
+                or self.applied_wheels!=saved['wheels']):
+            details['reason']='APPLIED_PLAN_CHANGED'
+            return None,details
+        segment,reason=supported_segment(dict(target,control_path_m=path),
+                                         skip_inferred_prefix=True,include_history=True)
+        curve=None if segment is None else describe_curve(segment)
+        if curve is None:
+            details['reason']=reason or 'INVALID_SUPPORTED_CURVE'
+            return None,details
+        positions=arc(curve['path'])
+        try:
+            confidence=float(target.get('control_confidence',target.get('confidence',1.)))
+            length=(target.get('road_model') or {}).get('length_m')
+            confidence*=min(1.,max(0.,float(arc(path)[-1] if length is None else length)/.30))
+            factor=confidence_speed_factor(confidence)
+            reference_sigma=target['reference_sigma_m']
+            if not math.isfinite(reference_sigma) or reference_sigma<0:raise ValueError()
+            sigma=max(sigma,reference_sigma)
+            plan=plan_speed_profile(positions,curve['curvature'],self.limits,
+                distance_margin_m=front_margin+2*sigma,
+                centerline_confidence=confidence,exact_curvature_required=False)
+        except (KeyError,TypeError,ValueError):
+            details['reason']='INVALID_CURRENT_ENVELOPE'
+            return None,details
+        ceiling=min(plan.entry_limit_m_s,
+                    self.limits.maximum_m_s/(1+abs(self.limits.turn_lever_m*curvature)))
+        if state['target_speed_m_s']>ceiling+1e-9:
+            details['reason']='CURRENT_SPEED_LIMIT'
+            return None,details
+        bend=saved['bend']
+        if bend is not None:
+            local=sorted(float(k) for s,k in zip(positions,curve['curvature'])
+                         if s<=front_margin+self.limits.turn_lever_m)
+            middle=len(local)//2
+            road_curvature=(local[middle]+local[~middle])/2 if local else 0.
+            if abs(road_curvature)<1. or road_curvature*held_curvature<=0:
+                details['reason']='SUPPORTED_BEND_CHANGED'
+                return None,details
+            physical=plan_speed_profile(positions,curve['curvature'],self.limits,
+                distance_margin_m=front_margin+2*sigma,
+                centerline_confidence=confidence,exact_curvature_required=False,
+                nominal_wheel_limit=False)
+            if bend['estimated_speed_m_s']>physical.entry_limit_m_s+1e-9:
+                details['reason']='CURRENT_PHYSICAL_SPEED_LIMIT'
+                return None,details
+        wheels=saved['wheels']
+        self.status=dict(state,reason='MOTION_GAP_HOLD',measured_speed_m_s=None,
+            motion_feedback=False,speed_error_m_s=None,initial_overspeed=None,
+            high_confidence_boost=False,tracking_gain=1.,reference_acceleration_m_s2=0.,
+            requested_wheels=list(wheels),
+            ceiling_m_s=ceiling,centerline_confidence=confidence,
+            confidence_speed_factor=factor,confidence_ceiling_m_s=self.limits.maximum_m_s*factor)
+        self.status['dwpp']=dict(state['dwpp'],source='HELD_APPLIED_PLAN',
+                                overrides=list(state['dwpp']['overrides']))
+        self.dwpp_proposal=(wheels,state['target_speed_m_s'],state['reference_angular_rad_s'])
+        self.bend_proposal=bend
+        details.update(active=True,reason='HELD_APPLIED_PLAN')
+        self.status['motion_gap_hold']=details
+        return wheels,details
 
     def constrain_clearance(self, command, ceiling):
         """Brake a chosen arc after its actual curvature's body sweep is checked.
@@ -217,7 +323,8 @@ class ProfileSpeedControl:
 
     def command(self, target, path, now, measured_speed, curvature, sigma, front_margin,
                 eligible, high_confidence=False, *, clearance_limit_m_s=None,
-                measured_yaw_rate=None,bend_allowed=False):
+                measured_yaw_rate=None,bend_allowed=False,hold_source_at=None):
+        self._gap_hold_proposal=self._gap_hold=None
         self.bend_proposal=None
         try:
             confidence=float(target.get('control_confidence',target.get('confidence',1.)))
@@ -411,4 +518,6 @@ class ProfileSpeedControl:
                     key:value for key,value in bend.items()
                     if key not in ('wheels','base_wheels','base_mean')})
                 self.status['effective_curvature_m_inv']=bend['estimated_curvature_m_inv']
+        if hold_source_at is not None and self.controller=='DWPP':
+            self._gap_hold_proposal=float(hold_source_at)
         return wheels

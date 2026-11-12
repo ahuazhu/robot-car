@@ -5,6 +5,7 @@ import time, json
 from robot import APP_VERSION
 from robot.core.telemetry import dumps as telemetry_dumps
 from robot.control.requests import ControlRequest
+from robot.control.experiments import baseline_experiments, normalize_experiments
 
 LIVE_HTML = Path(__file__).with_name("preview.html").read_text(encoding="utf-8").replace(
     "__APP_VERSION__", APP_VERSION
@@ -31,6 +32,10 @@ class WebControl:
                                 generation=None, initial_lamp_state="OFF")
         self.updated = 0
         self.state = dict(active=False, ready=False, reason="INITIALIZING", left=0, right=0)
+        self.experiments = baseline_experiments()
+        self.experiment_pending = None
+        self.experiment_revision = 0
+        self.experiment_error = None
 
     def update(self, active, ready, reason, pwm, readiness=None):
         with self.lock:
@@ -48,7 +53,49 @@ class WebControl:
         with self.lock:
             return dict(self.state, generation=self.generation,
                         age_ms=int((time.monotonic()-self.updated)*1000),
-                        preparation=dict(self.preparation))
+                        preparation=dict(self.preparation),
+                        experiments=dict(self.experiments, pending=self.experiment_pending is not None,
+                                         revision=self.experiment_revision, error=self.experiment_error))
+
+    def submit_experiments(self, flags, generation=None):
+        desired = normalize_experiments(flags)
+        with self.lock:
+            if type(generation) is not int or generation != self.generation:
+                return False, "状态已变化，请重试"
+            if (time.monotonic()-self.updated >= CONTROL_FRESH_SECONDS
+                    or self.state["active"] or self.state["left"] or self.state["right"]
+                    or self.state.get("readiness", {}).get("start_light", {}).get("armed")
+                    or self.pending is not None or self.preparing is not None or self.start_transition
+                    or self.experiment_pending is not None
+                    or self.lamp_signal is not None and self.lamp_signal.configuration_pending):
+                return False, "请先STOP，等待停车并取消ARM后再切换"
+            # Serialize a frame-boundary update before any new start request.
+            self.generation += 1
+            self.experiment_pending = (desired, time.monotonic())
+            self.experiment_error = None
+            return True, "开关已排队，等待控制程序确认"
+
+    def apply_experiments(self, *, active, armed):
+        """Called only by the control loop, before computing the next command."""
+        with self.lock:
+            if self.experiment_pending is not None:
+                desired, created = self.experiment_pending
+                self.experiment_pending = None
+                if (active or armed or self.start_transition or self.pending is not None
+                        or self.preparing is not None):
+                    self.experiment_error = "车辆状态已变化，开关未修改，请先STOP"
+                elif time.monotonic()-created >= CONTROL_FRESH_SECONDS:
+                    self.experiment_error = "开关请求已过期，请重试"
+                else:
+                    self.experiments = desired
+                    self.experiment_revision += 1
+                    self.experiment_error = None
+            return dict(self.experiments)
+
+    def _cancel_experiments(self):
+        if self.experiment_pending is not None:
+            self.experiment_pending = None
+            self.experiment_error = "STOP已取消尚未生效的开关修改"
 
     def _end_preparation(self, phase, error=None):
         self.preparing = None
@@ -59,6 +106,7 @@ class WebControl:
         with self.lock:
             if action == "stop":
                 self.generation += 1
+                self._cancel_experiments()
                 if self.preparing is not None or self.preparation["phase"] == "ARM_QUEUED":
                     self._end_preparation("CANCELLED", "stopped")
                 self.pending = (ControlRequest("stop"), time.monotonic())
@@ -69,7 +117,8 @@ class WebControl:
                 return False, str(exc)
             if generation != self.generation:
                 return False, "状态已变化，请重试"
-            if self.pending is not None or self.preparing is not None or self.start_transition:
+            if (self.pending is not None or self.preparing is not None or self.start_transition
+                    or self.experiment_pending is not None):
                 return False, "上一条操作尚未完成"
             if self.lamp_signal is not None and self.lamp_signal.configuration_pending:
                 return False, "灯面配置正在保存，请稍候"
@@ -117,6 +166,7 @@ class WebControl:
             if (time.monotonic()-self.updated >= CONTROL_FRESH_SECONDS
                     or self.state["active"] or self.start_transition or self.pending is not None
                     or self.preparing is not None
+                    or self.experiment_pending is not None
                     or self.state.get("readiness", {}).get("start_light", {}).get("armed")):
                 return False, "请先停车并取消ARM，再调整灯面", None
             try:
@@ -172,9 +222,12 @@ class WebControl:
         with self.lock:
             pending, self.pending = self.pending, None
             if touch_action == "stop":
+                self._cancel_experiments()
                 if self.preparing is not None:
                     self._end_preparation("CANCELLED", "stopped")
                 return None, touch_action
+            if self.experiment_pending is not None and touch_action in ("start", "start_now"):
+                touch_action = None
             if pending is not None and pending[0].action == "stop":
                 return pending[0], touch_action
             if self.preparing is not None:
@@ -206,6 +259,7 @@ class WebControl:
     def stopped(self):
         with self.lock:
             self.generation += 1
+            self._cancel_experiments()
             self.pending = None
             if self.preparing is not None or self.preparation["phase"] == "ARM_QUEUED":
                 self._end_preparation("CANCELLED", "stopped")
@@ -247,7 +301,7 @@ class LiveStream:
             def do_POST(self):
                 from urllib.parse import urlsplit
 
-                if self.path not in ("/control", "/lamp-config"):
+                if self.path not in ("/control", "/lamp-config", "/experiments"):
                     self.send_json(404, dict(message="不存在的接口"))
                     return
                 origin = self.headers.get("Origin")
@@ -268,6 +322,15 @@ class LiveStream:
                         raise ValueError("invalid command")
                 except (ValueError, OSError):
                     self.send_json(400, dict(message="无效请求"))
+                    return
+                if self.path == "/experiments":
+                    try:
+                        ok, message = owner.control.submit_experiments(
+                            data.get("flags"), data.get("generation"))
+                    except ValueError as exc:
+                        self.send_json(400, dict(message=str(exc)))
+                        return
+                    self.send_json(202 if ok else 409, dict(message=message))
                     return
                 if self.path == "/lamp-config":
                     try:

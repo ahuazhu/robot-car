@@ -9,6 +9,7 @@ from pathlib import Path
 from robot.tasks.start_signal import StartSignal
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 import numpy as np
 from robot.control.session import DrivingSession, FrameDecision
 from robot.control.requests import ControlRequest
@@ -871,6 +872,97 @@ class DrivingSessionTests(unittest.TestCase):
         self.assertTrue(s.laps.complete)
         self.assertEqual(s.reason, "STOPPED")
         self.assertEqual(s.pwm, (0, 0))
+
+    def test_parked_experiment_combinations_apply_reset_state_and_are_recorded_at_start(self):
+        baseline = dict(motion_gap_hold=False, crosswalk_recovery_dwpp=False)
+        for hold in (False, True):
+            for recovery in (False, True):
+                flags = dict(motion_gap_hold=hold, crosswalk_recovery_dwpp=recovery)
+                with self.subTest(flags=flags):
+                    s = self.session()
+                    self.assertEqual(s.experiments, baseline)
+                    s.control.update(False, True, 'STOPPED', (0, 0),
+                                     readiness=dict(start_light=dict(armed=False)))
+                    s.steering.trim = 1.25
+                    accepted, _ = s.control.submit_experiments(flags, s.control.generation)
+                    self.assertTrue(accepted)
+                    self.assertEqual(s.experiments, baseline)
+                    before = len(s.link.calls)
+                    s.prepare_frame()
+                    self.assertEqual(s.experiments, flags)
+                    self.assertEqual(len(s.link.calls), before)
+                    self.assertEqual(s.steering.trim, 0. if any(flags.values()) else 1.25)
+                    with contextlib.redirect_stdout(io.StringIO()) as output:
+                        self.start(s)
+                    start = next(json.loads(line[len('START '):])
+                                 for line in output.getvalue().splitlines() if line.startswith('START '))
+                    self.assertEqual(start['experiments'], flags)
+
+    def test_queued_switch_is_rejected_if_session_becomes_active_or_armed_before_apply(self):
+        flags = dict(motion_gap_hold=True, crosswalk_recovery_dwpp=True)
+        baseline = dict(motion_gap_hold=False, crosswalk_recovery_dwpp=False)
+        for transition in ('active', 'armed'):
+            with self.subTest(transition=transition):
+                s = self.session()
+                s.control.update(False, True, 'STOPPED', (0, 0),
+                                 readiness=dict(start_light=dict(armed=False)))
+                self.assertTrue(s.control.submit_experiments(flags, s.control.generation)[0])
+                s.steering.trim = 1.25
+                if transition == 'active':
+                    s.active = True
+                else:
+                    s.start_light.armed = True
+                s.prepare_frame()
+                self.assertEqual(s.experiments, baseline)
+                self.assertEqual(s.steering.trim, 1.25)
+                self.assertIsNotNone(s.control.status()['experiments']['error'])
+                self.assertFalse(s.control.status()['experiments']['pending'])
+
+    def test_recovery_experiment_requires_this_frames_selected_follow_output(self):
+        from tests.support.crosswalk import configured, observation
+        for provenance in ('current', 'held_current', 'fallback', 'stale_profile', 'different_command', 'search'):
+            with self.subTest(provenance=provenance):
+                s = self.session(finish_priority=True)
+                s.experiments = dict(motion_gap_hold=True, crosswalk_recovery_dwpp=True)
+                s.active = True
+                s.link.send(1)
+                policy = configured()
+                s.settings.crosswalk_policy = policy
+                s.crosswalk = CrosswalkTask(policy, finish_priority=True)
+                s.crosswalk.track = observation(self.clock.now, .16)
+                s.crosswalk.phase = 'RECOVERY_PASSING'
+                s.crosswalk.hold_completed_s = policy.hold_s
+                plan = dict(controller='DWPP', selected=True)
+                if provenance == 'held_current':
+                    plan['motion_gap_hold'] = dict(active=True)
+                elif provenance == 'fallback':
+                    plan['selected'] = False
+                elif provenance == 'stale_profile':
+                    # A retained controller status is not this frame's plan.
+                    s.steering.speed_control = SimpleNamespace(
+                        status=plan.copy(), applied=lambda *args, **kwargs: None)
+                    plan = {}
+                s.steering.status['speed_profile_control'] = plan
+                s.ramp.previous = (100., 120.)
+                s.ramp.last = self.clock.now - .1
+                command = (100., 120.)
+                follow = (99., 120.) if provenance == 'different_command' else command
+                with patch.object(s.search, 'is_turning', return_value=provenance == 'search'):
+                    s.update(self.frame(s, command=command, follow_command=follow))
+                expected = command if provenance in ('current', 'held_current') else (50., 60.)
+                self.assertEqual(s.pwm, expected)
+
+    def test_stop_cancels_queued_switch_without_resetting_applied_flags(self):
+        s = self.session()
+        s.control.update(False, True, 'STOPPED', (0, 0),
+                         readiness=dict(start_light=dict(armed=False)))
+        flags = dict(motion_gap_hold=True, crosswalk_recovery_dwpp=True)
+        self.assertTrue(s.control.submit_experiments(flags, s.control.generation)[0])
+        s.update(self.frame(s), ('stop',))
+        s.prepare_frame()
+        self.assertEqual(s.experiments, dict(motion_gap_hold=False, crosswalk_recovery_dwpp=False))
+        self.assertEqual(s.pwm, (0, 0))
+        self.assertFalse(s.control.status()['experiments']['pending'])
 
 
 if __name__ == "__main__":
