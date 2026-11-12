@@ -17,9 +17,10 @@ def logical(wire, boost=37):
 
 
 class BendResponseTests(unittest.TestCase):
-    def control(self, enabled=True):
+    def control(self, enabled=True, gain=1.):
         return ProfileSpeedControl(SpeedLimits(.3,.15,.4,.2,.35,.15),163,.4,
-            controller='DWPP',bend_compensation=enabled,motor_rise_pwm_s=400)
+            controller='DWPP',bend_compensation=enabled,motor_rise_pwm_s=400,
+            bend_curvature_gain=gain)
 
     def step(self,c,*,now=.3,speed=.20,k=-2.,allowed=True,road_k=None):
         r=road(k if road_k is None else road_k,reference_sigma_m=.005)
@@ -141,6 +142,28 @@ class BendResponseTests(unittest.TestCase):
         self.assertEqual(c.applied_mean,0)
         self.assertIsNone(c.reference)
         self.assertIsNone(c.bend_proposal)
+
+    def test_bend_gain_changes_only_outside_target_and_keeps_speed_and_base(self):
+        changed=False
+        for k in (-2.,2.):
+            old,new=self.control(),self.control(gain=1.05)
+            for c in (old,new):c.applied(.1,(80.,80.));self.step(c,k=k)
+            a,b=old.status['bend_allocation'],new.status['bend_allocation']
+            self.assertEqual(old.status['target_speed_m_s'],new.status['target_speed_m_s'])
+            self.assertEqual(a['base_wire'],b['base_wire'])
+            self.assertAlmostEqual(b['target_curvature_m_inv'],a['target_curvature_m_inv']*1.05)
+            outside=0 if k<0 else 1
+            self.assertEqual(a['wire'][1-outside],b['wire'][1-outside])
+            self.assertGreaterEqual(b['wire'][outside],a['wire'][outside])
+            changed |= b['wire'][outside]>a['wire'][outside]
+        self.assertTrue(changed)
+
+    def test_bend_gain_leaves_straight_low_speed_and_countersteer_unchanged(self):
+        for k,speed,road_k in ((0.,.2,None),(-2.,.08,None),(-2.,.2,2.)):
+            old,new=self.control(),self.control(gain=1.05)
+            for c in (old,new):c.applied(.1,(80.,80.))
+            self.assertEqual(self.step(old,k=k,speed=speed,road_k=road_k),
+                             self.step(new,k=k,speed=speed,road_k=road_k))
 
 
 if __name__=='__main__':unittest.main()

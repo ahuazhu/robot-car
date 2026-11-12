@@ -18,7 +18,8 @@
     "controller": "DWPP",
     "angular_acceleration_rad_s2": 2.0,
     "angular_deceleration_rad_s2": 2.0,
-    "bend_compensation": true
+    "bend_compensation": true,
+    "bend_curvature_gain": 1.05
   },
   "crosswalk": {
     "mode": "yield",

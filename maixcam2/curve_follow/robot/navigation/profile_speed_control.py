@@ -20,7 +20,8 @@ class ProfileSpeedControl:
     def __init__(self, limits, maximum_effort, response_s, maximum_gap_s=.30,
                  *, high_confidence_gain=1., controller='PURE_PURSUIT',
                  angular_acceleration=2., angular_deceleration=2.,
-                 bend_compensation=False, pwm_boost=37, motor_rise_pwm_s=180.):
+                 bend_compensation=False, pwm_boost=37, motor_rise_pwm_s=180.,
+                 bend_curvature_gain=1.):
         self.limits = limits
         self.maximum_effort = float(maximum_effort)
         self.response_s = float(response_s)
@@ -40,6 +41,11 @@ class ProfileSpeedControl:
         self.angular_acceleration=float(angular_acceleration)
         self.angular_deceleration=float(angular_deceleration)
         self.motor_rise_pwm_s=CommandRamp(motor_rise_pwm_s).rise_pwm_s
+        if (isinstance(bend_curvature_gain,bool)
+                or not isinstance(bend_curvature_gain,(int,float))
+                or not math.isfinite(bend_curvature_gain) or bend_curvature_gain<=0):
+            raise ValueError('Bend curvature gain must be positive and finite')
+        self.bend_curvature_gain=float(bend_curvature_gain)
         if type(bend_compensation) is not bool:
             raise ValueError('bend_compensation must be boolean')
         self.bend_response=(BendResponse(limits.turn_lever_m,pwm_boost)
@@ -57,7 +63,7 @@ class ProfileSpeedControl:
         unknown = set(config) - {'mode', 'maximum_m_s', 'lateral_acceleration_m_s2',
                                  'acceleration_m_s2', 'high_confidence_gain','controller',
                                  'angular_acceleration_rad_s2','angular_deceleration_rad_s2',
-                                 'bend_compensation'}
+                                 'bend_compensation','bend_curvature_gain'}
         if unknown or config.get('mode', 'LEGACY') not in ('LEGACY', 'ACTIVE'):
             raise ValueError('Invalid speed_profile configuration')
         if config.get('mode', 'LEGACY') == 'LEGACY':
@@ -83,7 +89,8 @@ class ProfileSpeedControl:
             angular_acceleration=config.get('angular_acceleration_rad_s2',2.),
             angular_deceleration=config.get('angular_deceleration_rad_s2',2.),
             bend_compensation=config.get('bend_compensation',False),pwm_boost=settings.pwm_boost,
-            motor_rise_pwm_s=settings.motor_rise_pwm_s)
+            motor_rise_pwm_s=settings.motor_rise_pwm_s,
+            bend_curvature_gain=config.get('bend_curvature_gain',1.))
 
     def reset(self):
         self.applied_at = None
@@ -334,10 +341,15 @@ class ProfileSpeedControl:
                          'NO_SUPPORTED_BEND' if abs(road_curvature)<1. else
                          'COUNTER_STEER' if road_curvature*solution.curvature<=0 else
                          'NO_FRESH_RAMP_BUDGET' if effort_limits is None else None)
-            bend=self.bend_response.allocate(wheels,solution.curvature,
+            # This tuning margin changes only the outside-wheel inversion
+            # target. The original DWPP pair and speed reference stay intact;
+            # steering still checks the resulting physical arc.
+            bend=self.bend_response.allocate(wheels,solution.curvature*self.bend_curvature_gain,
                 allowed=bend_reason is None,ceiling=ceiling,effort_limits=effort_limits)
             if bend_reason is not None:self.bend_response.last_reason=bend_reason
             if bend is not None:
+                bend['curvature_gain']=self.bend_curvature_gain
+                bend['dwpp_curvature_m_inv']=solution.curvature
                 wheels=bend['wheels']
                 self.bend_proposal=bend
         self.reference, self.updated_at = reference, now
