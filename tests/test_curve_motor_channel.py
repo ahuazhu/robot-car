@@ -122,7 +122,7 @@ class CompensationTests(unittest.TestCase):
 
         self.assertEqual(compensate_pwm((0, 0)), (0, 0))
         self.assertEqual(compensate_pwm((53, 53)), (90, 90))
-        self.assertEqual(compensate_pwm((-300, 300)), (-200, 200))
+        self.assertEqual(compensate_pwm((-300, 300)), (-255, 255))
 
     def test_actual_right_bend_boost_preserves_curvature_instead_of_straightening(self):
         from robot.control.controller import compensate_pwm

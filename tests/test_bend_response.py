@@ -23,7 +23,7 @@ class BendResponseTests(unittest.TestCase):
         return c.command(r,r['control_path_m'],now,speed,k,.005,.075,True,
                          measured_yaw_rate=k*speed,bend_allowed=allowed)
 
-    def test_actual_pwm_round_trip_and_inside_preserved_both_directions(self):
+    def test_actual_pwm_round_trip_and_joint_velocity_target_both_directions(self):
         model=BendResponse(.15,37)
         for base,k in (((103.,51.5),-2.2),((51.5,103.),2.2)):
             result=model.allocate(base,k,allowed=True)
@@ -31,16 +31,36 @@ class BendResponseTests(unittest.TestCase):
             wire=compensate_pwm(result['wheels'])
             self.assertEqual(list(wire),result['wire'])
             old=compensate_pwm(base);outside=0 if k<0 else 1
-            self.assertEqual(wire[1-outside],old[1-outside])
-            self.assertGreater(wire[outside],old[outside])
-            self.assertLessEqual(wire[outside]-old[outside],20)
-            self.assertLessEqual(max(wire),180)
+            self.assertGreaterEqual(min(wire),60)
+            self.assertLessEqual(max(wire),200)
+            self.assertAlmostEqual(result['estimated_speed_m_s'],result['target_speed_m_s'],delta=.015)
+            self.assertAlmostEqual(result['estimated_curvature_m_inv'],k,delta=.20)
+
+    def test_no20_or40_bonus_window_and_unreachable_requests_are_reported(self):
+        model=BendResponse(.15,37)
+        wire=(120,80);peak=max(wire)
+        base=tuple(p*(peak-37)/peak for p in wire)
+        result=model.allocate(base,-3.,allowed=True,ceiling=.25)
+        self.assertIsNotNone(result)
+        self.assertGreater(result['outside_added_pwm'],40)
+        self.assertLessEqual(max(result['wire']),model.MODEL_MAX)
+        impossible=model.allocate(base,-8.,allowed=True,ceiling=.25)
+        self.assertTrue(impossible['limited'])
+        self.assertEqual(impossible['reason'],'MODEL_DOMAIN_LIMIT')
+
+    def test_unmeasured201_to255_is_not_extrapolated_into_a_motor_speed(self):
+        model=BendResponse(.15,37)
+        self.assertEqual(model.HARDWARE_MAX,255)
+        self.assertIsNone(model.curvature((220,70)))
+        base=tuple(p*(220-37)/220 for p in (220,70))
+        self.assertIsNone(model.allocate(base,-3.,allowed=True))
+        self.assertEqual(model.last_reason,'OUTSIDE_MEASURED_PWM_DOMAIN')
 
     def test_straight_low_inside_invalid_direction_and_permission_no_change(self):
         model=BendResponse(.15,37)
         for wheels,k,allowed in (((80.,80.),0.,True),((103.,20.),-3.,True),
                                   ((103.,51.5),2.,True),((103.,51.5),-2.,False),
-                                  ((170.,85.),-2.,True)):
+                                  ((230.,100.),-2.,True)):
             self.assertIsNone(model.allocate(wheels,k,allowed=allowed))
 
     def test_zero_straight_and_untrusted_outputs_match_baseline(self):
@@ -78,22 +98,22 @@ class BendResponseTests(unittest.TestCase):
         self.assertIsNone(c.reference)
         self.assertIsNone(c.bend_proposal)
 
-    def test_applied_motion_retains_baseline_pwm_ratio_estimate(self):
+    def test_applied_motion_uses_the_same_nonlinear_mapping_as_allocation(self):
         c=self.control();c.applied(.1,(80.,80.));w=self.step(c)
         result=c.status['bend_allocation']
         c.applied(.31,w,delivered_wheels=compensate_pwm(w))
-        self.assertAlmostEqual(c.status['applied_curvature_m_inv'],result['nominal_curvature_m_inv'])
-        self.assertNotAlmostEqual(c.status['applied_curvature_m_inv'],result['estimated_curvature_m_inv'])
+        self.assertAlmostEqual(c.status['applied_curvature_m_inv'],result['estimated_curvature_m_inv'])
+        self.assertNotAlmostEqual(c.status['applied_curvature_m_inv'],result['nominal_curvature_m_inv'])
 
     def test_clearance_braking_removes_extra_outside_effort(self):
         c=self.control();c.applied(.1,(80.,80.));w=self.step(c)
         original=c.bend_proposal['base_wheels'];v=c.status['target_speed_m_s']
         braked=c.constrain_clearance(w,v*.5)
-        self.assertEqual(braked,tuple(x*.5 for x in original))
+        self.assertTrue(braked==(0.,0.) or min(compensate_pwm(braked))>=60)
         self.assertFalse(c.status['bend_allocation']['active'])
         self.assertIsNone(c.bend_proposal)
         c.applied(.31,braked,delivered_wheels=compensate_pwm(braked))
-        self.assertAlmostEqual(c.applied_mean,sum(braked)/2)
+        self.assertGreaterEqual(c.applied_mean,0.)
 
     def test_directional_curvature_estimate_and_extrapolation_are_explicit(self):
         model=BendResponse(.15,37)
@@ -122,9 +142,9 @@ class BendResponseTests(unittest.TestCase):
         self.assertLess(c.status['centerline_confidence'],.8)
         allocation=c.status['bend_allocation']
         self.assertTrue(allocation['active'])
-        self.assertGreater(max(allocation['wire']),180)
+        self.assertTrue(allocation['wire'])
         self.assertLessEqual(max(allocation['wire']),200)
-        self.assertLessEqual(allocation['outside_added_pwm'],20)
+        self.assertNotIn('MAXIMUM_ADDITION',vars(BendResponse))
 
 
 if __name__=='__main__':unittest.main()

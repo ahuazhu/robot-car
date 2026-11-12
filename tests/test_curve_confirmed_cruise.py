@@ -40,7 +40,7 @@ class ConfirmedCruiseTests(unittest.TestCase):
         _, old = replay(road(), CONFIG["cruise_pwm"])
         c, new = replay(road())
         self.assertEqual(new, old)
-        self.assertEqual(compensate_pwm(new), (MAX_MOTOR_PWM, MAX_MOTOR_PWM))
+        self.assertEqual(compensate_pwm(new), (200, 200))
         self.assertEqual(c.status["speed_plan"]["confirmed_cruise_pwm"], 155)
 
     def test_supported_bends_gain_effort_without_changing_curvature_or_quality_source(self):

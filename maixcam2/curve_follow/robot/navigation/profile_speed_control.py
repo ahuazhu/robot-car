@@ -122,6 +122,9 @@ class ProfileSpeedControl:
                             # only by actual task/ramp delivery. Adding the new
                             # outside duty again each cycle would wind it up.
                             self.applied_mean=bend['base_mean']*min(1.,scale)
+                            predicted=self.bend_response.curvature(delivered)
+                            if predicted is not None:curvature=predicted
+                            else:self.status['actuator_model_reason']='RAMP_OUTSIDE_MODEL_DOMAIN'
                         linear = v*min(1.,scale)
                         self.dwpp_state=(float(now),linear,linear*curvature)
                         self.status['applied_curvature_m_inv']=curvature
@@ -148,11 +151,26 @@ class ProfileSpeedControl:
         if v<=ceiling:return command
         scale=max(0.,ceiling/v)
         if self.bend_proposal is not None:
-            # Braking owns the output: remove extra outside effort instead of
-            # carrying the experimental allocation into a reduced-speed task.
-            command=self.bend_proposal['base_wheels']
-            self.bend_proposal=None
-            self.status['bend_allocation']=dict(active=False,reason='BODY_BRAKING')
+            # Re-solve the mapped pair under the braking ceiling; scaling PWM
+            # would change physical curvature and can enter a motor dead zone.
+            previous=self.bend_proposal
+            base=tuple(x*scale for x in previous['base_wheels'])
+            from robot.control.controller import compensate_pwm
+            target=previous['target_speed_m_s']
+            k=previous['target_yaw_rad_s']/target if target else 0.
+            mapped=self.bend_response.solve(base,compensate_pwm(base,self.bend_response.boost),
+                min(ceiling,target*scale),k,ceiling)
+            self.bend_proposal=mapped
+            wheels=mapped['wheels'] if mapped is not None and not mapped['limited'] else (0.,0.)
+            if not any(wheels):self.bend_proposal=None
+            self.reference=v*scale
+            self.dwpp_proposal=(wheels,v*scale,w*scale)
+            self.status.update(reason='BODY_CLEARANCE',ceiling_m_s=ceiling,
+                target_speed_m_s=v*scale,reference_angular_rad_s=w*scale,
+                requested_wheels=list(wheels),effort_mean_pwm=sum(wheels)/2.,
+                bend_allocation=dict(active=bool(any(wheels)),reason=self.bend_response.last_reason))
+            self.status['dwpp']['overrides'].append('BODY_SWEEP_BRAKING')
+            return wheels
         wheels=tuple(x*scale for x in command)
         self.reference=v*scale
         self.dwpp_proposal=(wheels,v*scale,w*scale)
@@ -294,10 +312,12 @@ class ProfileSpeedControl:
         bend=None
         if self.bend_response is not None and dwpp_status is not None:
             bend=self.bend_response.allocate(wheels,solution.curvature,
-                allowed=bend_allowed and measured_speed>=.10)
+                allowed=bend_allowed and measured_speed>=.10,ceiling=ceiling)
             if bend is not None:
                 wheels=bend['wheels']
                 self.bend_proposal=bend
+            elif self.bend_response.last_reason=='NO_CONTINUOUS_PAIR_WITHIN_SPEED_CEILING':
+                wheels=(0.,0.)
         self.reference, self.updated_at = reference, now
         self.status = dict(
             mode='ACTIVE',controller=self.controller,selected=True,reason=plan.entry_reason,
@@ -317,9 +337,11 @@ class ProfileSpeedControl:
             self.status.update(dwpp=dwpp_status,reference_angular_rad_s=solution.angular,
                                effective_curvature_m_inv=solution.curvature)
             self.dwpp_proposal=(wheels,solution.linear,solution.angular)
+            if self.bend_response is not None:
+                self.status['actuator_model_reason']=self.bend_response.last_reason
             if bend is not None:
                 self.status['bend_allocation']=dict(active=True,**{
                     key:value for key,value in bend.items()
                     if key not in ('wheels','base_wheels','base_mean')})
-                self.status['effective_curvature_m_inv']=bend['nominal_curvature_m_inv']
+                self.status['effective_curvature_m_inv']=bend['estimated_curvature_m_inv']
         return wheels

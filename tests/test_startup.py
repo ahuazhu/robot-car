@@ -73,7 +73,7 @@ class MotorStartupReadinessTests(unittest.TestCase):
     def test_missing_or_malformed_motor_evidence_cannot_imply_ready(self):
         self.assertEqual(motor_startup_blockers(None), ["UNO_STATUS_UNAVAILABLE"])
         for changed in ({"ack": []}, {"ack": [1, 0, 0, 0, True]},
-                        {"ack": [1, 0, 201, 0, 0]}, {"ack_age_ms": float("nan")}):
+                        {"ack": [1, 0, 256, 0, 0]}, {"ack_age_ms": float("nan")}):
             with self.subTest(changed=changed):
                 self.assertIn("UNO_STATUS_INVALID", motor_startup_blockers(self.motor(**changed)))
 
