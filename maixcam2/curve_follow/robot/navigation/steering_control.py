@@ -506,6 +506,7 @@ class SteeringControl:
                     and abs(self.lever * (self.requested + self.trim)) <= .18),
                 clearance_limit_m_s=clearance_limit,
                 measured_yaw_rate=self.status.get('body_yaw_rad_s'),
+                bend_allowed=(boost_ready and not result.get('transition_pending')),
             )
             if not speed_profile_allowed:
                 self.speed_control.status['reason'] = 'TASK_OWNS_SPEED'
