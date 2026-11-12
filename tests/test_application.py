@@ -29,7 +29,7 @@ class RuntimeSettingsTests(unittest.TestCase):
                 settings.straight_cruise_pwm,
                 settings.pwm_boost,
             ),
-            (145.0, 163.0, 163.0, 37),
+            (135.0, 155.0, 163.0, 37),
         )
         self.assertEqual(settings.runtime["race"]["finish_distance_m"], 0.4)
         self.assertEqual(settings.motor_rise_pwm_s, 400)
@@ -48,7 +48,11 @@ class RuntimeSettingsTests(unittest.TestCase):
 
 class ApplicationBoundaryTests(unittest.TestCase):
     def test_disabled_counting_skips_marker_pipeline_but_keeps_crosswalk_detection(self):
-        with patch.object(application.LapMarkerDetector,'detect',side_effect=AssertionError) as detect, \
+        settings=RuntimeSettings.load(APP_ROOT,{'TARGET_PREVIEW_ONLY':'1'})
+        settings=replace(settings,runtime=dict(settings.runtime,race=dict(
+            settings.runtime['race'],enabled=False)))
+        with patch.object(application.RuntimeSettings,'load',return_value=settings), \
+             patch.object(application.LapMarkerDetector,'detect',side_effect=AssertionError) as detect, \
              patch.object(application.LapMarkerDetector,'draw',side_effect=AssertionError) as draw, \
              patch.object(application.LapCounter,'update',side_effect=AssertionError) as count, \
              patch.object(application.CrosswalkDetector,'detect',autospec=True,

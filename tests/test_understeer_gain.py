@@ -33,23 +33,19 @@ class UndersteerGainTests(unittest.TestCase):
 
     def test_field_gain_strengthens_both_bends_without_changing_straight(self):
         gain=RuntimeSettings.load(ROOT/'maixcam2/curve_follow',{}).steering_gain
-        before_straight,before_command=self.evaluate(0.,1.05)
+        before_straight,before_command=self.evaluate(0.,.85)
         after_straight,after_command=self.evaluate(0.,gain)
         self.assertEqual(before_command,after_command)
         for curvature in (-4.,-2.,-1.,1.,2.,4.):
             with self.subTest(curvature=curvature):
-                before,a=self.evaluate(curvature,1.05)
+                before,a=self.evaluate(curvature,.85)
                 after,b=self.evaluate(curvature,gain)
                 ratio_a=abs((a[1]-a[0])/sum(a))
                 ratio_b=abs((b[1]-b[0])/sum(b))
                 self.assertGreater(ratio_b/ratio_a,1.08)
                 self.assertLess(ratio_b/ratio_a,1.20)
-                # Extra gain compensates actuator response. An ideal geometric
-                # sweep need not improve monotonically as gain exceeds one;
-                # it must reflect the change and retain positive clearance.
-                self.assertGreater(after.status['envelope']['minimum_clearance_m'],0.)
-                self.assertNotAlmostEqual(after.status['envelope']['minimum_clearance_m'],
-                                          before.status['envelope']['minimum_clearance_m'],places=7)
+                self.assertGreater(after.status['envelope']['minimum_clearance_m'],
+                                   before.status['envelope']['minimum_clearance_m'])
                 # The same gain must be used in physical prediction and output.
                 self.assertGreater(abs(after.status['requested_curvature_m_inv']),
                                    abs(before.status['requested_curvature_m_inv']))

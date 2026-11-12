@@ -73,13 +73,11 @@ class LapCounterTests(unittest.TestCase):
             self.assertFalse(c.update(observation(0.2, True, True), motion(0.3), t, True))
         self.assertEqual(c.count, 3)
 
-    def test_reenabled_runtime_counts_two_returns_then_measured_forty_centimetres(self):
+    def test_current_runtime_counts_two_returns_then_measured_forty_centimetres(self):
         config = json.loads((ROOT / "maixcam2/curve_follow/runtime.json").read_text())["race"]
         self.assertEqual((config["laps"], config["finish_distance_m"]), (2, 0.4))
         self.assertNotIn("finish_runout_s", config)
-        # Driving trials temporarily pause counting; verify its preserved race
-        # parameters still work when the original switch is restored.
-        c = LapCounter(dict(config,enabled=True))
+        c = LapCounter(config)
         c.begin(observation(0.4, True, True), 0.0)
         self.assertFalse(self.pass_line(c, 0.0))
         self.clear(c, 1.0)
