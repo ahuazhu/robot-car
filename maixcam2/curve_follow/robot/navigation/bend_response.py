@@ -75,13 +75,10 @@ class BendResponse:
         target=min(linear,float(ceiling)) if ceiling is not None else linear
         return self.solve(wheels,wire,target,curvature,ceiling)
 
-    def solve(self,base_wheels,base_wire,linear,curvature,ceiling,*,angular_window=None):
+    def solve(self,base_wheels,base_wire,linear,curvature,ceiling):
         angular=linear*curvature
         valid=self.twists[:,1]*angular>=0
         if ceiling is not None:valid &= self.twists[:,0]<=ceiling+1e-9
-        if angular_window is not None:
-            low,high=angular_window
-            valid &= (self.twists[:,1]>=low-1e-9) & (self.twists[:,1]<=high+1e-9)
         if not np.any(valid):
             self.last_reason='NO_CONTINUOUS_PAIR_WITHIN_SPEED_CEILING';return None
         cost=(self.twists[:,0]-linear)**2+(.15*(self.twists[:,1]-angular))**2

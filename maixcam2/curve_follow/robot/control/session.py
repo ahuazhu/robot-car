@@ -342,8 +342,6 @@ class DrivingSession:
             self.pwm = self.ramp.apply(command, now) if command is not None else (0, 0)
         if self.search.is_turning():
             self.ramp.reset()
-        if not self.search.is_turning():
-            self.pwm = self.steering.continuous_output(self.pwm)
         lease = None
         if any(self.pwm):
             lease = (

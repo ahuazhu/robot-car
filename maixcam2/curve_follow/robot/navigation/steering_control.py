@@ -78,7 +78,6 @@ class SteeringControl:
         self.speed_ready_since = None
         self.speed_observed_at = None
         self.observed_at = None
-        self.actuator_context = None
         self.filtered_lookahead = None
         self.lookahead_at = None
 
@@ -279,81 +278,6 @@ class SteeringControl:
         # Discarding its zero would falsely authorize a visual search turn.
         return command if not any(command) or lease>0 else None
 
-    def continuous_output(self, command):
-        """Check a low-duty pair after task/ramp scaling, before UART output.
-
-        PWM60 is the measured conservative continuous/start floor. Solve the
-        existing paired model for both wheels; never lift a braking ceiling or
-        send an independently boosted inner wheel on an unchecked body arc.
-        """
-        self.status.pop('motor_floor', None)
-        control = self.speed_control
-        model = None if control is None else control.bend_response
-        context = self.actuator_context
-        if model is None or context is None or not any(command):
-            return command
-        from robot.control.controller import compensate_pwm
-        wire = compensate_pwm(command, model.boost)
-        if min(wire) <= 0 or min(wire) >= 60:
-            return command
-        plan = control.status
-        ceiling = plan.get('ceiling_m_s', plan.get('confidence_ceiling_m_s'))
-        limits = [x for x in (ceiling, plan.get('clearance_ceiling_m_s')) if x is not None]
-        if not limits:
-            return command
-        ceiling = min(limits)
-        curvature = plan.get('effective_curvature_m_inv', self.requested + self.trim)
-        linear, _ = model.predict(wire)
-        window = (plan.get('dwpp') or {}).get('window')
-        if window is not None:
-            angular_window = (window['w_min'], window['w_max'])
-        elif self.status.get('motion_measured') and 'body_yaw_rad_s' in self.status:
-            dt = min(control.maximum_gap_s, self.status.get('motion_interval_s') or 0.)
-            yaw = self.status['body_yaw_rad_s']
-            angular_window = (yaw - max(control.angular_acceleration, control.angular_deceleration)*dt,
-                              yaw + max(control.angular_acceleration, control.angular_deceleration)*dt)
-        else:
-            self.status['motor_floor'] = dict(active=False,
-                reason='MOTION_REQUIRED_FOR_CONTINUOUS_PAIR', requested_wire=list(wire), wire=[0,0])
-            return (0.,0.)
-        mapped = model.solve(command, wire, min(linear, ceiling), curvature, ceiling,
-                             angular_window=angular_window)
-        reason = model.last_reason
-        if mapped is not None:
-            actual = self.envelope(context['path'], mapped['estimated_curvature_m_inv'],
-                context['sigma'], self.width, observed_path=context['observed_path'],
-                speed_m_s=max(self.status.get('speed_upper_m_s') or 0.,
-                              mapped['estimated_speed_m_s']),
-                sensor_transform=context['sensor_transform'],
-                lookahead_m=context['lookahead_m'], support_sigma_m=context['support_sigma_m'])
-            caps = [actual.get('speed_limit_m_s')]
-            if context['candidate'] is not None:
-                other = self.envelope(context['path'], mapped['estimated_curvature_m_inv'],
-                    context['sigma'], self.width, observed_path=context['candidate'],
-                    speed_m_s=mapped['estimated_speed_m_s'],
-                    sensor_transform=context['sensor_transform'], lookahead_m=context['lookahead_m'])
-                caps.append(other.get('speed_limit_m_s'))
-            if any(cap is not None and mapped['estimated_speed_m_s'] > cap + 1e-9 for cap in caps):
-                mapped = None
-                reason = 'BODY_CLEARANCE_BELOW_CONTINUOUS_FLOOR'
-        output = (0., 0.) if mapped is None else mapped['wheels']
-        self.status['motor_floor'] = dict(active=mapped is not None, reason=reason,
-            requested_wire=list(wire), wire=list(compensate_pwm(output, model.boost)),
-            ceiling_m_s=ceiling, angular_window=list(angular_window))
-        if mapped is not None:
-            # Preserve the pre-adapter effort as speed-loop feedback, exactly
-            # as for ordinary bend allocation. The new pair supplies actual
-            # command-domain motion and has passed its own body sweep check.
-            previous = control.bend_proposal
-            if previous is not None:
-                norm = sum(x*x for x in previous['wheels'])
-                scale = sum(a*b for a,b in zip(command, previous['wheels'])) / norm if norm else 0.
-                mapped['base_mean'] = previous['base_mean'] * max(0., min(1., scale))
-            control.bend_proposal = mapped
-            control.dwpp_proposal = (output, mapped['estimated_speed_m_s'],
-                                    mapped['estimated_yaw_rad_s'])
-        return output
-
     def command(self, result, age_s=0.0, *, lookahead_m=None, alternatives=True,
                 speed_profile_allowed=True):
         """Follow geometry at command time, not at frame-receive time.
@@ -364,7 +288,6 @@ class SteeringControl:
         and leaves geometry unchanged. The ordinary freshness gate still owns
         whether this command can be sent.
         """
-        self.actuator_context = None
         point = result.get("control_target_m", result.get("target_m"))
         self.status.pop("envelope", None)
         self.status.pop("prediction", None)
@@ -526,14 +449,6 @@ class SteeringControl:
                 clearance_limit=shared_limit if clearance_limit is None else min(clearance_limit,shared_limit)
             scale = min(scale, shared["speed_scale"])
             self.status["continuation_envelope"] = shared
-        if (speed_profile_allowed and result.get("state") == "OBSERVED"
-                and result.get("observed") and not result.get("transition_pending")
-                and not persistent_recovery):
-            self.actuator_context = dict(path=path,
-                sigma=support_sigma + prediction_sigma, observed_path=observed,
-                sensor_transform=transform, lookahead_m=lookahead,
-                support_sigma_m=footprint_sigma,
-                candidate=candidate if result.get("history_continuity_evidence") is not None else None)
         # Extra effort is allowed only on a currently measured, supported
         # pursuit segment with measured motion and a clear body envelope.
         # Reuse the ordinary dimensionless bend load: the straight ceiling
