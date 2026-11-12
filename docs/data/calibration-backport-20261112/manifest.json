@@ -88,7 +88,7 @@
     "host_native_test_count": 1058,
     "host_native_tests_pass": true,
     "runtime_and_camera_calibration_byte_identical_to_v102": true,
-    "deployment_performed": false
+    "deployment_performed": true
   },
   "snapshot_files": [
     {
@@ -111,5 +111,19 @@
       "path": "surface-equivalence.json",
       "sha256": "b748f5c715e31df75f54486cb62d17f1a8234e44fb4ca15b5989dcd3a15cdbd0"
     }
-  ]
+  ],
+  "deployment": {
+    "date_local": "2026-11-12",
+    "timezone": "Asia/Shanghai",
+    "version": "0.6.102-backport.1",
+    "run_id": "20261112-111502-install_curve_follow_drive",
+    "bundle_sha256": "ba283605bd4d823d6b283ce03cd31fa51ca808ebd7aba830ae94826fafdbf2a1",
+    "device_backup": "/maixapp/apps/robot_curve_follow/backups/20261112-031510-1794453310439809333",
+    "verified_files": 50,
+    "observed_active": false,
+    "observed_ready": true,
+    "observed_reason": "WAIT START",
+    "observed_frame": 124,
+    "road_test_verified": false
+  }
 }
