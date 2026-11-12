@@ -3,6 +3,7 @@
 import contextlib
 from dataclasses import replace
 import io
+from itertools import product
 import json
 from pathlib import Path
 import tempfile
@@ -273,45 +274,46 @@ class ApplicationBoundaryTests(unittest.TestCase):
             output=output.getvalue(),
         )
 
-    def test_four_experiment_combinations_apply_at_next_frame_and_reach_controllers_and_logs(self):
-        baseline = dict(motion_gap_hold=False, crosswalk_recovery_dwpp=False)
-        for hold in (False, True):
-            for recovery in (False, True):
-                flags = dict(motion_gap_hold=hold, crosswalk_recovery_dwpp=recovery)
-                with self.subTest(flags=flags), \
-                     patch.object(application.SteeringControl, 'command', autospec=True,
-                                  side_effect=application.SteeringControl.command) as steering, \
-                     patch.object(application.CrosswalkTask, 'allows_speed_profile', autospec=True,
-                                  side_effect=application.CrosswalkTask.allows_speed_profile) as task:
-                    run = self.run_application(6, preview=False,
-                        experiment_actions={2: flags}, touch_actions={4: 'start', 6: 'stop'})
-                self.assertTrue(run.experiment_results[0][1][0])
-                published = run.stream.publications
-                self.assertEqual([p['readiness']['experiments'] for p in published[:2]],
-                                 [baseline, baseline])
-                self.assertTrue(all(p['readiness']['experiments'] == flags for p in published[2:]))
-                self.assertEqual([call.kwargs['motion_gap_hold'] for call in steering.call_args_list],
-                                 [False, False] + [hold] * 4)
-                self.assertEqual([call.kwargs['recovery_dwpp'] for call in task.call_args_list],
-                                 [False, False] + [recovery] * 4)
-                logs = [json.loads(line[len('CONTROL '):]) for line in run.output.splitlines()
-                        if line.startswith('CONTROL ')]
-                traces = [json.loads(line[len('DRIVE_TRACE '):]) for line in run.output.splitlines()
-                          if line.startswith('DRIVE_TRACE ')]
-                self.assertEqual(logs[0]['experiments'], baseline)
-                self.assertTrue(all(row['experiments'] == flags for row in logs if row['frame'] >= 3))
-                self.assertTrue(traces)
-                self.assertTrue(all(row['experiments'] == flags for row in traces))
-                status = run.stream.control.status()['experiments']
-                self.assertEqual({k: status[k] for k in flags}, flags)
-                self.assertFalse(status['pending'])
+    def test_eight_experiment_combinations_apply_at_next_frame_and_reach_controllers_and_logs(self):
+        baseline = dict(motion_gap_hold=False, crosswalk_recovery_dwpp=False, bend_inner_reduction=False)
+        for hold, recovery, inner in product((False, True), repeat=3):
+            flags = dict(motion_gap_hold=hold, crosswalk_recovery_dwpp=recovery, bend_inner_reduction=inner)
+            with self.subTest(flags=flags), \
+                 patch.object(application.SteeringControl, 'command', autospec=True,
+                              side_effect=application.SteeringControl.command) as steering, \
+                 patch.object(application.CrosswalkTask, 'allows_speed_profile', autospec=True,
+                              side_effect=application.CrosswalkTask.allows_speed_profile) as task:
+                run = self.run_application(6, preview=False,
+                    experiment_actions={2: flags}, touch_actions={4: 'start', 6: 'stop'})
+            self.assertTrue(run.experiment_results[0][1][0])
+            published = run.stream.publications
+            self.assertEqual([p['readiness']['experiments'] for p in published[:2]],
+                             [baseline, baseline])
+            self.assertTrue(all(p['readiness']['experiments'] == flags for p in published[2:]))
+            self.assertEqual([call.kwargs['motion_gap_hold'] for call in steering.call_args_list],
+                             [False, False] + [hold] * 4)
+            self.assertEqual([call.kwargs['bend_inner_reduction'] for call in steering.call_args_list],
+                             [False, False] + [inner] * 4)
+            self.assertEqual([call.kwargs['recovery_dwpp'] for call in task.call_args_list],
+                             [False, False] + [recovery] * 4)
+            logs = [json.loads(line[len('CONTROL '):]) for line in run.output.splitlines()
+                    if line.startswith('CONTROL ')]
+            traces = [json.loads(line[len('DRIVE_TRACE '):]) for line in run.output.splitlines()
+                      if line.startswith('DRIVE_TRACE ')]
+            self.assertEqual(logs[0]['experiments'], baseline)
+            self.assertTrue(all(row['experiments'] == flags for row in logs if row['frame'] >= 3))
+            self.assertTrue(traces)
+            self.assertTrue(all(row['experiments'] == flags for row in traces))
+            status = run.stream.control.status()['experiments']
+            self.assertEqual({k: status[k] for k in flags}, flags)
+            self.assertFalse(status['pending'])
 
     def test_touch_stop_cancels_midframe_switch_before_next_boundary(self):
-        flags = dict(motion_gap_hold=True, crosswalk_recovery_dwpp=True)
+        flags = dict(motion_gap_hold=True, crosswalk_recovery_dwpp=True, bend_inner_reduction=True)
         run = self.run_application(4, preview=False,
             experiment_actions={2: flags}, touch_actions={2: 'stop'})
         self.assertTrue(run.experiment_results[0][1][0])
-        baseline = dict(motion_gap_hold=False, crosswalk_recovery_dwpp=False)
+        baseline = dict(motion_gap_hold=False, crosswalk_recovery_dwpp=False, bend_inner_reduction=False)
         self.assertTrue(all(p['readiness']['experiments'] == baseline
                             for p in run.stream.publications))
         status = run.stream.control.status()['experiments']

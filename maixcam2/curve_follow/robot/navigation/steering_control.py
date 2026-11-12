@@ -283,7 +283,7 @@ class SteeringControl:
         return command if not any(command) or lease>0 else None
 
     def command(self, result, age_s=0.0, *, lookahead_m=None, alternatives=True,
-                speed_profile_allowed=True,motion_gap_hold=False):
+                speed_profile_allowed=True,motion_gap_hold=False,bend_inner_reduction=False):
         """Follow geometry at command time, not at frame-receive time.
 
         Extrapolate ONLY valid measured body twist over the measured processing
@@ -555,6 +555,7 @@ class SteeringControl:
                     clearance_limit_m_s=clearance_limit,
                     measured_yaw_rate=self.status.get('body_yaw_rad_s'),
                     bend_allowed=bend_ready,
+                    bend_inner_reduction=bend_inner_reduction,
                     hold_source_at=(self.observed_at if motion_gap_hold and eligible
                         and observed_pursuit and not persistent_recovery and resolved_forward_motion
                         and self.status.get('body_speed_m_s',0.)>=.10 else None),

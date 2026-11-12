@@ -175,7 +175,8 @@ h1{font-size:21px}
 <div class="experiment-options">
 <label class="experiment-option"><input id="experiment-motion-gap-hold" type="checkbox" disabled><span><strong>短暂测速丢失时保持转向</strong><small>只处理测速短暂中断：短时保持最近已下发的转向输出，不加速。</small></span></label>
 <label class="experiment-option"><input id="experiment-crosswalk-recovery-dwpp" type="checkbox" disabled><span><strong>横道恢复阶段使用 DWPP</strong><small>只在已完成横道停留时间、且没有下一横道约束时接管恢复阶段；不代表停位已验证。</small></span></label>
-</div><p>两个选项独立生效，既有转向增益和标定模型不变。全部关闭即 v0.7.1 基线；程序重启后全关，STOP 保留已生效选择。</p>
+<label class="experiment-option"><input id="experiment-bend-inner-reduction" type="checkbox" disabled><span><strong>弯道允许降低内轮 PWM</strong><small>仅在原弯道补偿条件下，由标定模型共同选择双轮输出；沿用原补偿时机和低 PWM 可用范围。</small></span></label>
+</div><p>三个选项独立生效，既有转向增益和标定模型不变。全部关闭即 v0.7.1 基线；程序重启后全关，STOP 保留已生效选择。</p>
 <p id="experiment-status" role="status" aria-live="polite">等待读取实验设置；停车且取消 ARM 后可修改。</p></section>
 <div class="support-grid"><details id="diagnostics-panel"><summary>状态与诊断</summary><div class="details-body"><p id="status">正在连接…</p><p id="lap-status"></p><p id="start-light-status"></p><p id="crosswalk-status"></p><p id="diagnostics"></p></div></details>
 <details id="advanced-panel"><summary>调试与说明</summary><div class="details-body"><p>选择准备时灯态，框好灯面并设置圈数后按“准备等灯”。OFF：等待亮灯后再熄灭；ON：仅在已确认当前灯亮时选择，建立基准后等待熄灭。识别到熄灯信号后自动出发。</p><div class="debug-actions"><button onclick="connectMaixPreview()">重连巡线画面</button></div><p>手动测试启动会跳过信号灯，请确认场地允许。</p><p class="legend"><b class="yellow">黄：左边界</b> · <b class="blue">蓝：右边界</b> · <b class="green">绿：中线</b> · <b class="orange">橙：预测</b> · 红十字：追踪点</p><p>横道停稳亮红灯满3.2秒后通行。计满圈数后继续巡线40cm再停车；道路与通信异常仍会触发保护。</p></div></details></div>
@@ -191,7 +192,7 @@ let initialLampState="OFF",lockedInitialLampState=null,initialLampGeneration=nul
 let lampConfiguration=null,roiDraft=[100,40,100,80],roiDirty=false,roiDrag=null;
 let roiRemotePending=false,preparationPending=false,preparationError='',roiSubmitted=null,lastPreparation={};
 let lockedROI=null,lockedGeneration=null,roiScanBusy=false,roiScanRequest=null,roiScanError='';
-let experimentState={motion_gap_hold:false,crosswalk_recovery_dwpp:false,pending:false,revision:0,error:null};
+let experimentState={motion_gap_hold:false,crosswalk_recovery_dwpp:false,bend_inner_reduction:false,pending:false,revision:0,error:null};
 let experimentKnown=false,experimentRequest=null,experimentError='',serverZeroPWM=false;
 const roiBounds=['left','right','top','bottom'];
 function validLampBox(a){return Array.isArray(a)&&a.length===4&&a.every(Number.isInteger)&&a[0]>=0&&a[1]>=0&&a[2]>=16&&a[3]>=16&&a[0]+a[2]<=320&&a[1]+a[3]<=240;}
@@ -382,7 +383,7 @@ function updateFieldSummary(s,fresh){
 const directButton=document.getElementById('direct-start'),startButton=document.getElementById('start'),statusBox=document.getElementById('status'),notice=document.getElementById('notice');
 const lapsInput=document.getElementById('target-laps'),lapsError='请输入1–100之间的整数圈数。';
 const initialLampInput=document.getElementById('initial-lamp-state');
-const experimentInputs={motion_gap_hold:document.getElementById('experiment-motion-gap-hold'),crosswalk_recovery_dwpp:document.getElementById('experiment-crosswalk-recovery-dwpp')};
+const experimentInputs={motion_gap_hold:document.getElementById('experiment-motion-gap-hold'),crosswalk_recovery_dwpp:document.getElementById('experiment-crosswalk-recovery-dwpp'),bend_inner_reduction:document.getElementById('experiment-bend-inner-reduction')};
 function experimentsBlocking(){return !experimentKnown||!!experimentRequest||experimentState.pending;}
 function canEditExperiments(){
  return Date.now()<statusExpiresAt&&experimentKnown&&!serverActive&&!serverArmed&&serverZeroPWM&&!busy&&!preparationPending&&!roiRemotePending&&!roiScanBusy&&!experimentsBlocking();
@@ -399,7 +400,7 @@ function syncExperiments(){
 function receiveExperiments(s,fresh){
  if(!fresh)return;
  const x=s.experiments;
- experimentKnown=!!x&&typeof x.motion_gap_hold==='boolean'&&typeof x.crosswalk_recovery_dwpp==='boolean'&&typeof x.pending==='boolean'&&Number.isInteger(x.revision)&&x.revision>=0&&(x.error===null||typeof x.error==='string');
+ experimentKnown=!!x&&Object.keys(experimentInputs).every(key=>typeof x[key]==='boolean')&&typeof x.pending==='boolean'&&Number.isInteger(x.revision)&&x.revision>=0&&(x.error===null||typeof x.error==='string');
  if(!experimentKnown)return;
  experimentState={...x};
  if(experimentRequest&&experimentRequest.responseDone&&s.generation!==experimentRequest.generation&&!x.pending){
@@ -424,10 +425,10 @@ async function submitExperiments(flags){
  finally{if(revision===controlRevision){await updateStatus();syncControls();}}
 }
 for(const [key,input] of Object.entries(experimentInputs))input.addEventListener('change',()=>{
- const flags={motion_gap_hold:experimentState.motion_gap_hold,crosswalk_recovery_dwpp:experimentState.crosswalk_recovery_dwpp};flags[key]=input.checked;
+ const flags=Object.fromEntries(Object.keys(experimentInputs).map(name=>[name,experimentState[name]]));flags[key]=input.checked;
  return submitExperiments(flags);
 });
-function restoreExperimentBaseline(){return submitExperiments({motion_gap_hold:false,crosswalk_recovery_dwpp:false});}
+function restoreExperimentBaseline(){return submitExperiments({motion_gap_hold:false,crosswalk_recovery_dwpp:false,bend_inner_reduction:false});}
 initialLampInput.value=initialLampState;
 initialLampInput.addEventListener('change',()=>{
  if(!initialLampInput.disabled&&validInitialLampState(initialLampInput.value))initialLampState=initialLampInput.value;

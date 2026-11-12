@@ -3,6 +3,7 @@
 from tests.support import ROOT
 import contextlib
 import io
+from itertools import product
 import json
 import tempfile
 from pathlib import Path
@@ -874,33 +875,32 @@ class DrivingSessionTests(unittest.TestCase):
         self.assertEqual(s.pwm, (0, 0))
 
     def test_parked_experiment_combinations_apply_reset_state_and_are_recorded_at_start(self):
-        baseline = dict(motion_gap_hold=False, crosswalk_recovery_dwpp=False)
-        for hold in (False, True):
-            for recovery in (False, True):
-                flags = dict(motion_gap_hold=hold, crosswalk_recovery_dwpp=recovery)
-                with self.subTest(flags=flags):
-                    s = self.session()
-                    self.assertEqual(s.experiments, baseline)
-                    s.control.update(False, True, 'STOPPED', (0, 0),
-                                     readiness=dict(start_light=dict(armed=False)))
-                    s.steering.trim = 1.25
-                    accepted, _ = s.control.submit_experiments(flags, s.control.generation)
-                    self.assertTrue(accepted)
-                    self.assertEqual(s.experiments, baseline)
-                    before = len(s.link.calls)
-                    s.prepare_frame()
-                    self.assertEqual(s.experiments, flags)
-                    self.assertEqual(len(s.link.calls), before)
-                    self.assertEqual(s.steering.trim, 0. if any(flags.values()) else 1.25)
-                    with contextlib.redirect_stdout(io.StringIO()) as output:
-                        self.start(s)
-                    start = next(json.loads(line[len('START '):])
-                                 for line in output.getvalue().splitlines() if line.startswith('START '))
-                    self.assertEqual(start['experiments'], flags)
+        baseline = dict(motion_gap_hold=False, crosswalk_recovery_dwpp=False, bend_inner_reduction=False)
+        for hold, recovery, inner in product((False, True), repeat=3):
+            flags = dict(motion_gap_hold=hold, crosswalk_recovery_dwpp=recovery, bend_inner_reduction=inner)
+            with self.subTest(flags=flags):
+                s = self.session()
+                self.assertEqual(s.experiments, baseline)
+                s.control.update(False, True, 'STOPPED', (0, 0),
+                                 readiness=dict(start_light=dict(armed=False)))
+                s.steering.trim = 1.25
+                accepted, _ = s.control.submit_experiments(flags, s.control.generation)
+                self.assertTrue(accepted)
+                self.assertEqual(s.experiments, baseline)
+                before = len(s.link.calls)
+                s.prepare_frame()
+                self.assertEqual(s.experiments, flags)
+                self.assertEqual(len(s.link.calls), before)
+                self.assertEqual(s.steering.trim, 0. if any(flags.values()) else 1.25)
+                with contextlib.redirect_stdout(io.StringIO()) as output:
+                    self.start(s)
+                start = next(json.loads(line[len('START '):])
+                             for line in output.getvalue().splitlines() if line.startswith('START '))
+                self.assertEqual(start['experiments'], flags)
 
     def test_queued_switch_is_rejected_if_session_becomes_active_or_armed_before_apply(self):
-        flags = dict(motion_gap_hold=True, crosswalk_recovery_dwpp=True)
-        baseline = dict(motion_gap_hold=False, crosswalk_recovery_dwpp=False)
+        flags = dict(motion_gap_hold=True, crosswalk_recovery_dwpp=True, bend_inner_reduction=True)
+        baseline = dict(motion_gap_hold=False, crosswalk_recovery_dwpp=False, bend_inner_reduction=False)
         for transition in ('active', 'armed'):
             with self.subTest(transition=transition):
                 s = self.session()
@@ -923,7 +923,7 @@ class DrivingSessionTests(unittest.TestCase):
         for provenance in ('current', 'held_current', 'fallback', 'stale_profile', 'different_command', 'search'):
             with self.subTest(provenance=provenance):
                 s = self.session(finish_priority=True)
-                s.experiments = dict(motion_gap_hold=True, crosswalk_recovery_dwpp=True)
+                s.experiments = dict(motion_gap_hold=True, crosswalk_recovery_dwpp=True, bend_inner_reduction=True)
                 s.active = True
                 s.link.send(1)
                 policy = configured()
@@ -956,11 +956,11 @@ class DrivingSessionTests(unittest.TestCase):
         s = self.session()
         s.control.update(False, True, 'STOPPED', (0, 0),
                          readiness=dict(start_light=dict(armed=False)))
-        flags = dict(motion_gap_hold=True, crosswalk_recovery_dwpp=True)
+        flags = dict(motion_gap_hold=True, crosswalk_recovery_dwpp=True, bend_inner_reduction=True)
         self.assertTrue(s.control.submit_experiments(flags, s.control.generation)[0])
         s.update(self.frame(s), ('stop',))
         s.prepare_frame()
-        self.assertEqual(s.experiments, dict(motion_gap_hold=False, crosswalk_recovery_dwpp=False))
+        self.assertEqual(s.experiments, dict(motion_gap_hold=False, crosswalk_recovery_dwpp=False, bend_inner_reduction=False))
         self.assertEqual(s.pwm, (0, 0))
         self.assertFalse(s.control.status()['experiments']['pending'])
 

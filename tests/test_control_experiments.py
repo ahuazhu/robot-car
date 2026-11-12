@@ -1,6 +1,7 @@
 """Parked, acknowledged experiment changes must never race a motor start."""
 
 import io
+from itertools import product
 import json
 import unittest
 from unittest.mock import patch
@@ -22,8 +23,9 @@ class ExperimentControlTests(unittest.TestCase):
         self.control.update(active, True, 'WAIT START', pwm,
                             readiness={'start_light': {'armed': armed}})
 
-    def flags(self, gap=True, recovery=False):
-        return dict(motion_gap_hold=gap, crosswalk_recovery_dwpp=recovery)
+    def flags(self, gap=True, recovery=False, inner=False):
+        return dict(motion_gap_hold=gap, crosswalk_recovery_dwpp=recovery,
+                    bend_inner_reduction=inner)
 
     def submit(self, flags=None):
         return self.control.submit_experiments(
@@ -34,8 +36,9 @@ class ExperimentControlTests(unittest.TestCase):
 
     def test_all_combinations_require_frame_ack_and_can_return_to_baseline(self):
         previous = baseline_experiments()
-        for revision, flags in enumerate((self.flags(), self.flags(False, True),
-                                          self.flags(True, True), self.flags(False, False)), 1):
+        combinations = [self.flags(*values) for values in product((True, False), repeat=3)]
+        self.assertEqual(len(combinations), 8)
+        for revision, flags in enumerate(combinations, 1):
             self.assertTrue(self.submit(flags)[0])
             pending = self.control.status()['experiments']
             self.assertTrue(pending['pending'])
@@ -47,8 +50,9 @@ class ExperimentControlTests(unittest.TestCase):
             self.assertEqual(state['revision'], revision)
             self.assertIsNone(state['error'])
             previous = flags
-        self.assertEqual(WebControl().status()['experiments']['motion_gap_hold'], False)
-        self.assertEqual(WebControl().status()['experiments']['crosswalk_recovery_dwpp'], False)
+        self.assertEqual(previous, self.flags(False, False, False))
+        restarted = WebControl().status()['experiments']
+        self.assertEqual({key: restarted[key] for key in previous}, previous)
 
     def test_submission_invalidates_other_tabs_and_rejects_duplicate(self):
         old_generation = self.control.generation
@@ -87,7 +91,8 @@ class ExperimentControlTests(unittest.TestCase):
         self.assertIn('过期', self.control.status()['experiments']['error'])
 
     def test_web_and_touch_stop_cancel_pending_but_keep_applied_flags(self):
-        self.submit()
+        applied = self.flags(inner=True)
+        self.submit(applied)
         self.apply()
         for action in ('web', 'touch', 'session'):
             self.publish()
@@ -100,7 +105,7 @@ class ExperimentControlTests(unittest.TestCase):
                 self.assertEqual((request, touch), (None, 'stop'))
             else:
                 self.control.stopped()
-            self.assertEqual(self.apply(), self.flags())
+            self.assertEqual(self.apply(), applied)
             self.assertFalse(self.control.status()['experiments']['pending'])
 
     def test_touch_start_waits_for_pending_configuration(self):
@@ -126,8 +131,12 @@ class ExperimentControlTests(unittest.TestCase):
         self.assertFalse(self.control.submit('start_now', self.control.generation)[0])
 
     def test_invalid_flags_cannot_partially_change_state(self):
+        incomplete = [{key: value for key, value in self.flags().items() if key != missing}
+                      for missing in self.flags()]
+        non_boolean = [dict(self.flags(), **{key: invalid})
+                       for key in self.flags() for invalid in (1, 'false', None)]
         for flags in (None, {}, [], {'motion_gap_hold': True},
-                      dict(self.flags(), unexpected=True), self.flags(1), self.flags('false')):
+                      dict(self.flags(), unexpected=True), *incomplete, *non_boolean):
             with self.assertRaises(ValueError):
                 self.submit(flags) if flags is not None else self.control.submit_experiments(None, 0)
             self.assertEqual(self.apply(), baseline_experiments())
@@ -167,12 +176,16 @@ class ExperimentHTTPTests(unittest.TestCase):
             handler.do_POST()
             return returned[0]
 
-        flags = dict(motion_gap_hold=True, crosswalk_recovery_dwpp=False)
+        flags = dict(motion_gap_hold=True, crosswalk_recovery_dwpp=False,
+                     bend_inner_reduction=True)
         body = dict(generation=0, flags=flags)
         self.assertEqual(post(body, **{'X-Control-Token': 'bad'})[0], 403)
         self.assertEqual(post(body, Origin='http://other:8000')[0], 403)
         self.assertEqual(post(dict(generation=0, flags={'motion_gap_hold': True}))[0], 400)
+        self.assertEqual(post(dict(generation=0, flags=dict(
+            motion_gap_hold=True, crosswalk_recovery_dwpp=False)))[0], 400)
         self.assertEqual(post(dict(generation=0, flags=dict(flags, motion_gap_hold=1)))[0], 400)
+        self.assertEqual(post(dict(generation=0, flags=dict(flags, bend_inner_reduction=1)))[0], 400)
         self.assertEqual(post(body)[0], 202)
         self.assertTrue(stream.control.status()['experiments']['pending'])
         self.assertFalse(stream.control.status()['experiments']['motion_gap_hold'])

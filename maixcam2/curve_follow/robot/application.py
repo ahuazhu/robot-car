@@ -70,6 +70,8 @@ def drive_trace(frame, captured, pwm, motor, steering, experiments=None):
                    bend_ceiling=number(plan.get('bend_speed_ceiling_m_s')),
                    limit_reason=plan.get('bend_speed_limit_reason'),
                    effort=plan.get('bend_effort_limits'),
+                   allocation=bend.get('allocation_mode'),
+                   inner_reduced=bend.get('inside_reduced_pwm'),
                    limited=bend.get('limited')),
     )
 
@@ -261,7 +263,8 @@ def main(app_dir):
             command = steering.command(result, age_s=time.monotonic() - captured,
                                        speed_profile_allowed=crosswalk_task.allows_speed_profile(
                                            recovery_dwpp=session.experiments['crosswalk_recovery_dwpp']),
-                                       motion_gap_hold=session.experiments['motion_gap_hold'])
+                                       motion_gap_hold=session.experiments['motion_gap_hold'],
+                                       bend_inner_reduction=session.experiments['bend_inner_reduction'])
             if (
                 command is None
                 and (steering.status.get("envelope") or {}).get("first_unsafe_m") == 0

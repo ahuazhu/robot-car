@@ -1,0 +1,83 @@
+"""An inner-wheel adjustment must preserve the original speed and delivery chain."""
+import unittest
+from unittest.mock import patch
+
+from tests.support.driving import road
+from tests import test_bend_response as bend_tests
+from tests import test_motion_gap_hold as hold_tests
+from robot.control.controller import CommandRamp, compensate_pwm
+
+
+class InnerReductionIntegrationTests(unittest.TestCase):
+    def control(self, *, enabled, speed=.2, allowed=True, curvature=-2.):
+        control = bend_tests.BendResponseTests().control(gain=1.05)
+        control.applied(.1, (80., 80.))
+        target = road(curvature, reference_sigma_m=.005)
+        command = control.command(target, target['control_path_m'], .3, speed,
+            curvature, .005, .075, True, measured_yaw_rate=curvature*speed,
+            bend_allowed=allowed, bend_inner_reduction=enabled)
+        return control, command
+
+    def test_joint_output_preserves_speed_reference_and_feedback_effort_through_ramp(self):
+        old, old_command = self.control(enabled=False)
+        joint, command = self.control(enabled=True)
+        proposal = joint.bend_proposal.copy()
+        self.assertFalse(proposal['inside_preserved'])
+        self.assertLess(proposal['wire'][1], proposal['base_wire'][1])
+        self.assertLess(abs(proposal['estimated_curvature_m_inv']-proposal['target_curvature_m_inv']),
+                        abs(old.bend_proposal['estimated_curvature_m_inv']-proposal['target_curvature_m_inv']))
+        for field in ('dwpp', 'target_speed_m_s', 'regulator_effort_mean_pwm'):
+            self.assertEqual(joint.status[field], old.status[field])
+        ramp = CommandRamp(400)
+        ramp.previous, ramp.last = (80., 80.), .1
+        applied = ramp.apply(command, .3)
+        delivered = compensate_pwm(applied)
+        self.assertEqual(list(delivered), proposal['wire'])
+        joint.applied(.31, applied, delivered_wheels=delivered)
+        self.assertAlmostEqual(joint.applied_mean, proposal['base_mean'])
+        self.assertAlmostEqual(joint.status['applied_curvature_m_inv'], proposal['estimated_curvature_m_inv'])
+
+    def test_original_candidate_clearance_can_withdraw_both_wheel_adjustments(self):
+        control, command = self.control(enabled=True)
+        proposal = control.bend_proposal.copy()
+        reference = control.status['target_speed_m_s']
+        self.assertFalse(proposal['inside_preserved'])
+        braked = control.constrain_clearance(command, .10)
+        for got, wheel in zip(braked, proposal['base_wheels']):
+            self.assertAlmostEqual(got, wheel * .10 / reference)
+        self.assertIsNone(control.bend_proposal)
+        self.assertFalse(control.status['bend_allocation']['active'])
+
+    def test_startup_untrusted_straight_and_domain_gates_remain_unchanged(self):
+        for options in (dict(speed=.08), dict(allowed=False), dict(curvature=0.), dict(curvature=3.)):
+            with self.subTest(options=options):
+                a, x = self.control(enabled=False, **options)
+                b, y = self.control(enabled=True, **options)
+                self.assertEqual(x, y)
+                self.assertEqual(a.status, b.status)
+
+    def test_steering_checks_actual_joint_arc_and_withdraws_if_unobserved(self):
+        # Retain the same confirmed-road setup used by the existing hold tests.
+        helper = hold_tests.MotionGapHoldTests()
+        steering, profile, _ = helper.seed(enabled=False)
+        import numpy as np
+        steering.observe(dict(valid=True, interval_s=.15, rotation=np.eye(2),
+            translation=np.array([-.03, 0.]), sigma_m=.0002), 1.9, False)
+        target = road(-2., reference_sigma_m=.005)
+        checked = []
+        def envelope(path, curvature, *args, **kwargs):
+            checked.append(curvature)
+            if len(checked) == 1:
+                return dict(helper.clear)
+            return dict(speed_scale=1., speed_limit_m_s=None, minimum_clearance_m=None)
+        with patch.object(steering, 'envelope', side_effect=envelope):
+            result = steering.command(target, .04, bend_inner_reduction=True)
+        self.assertIsNotNone(result)
+        self.assertGreaterEqual(len(checked), 3)
+        self.assertNotEqual(checked[0], checked[1])
+        self.assertEqual(profile.status['actuator_model_reason'], 'BODY_CLEARANCE_UNOBSERVED')
+        self.assertIsNone(profile.bend_proposal)
+
+
+if __name__ == '__main__':
+    unittest.main()

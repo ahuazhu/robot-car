@@ -323,7 +323,8 @@ class ProfileSpeedControl:
 
     def command(self, target, path, now, measured_speed, curvature, sigma, front_margin,
                 eligible, high_confidence=False, *, clearance_limit_m_s=None,
-                measured_yaw_rate=None,bend_allowed=False,hold_source_at=None):
+                measured_yaw_rate=None,bend_allowed=False,hold_source_at=None,
+                bend_inner_reduction=False):
         self._gap_hold_proposal=self._gap_hold=None
         self.bend_proposal=None
         try:
@@ -477,7 +478,8 @@ class ProfileSpeedControl:
             # steering still checks the resulting physical arc.
             bend=self.bend_response.allocate(wheels,solution.curvature*self.bend_curvature_gain,
                 allowed=bend_reason is None,ceiling=bend_ceiling,effort_limits=effort_limits,
-                lateral_acceleration=self.limits.lateral_acceleration_m_s2)
+                lateral_acceleration=self.limits.lateral_acceleration_m_s2,
+                allow_inner_reduction=bend_inner_reduction)
             if bend_reason is not None:self.bend_response.last_reason=bend_reason
             if bend is not None:
                 bend['curvature_gain']=self.bend_curvature_gain

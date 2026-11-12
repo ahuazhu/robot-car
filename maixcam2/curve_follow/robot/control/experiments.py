@@ -3,7 +3,8 @@
 
 def baseline_experiments():
     # Never persist trial selections: restarting the app restores the baseline.
-    return dict(motion_gap_hold=False, crosswalk_recovery_dwpp=False)
+    return dict(motion_gap_hold=False, crosswalk_recovery_dwpp=False,
+                bend_inner_reduction=False)
 
 
 def normalize_experiments(flags):

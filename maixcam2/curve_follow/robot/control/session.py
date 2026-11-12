@@ -90,6 +90,12 @@ class DrivingSession:
         """Apply parked-only experiment changes before perception/control runs."""
         flags = self.control.apply_experiments(active=self.active, armed=self.start_light.armed)
         if flags != self.experiments:
+            if flags['bend_inner_reduction'] and self.steering.speed_control is not None:
+                response = self.steering.speed_control.bend_response
+                if response is not None:
+                    # Warm the static lookup while parked, before this frame's
+                    # command or any start request can reach the motor path.
+                    response.prepare_inner_reduction()
             self.experiments = flags
             # No previous run's controller state may be reused after switching.
             self.steering.reset()
