@@ -506,8 +506,10 @@ class ProfileSpeedControl:
         bend_ceiling=None
         bend_speed_reason=None
         if self.bend_response is not None and dwpp_status is not None:
-            # Inspect the currently supported bend near the vehicle, not a
-            # distant opposite turn. This gate authorizes calibrated allocation.
+            # Outside-only augmentation was limited to an aligned nearby bend.
+            # Direct inverse mapping instead executes the current pursuit
+            # intent, including lateral corrections on locally straight road.
+            # Steering still verifies the resulting physical arc independently.
             span=front_margin+self.limits.turn_lever_m
             local=sorted(float(k) for s,k in zip(positions,curve['curvature'])
                          if s<=span)
@@ -516,8 +518,8 @@ class ProfileSpeedControl:
             effort_limits=self._bend_effort_limits(now,dt)
             bend_reason=('BASELINE_GATE' if not bend_allowed else
                          'STARTUP_OR_LOW_SPEED' if planning_speed<.10 else
-                         'NO_SUPPORTED_BEND' if abs(road_curvature)<1. else
-                         'COUNTER_STEER' if road_curvature*solution.curvature<=0 else
+                         'NO_SUPPORTED_BEND' if not bend_inner_reduction and abs(road_curvature)<1. else
+                         'COUNTER_STEER' if not bend_inner_reduction and road_curvature*solution.curvature<=0 else
                          'NO_FRESH_RAMP_BUDGET' if effort_limits is None else None)
             if bend_reason is None:
                 # Keep the original DWPP reference above. A measured body

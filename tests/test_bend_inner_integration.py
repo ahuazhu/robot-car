@@ -64,7 +64,15 @@ class InnerReductionIntegrationTests(unittest.TestCase):
                 a, x = self.control(enabled=False, **options)
                 b, y = self.control(enabled=True, **options)
                 self.assertEqual(x, y)
-                self.assertEqual(a.status, b.status)
+                self.assertIsNone(b.bend_proposal)
+                if options.get('curvature') == 0.:
+                    # Direct mapping rejects a zero turn at its own input
+                    # gate, rather than labeling nearby straight road invalid.
+                    # Driving output and speed-reference state stay identical.
+                    for key in ('dwpp','target_speed_m_s','regulator_effort_mean_pwm'):
+                        self.assertEqual(a.status[key],b.status[key])
+                else:
+                    self.assertEqual(a.status, b.status)
 
     def test_steering_checks_actual_joint_arc_and_withdraws_if_unobserved(self):
         # Retain the same confirmed-road setup used by the existing hold tests.
