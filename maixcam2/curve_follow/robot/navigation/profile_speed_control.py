@@ -105,10 +105,14 @@ class ProfileSpeedControl:
         self.bend_proposal = None
         self._gap_hold_proposal = None
         self._gap_hold = None
+        self._bend_gap_proposal = None
+        self._bend_gap_source = None
 
     def applied(self, now, wheels, *, delivered_wheels=None):
         hold_source,self._gap_hold_proposal=self._gap_hold_proposal,None
         self._gap_hold=None
+        bend_source,self._bend_gap_proposal=self._bend_gap_proposal,None
+        self._bend_gap_source=None
         self.applied_at = float(now)
         self.applied_wheels = tuple(float(value) for value in wheels)
         self.status.pop('applied_curvature_m_inv',None)
@@ -136,7 +140,7 @@ class ProfileSpeedControl:
                         if bend is not None:
                             # Feed the original regulator's effort back, scaled
                             # only by actual task/ramp delivery. Adding the new
-                            # outside duty again each cycle would wind it up.
+                            # allocation effort again each cycle would wind it up.
                             self.applied_mean=bend['base_mean']*min(1.,scale)
                             predicted=self.bend_response.curvature(delivered)
                             if predicted is not None:curvature=predicted
@@ -155,11 +159,21 @@ class ProfileSpeedControl:
                                 reference_angular_rad_s=linear*curvature)
                             self._gap_hold=dict(source_at=hold_source,wheels=tuple(wheels),
                                 state=saved,bend=None if bend is None else dict(bend))
+                        if (bend_source is not None and min(delivered)>0
+                                and max(abs(a-b) for a,b in zip(wheels,requested))<1e-6
+                                and (bend is None or list(delivered)==bend['wire'])):
+                            # Only a delivered plan with real motion feedback
+                            # can seed one later replan. Predicted frames cannot
+                            # rearm this source or extend its capture timestamp.
+                            self._bend_gap_source=dict(bend_source,wheels=tuple(wheels),
+                                reference=linear,speed_cap=min(linear,
+                                    bend['estimated_speed_m_s'] if bend is not None else linear))
         if not any(wheels):
             self.reference = self.updated_at = None
 
     def fallback(self, reason):
         self._gap_hold_proposal=self._gap_hold=None
+        self._bend_gap_proposal=self._bend_gap_source=None
         self.bend_proposal=None
         self.reference = self.updated_at = None
         self.dwpp_proposal=self.dwpp_state=None
@@ -169,6 +183,38 @@ class ProfileSpeedControl:
 
     def cancel_motion_gap_hold(self):
         self._gap_hold_proposal=self._gap_hold=None
+
+    def cancel_bend_gap(self):
+        self._bend_gap_proposal=self._bend_gap_source=None
+
+    def replan_motion_gap(self, target, path, now, curvature, sigma, front_margin,
+                          maximum_age_s, *, captured, clearance_limit_m_s=None):
+        """Use current road/turn intent with one delivered measured-speed seed.
+
+        This does not freeze PWM or curvature, integrate an estimated speed
+        error, or renew the original motion observation's validity window.
+        """
+        source,self._bend_gap_source=self._bend_gap_source,None
+        details=dict(active=False,reason='NO_APPLIED_MEASURED_PLAN',source_age_s=None,
+                     decision_age_s=None,maximum_age_s=maximum_age_s)
+        if source is None:return None,details
+        age=captured-source['source_at']
+        details.update(source_age_s=age,decision_age_s=now-source['source_at'])
+        if not 0<age<maximum_age_s:
+            details['reason']='MEASURED_PLAN_EXPIRED'
+            return None,details
+        if (self.dwpp_state is None or self.applied_at is None
+                or not 0<=now-self.applied_at<self.maximum_gap_s
+                or self.applied_wheels!=source['wheels']):
+            details['reason']='APPLIED_PLAN_CHANGED'
+            return None,details
+        wheels=self.command(target,path,now,None,curvature,sigma,front_margin,
+            eligible=True,clearance_limit_m_s=clearance_limit_m_s,
+            bend_allowed=True,bend_inner_reduction=True,motion_gap=source)
+        details.update(active=wheels is not None,
+            reason='CURRENT_TURN_REPLANNED' if wheels is not None else self.status['reason'])
+        self.status['motion_gap_replan']=details
+        return wheels,details
 
     def hold_motion_gap(self, target, path, now, curvature, sigma, front_margin,
                         maximum_age_s, *, captured):
@@ -271,7 +317,7 @@ class ProfileSpeedControl:
         if max(v,predicted)<=ceiling:return command
         scale=max(0.,min(1.,ceiling/v))
         if self.bend_proposal is not None:
-            # Braking withdraws only the added outside duty. Resume the old
+            # Braking withdraws the calibrated allocation. Resume the original
             # regulator's pair and its selected arc; never solve a new pair or
             # impose an inside-wheel floor. Steering checks this restored arc.
             command=self.withdraw_bend(command,'BODY_CLEARANCE_BASELINE')
@@ -324,9 +370,13 @@ class ProfileSpeedControl:
     def command(self, target, path, now, measured_speed, curvature, sigma, front_margin,
                 eligible, high_confidence=False, *, clearance_limit_m_s=None,
                 measured_yaw_rate=None,bend_allowed=False,hold_source_at=None,
-                bend_inner_reduction=False):
+                bend_inner_reduction=False,bend_source_at=None,motion_gap=None):
         self._gap_hold_proposal=self._gap_hold=None
+        self._bend_gap_proposal=self._bend_gap_source=None
         self.bend_proposal=None
+        feedback=motion_gap is None
+        planning_speed=measured_speed if feedback else motion_gap['speed']
+        planning_yaw=measured_yaw_rate if feedback else motion_gap['yaw']
         try:
             confidence=float(target.get('control_confidence',target.get('confidence',1.)))
             length=(target.get('road_model') or {}).get('length_m')
@@ -356,8 +406,8 @@ class ProfileSpeedControl:
                                       envelope_speed_factor=envelope_factor)
         if not eligible:
             return self.fallback('EXISTING_PATH_OR_BODY_GATE')
-        if (measured_speed is None or not math.isfinite(measured_speed)
-                or measured_speed < -.006):
+        if (planning_speed is None or not math.isfinite(planning_speed)
+                or planning_speed < -.006):
             return self.fallback('MEASURED_FORWARD_SPEED_REQUIRED')
         if not all(math.isfinite(v) for v in (now, curvature, sigma, front_margin)) or sigma < 0:
             return self.fallback('INVALID_GEOMETRY')
@@ -376,7 +426,7 @@ class ProfileSpeedControl:
         plan = plan_speed_profile(
             positions, curve['curvature'], self.limits,
             distance_margin_m=front_margin + 2 * sigma,
-            initial_speed_m_s=max(0., measured_speed),
+            initial_speed_m_s=max(0., planning_speed),
             centerline_confidence=confidence,
             clearance_limit_m_s=clearance_limit_m_s,
             exact_curvature_required=self.controller!='DWPP',
@@ -390,8 +440,10 @@ class ProfileSpeedControl:
         # path authorization still belongs to steering's original body checks.
         ceiling = min(plan.entry_limit_m_s,
                       self.limits.maximum_m_s / (1 + abs(ratio)))
+        if not feedback:
+            ceiling=min(ceiling,motion_gap['speed_cap'])
         if self.controller=='DWPP':
-            if measured_yaw_rate is None or not math.isfinite(measured_yaw_rate):
+            if planning_yaw is None or not math.isfinite(planning_yaw):
                 return self.fallback('DWPP_MEASURED_YAW_REQUIRED')
             # Reacquisition after PWM fallback still has a real control period.
             # A fixed 50ms seed window repeatedly suppresses turn corrections
@@ -402,17 +454,18 @@ class ProfileSpeedControl:
             dt = .05 if self.updated_at is None else now - self.updated_at
         if not 0 < dt < self.maximum_gap_s:
             return self.fallback('CONTROL_GAP')
-        fast_path = bool(high_confidence and confidence >= .8 and positions[-1] >= .40)
+        fast_path = bool(feedback and high_confidence and confidence >= .8 and positions[-1] >= .40)
         reference_acceleration = self.limits.acceleration_m_s2 * (
             self.high_confidence_gain if fast_path else 1.)
-        previous_reference = max(0., measured_speed) if self.reference is None else self.reference
+        previous_reference = max(0., planning_speed) if self.reference is None else self.reference
         dwpp_status=None
         if self.controller=='DWPP':
-            source='APPLIED_REFERENCE' if self.dwpp_state is not None else 'MEASURED_SEED'
+            source=('PREDICTED_APPLIED_REFERENCE' if not feedback else
+                    'APPLIED_REFERENCE' if self.dwpp_state is not None else 'MEASURED_SEED')
             current=(self.dwpp_state[1:] if self.dwpp_state is not None else
-                     (min(self.limits.maximum_m_s,max(0.,measured_speed)),
+                     (min(self.limits.maximum_m_s,max(0.,planning_speed)),
                       max(-self.limits.maximum_m_s/self.limits.turn_lever_m,
-                          min(self.limits.maximum_m_s/self.limits.turn_lever_m,measured_yaw_rate))))
+                          min(self.limits.maximum_m_s/self.limits.turn_lever_m,planning_yaw))))
             solution=plan_twist(*current,curvature,ceiling,dt,
                 maximum=self.limits.maximum_m_s,lever=self.limits.turn_lever_m,
                 acceleration=reference_acceleration,deceleration=self.limits.deceleration_m_s2,
@@ -435,20 +488,26 @@ class ProfileSpeedControl:
         # Extra effort closes a positive speed error on an independently
         # confirmed gentle path. It changes neither the reference envelope nor
         # the response to overspeed; both wheel limits remain authoritative.
-        tracking_gain = (self.high_confidence_gain if fast_path and measured_speed < reference else 1.)
+        tracking_gain = (self.high_confidence_gain if fast_path and planning_speed < reference else 1.)
         gain = self.maximum_effort / (self.limits.maximum_m_s * (self.response_s + dt))
         gain *= tracking_gain
-        mean = max(0., min(self.maximum_effort / (1 + abs(ratio)),
-                          actual + gain * (reference - measured_speed) * dt))
-        if measured_speed > ceiling and actual > 0:
-            mean = min(mean, actual * ceiling / measured_speed)
+        if feedback:
+            mean = max(0., min(self.maximum_effort / (1 + abs(ratio)),
+                              actual + gain * (reference - planning_speed) * dt))
+            if planning_speed > ceiling and actual > 0:
+                mean = min(mean, actual * ceiling / planning_speed)
+        else:
+            # No synthetic speed-error feedback. Current geometry may require
+            # braking, but a missing measurement cannot increase the reference.
+            mean=max(0.,min(self.maximum_effort/(1+abs(ratio)),
+                actual*min(1.,reference/motion_gap['reference'])))
         wheels = (mean * (1 - ratio), mean * (1 + ratio))
         bend=None
         bend_ceiling=None
         bend_speed_reason=None
         if self.bend_response is not None and dwpp_status is not None:
             # Inspect the currently supported bend near the vehicle, not a
-            # distant opposite turn. This gate affects extra outside duty only.
+            # distant opposite turn. This gate authorizes calibrated allocation.
             span=front_margin+self.limits.turn_lever_m
             local=sorted(float(k) for s,k in zip(positions,curve['curvature'])
                          if s<=span)
@@ -456,7 +515,7 @@ class ProfileSpeedControl:
             road_curvature=((local[middle]+local[~middle])/2 if local else 0.)
             effort_limits=self._bend_effort_limits(now,dt)
             bend_reason=('BASELINE_GATE' if not bend_allowed else
-                         'STARTUP_OR_LOW_SPEED' if measured_speed<.10 else
+                         'STARTUP_OR_LOW_SPEED' if planning_speed<.10 else
                          'NO_SUPPORTED_BEND' if abs(road_curvature)<1. else
                          'COUNTER_STEER' if road_curvature*solution.curvature<=0 else
                          'NO_FRESH_RAMP_BUDGET' if effort_limits is None else None)
@@ -472,14 +531,16 @@ class ProfileSpeedControl:
                     centerline_confidence=confidence,
                     exact_curvature_required=False,nominal_wheel_limit=False)
                 bend_ceiling=bend_plan.entry_limit_m_s
+                if not feedback:bend_ceiling=min(bend_ceiling,motion_gap['speed_cap'])
                 bend_speed_reason=bend_plan.entry_reason
-            # This tuning margin changes only the outside-wheel inversion
-            # target. The original DWPP pair and speed reference stay intact;
+            # This tuning margin changes only the calibrated inversion target.
+            # The original DWPP speed reference stays intact;
             # steering still checks the resulting physical arc.
             bend=self.bend_response.allocate(wheels,solution.curvature*self.bend_curvature_gain,
                 allowed=bend_reason is None,ceiling=bend_ceiling,effort_limits=effort_limits,
                 lateral_acceleration=self.limits.lateral_acceleration_m_s2,
-                allow_inner_reduction=bend_inner_reduction)
+                allow_inner_reduction=bend_inner_reduction,
+                reference_speed=reference if bend_inner_reduction else None)
             if bend_reason is not None:self.bend_response.last_reason=bend_reason
             if bend is not None:
                 bend['curvature_gain']=self.bend_curvature_gain
@@ -490,7 +551,8 @@ class ProfileSpeedControl:
         self.status = dict(
             mode='ACTIVE',controller=self.controller,selected=True,reason=plan.entry_reason,
             target_speed_m_s=reference, ceiling_m_s=ceiling,
-            measured_speed_m_s=float(measured_speed), initial_overspeed=plan.initial_overspeed,
+            measured_speed_m_s=float(planning_speed) if feedback else None,
+            initial_overspeed=plan.initial_overspeed if feedback else None,
             supported_length_m=float(positions[-1]),
             usable_length_m=plan.stations_m[-1], limiting_station_m=plan.limiting_station_m,
             first_supported_point_m=segment[0].tolist(),
@@ -522,4 +584,11 @@ class ProfileSpeedControl:
                 self.status['effective_curvature_m_inv']=bend['estimated_curvature_m_inv']
         if hold_source_at is not None and self.controller=='DWPP':
             self._gap_hold_proposal=float(hold_source_at)
+        if not feedback:
+            self.status.update(motion_feedback=False,planning_speed_m_s=planning_speed,
+                               speed_error_m_s=None)
+        elif (bend_source_at is not None and bend_inner_reduction
+                and self.controller=='DWPP' and planning_speed>=.10):
+            self._bend_gap_proposal=dict(source_at=float(bend_source_at),
+                                        speed=float(planning_speed),yaw=float(planning_yaw))
         return wheels

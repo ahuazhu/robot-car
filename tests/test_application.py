@@ -377,6 +377,20 @@ class ApplicationBoundaryTests(unittest.TestCase):
         self.assertIsNone(trace['model']['wire'])
         self.assertLess(len(application.telemetry_dumps(trace,separators=(',',':'))),1024)
 
+    def test_trace_keeps_unknown_base_speed_separate_from_replanned_reference(self):
+        steering=dict(motion_measured=False,corrected_curvature_m_inv=-2.,
+            motion_gap_replan=dict(active=True,source_age_s=.2),
+            speed_profile_control=dict(target_speed_m_s=.19,
+                bend_allocation=dict(base_wire=[112,63],wire=[123,61],
+                    target_speed_m_s=.19,target_curvature_m_inv=-2.,
+                    estimated_speed_m_s=.1834,pwm_delta=[11,-2])))
+        trace=application.drive_trace(20,12.,[123,61],{},steering)
+        self.assertIsNone(trace['model']['base_v'])
+        self.assertEqual(trace['model']['reference_v'],.19)
+        self.assertEqual(trace['model']['requested_k'],-2.)
+        self.assertFalse(trace['motion'][0])
+        self.assertTrue(trace['motion_gap_replan']['active'])
+
     def test_published_vision_frame_is_complete_before_http_can_read_it(self):
         run = self.run_application(4)
         self.assertEqual([p["frame"] for p in run.stream.publications], [1, 2, 3, 4])

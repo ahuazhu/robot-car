@@ -724,9 +724,10 @@ async function experimentScenarios(){
   assert.deepEqual(shown(e),[false,false,false]);assert.match(e.elements['experiment-status'].textContent,/v0.7.1 基线/);
   assert.match(e.elements['experiment-card'].textContent,/既有转向增益和标定模型不变/);
   assert.match(e.elements['experiment-card'].textContent,/三个选项独立生效/);
-  assert.match(e.elements['experiment-card'].textContent,/弯道允许降低内轮 PWM/);
-  assert.match(e.elements['experiment-card'].textContent,/原弯道补偿条件下.*标定模型共同选择双轮输出/);
-  assert.match(e.elements['experiment-card'].textContent,/原补偿时机和低 PWM 可用范围/);
+  assert.match(e.elements['experiment-card'].textContent,/弯道按标定模型分配两轮/);
+  assert.match(e.elements['experiment-card'].textContent,/从已测范围联合选择左右 PWM/);
+  assert.match(e.elements['experiment-card'].textContent,/短暂测速缺失且当前道路仍可靠时.*按当前中线重新计算转向/);
+  assert.match(e.elements['experiment-card'].textContent,/只开启第三项测试.*第一项保持关闭/);
   assert.match(e.elements['experiment-card'].textContent,/STOP 保留/);
   assert.match(e.elements['experiment-card'].textContent,/已完成横道停留时间/);assert.match(e.elements['experiment-card'].textContent,/不代表停位已验证/);assert.doesNotMatch(e.elements['experiment-card'].textContent,/已完成停车礼让/);
   assert.equal(cssRule('.experiment-options')['grid-template-columns'],'repeat(auto-fit,minmax(min(100%,240px),1fr))','grid minimum shrinks to the card width on narrow screens');

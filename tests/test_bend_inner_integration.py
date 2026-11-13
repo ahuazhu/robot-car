@@ -1,4 +1,4 @@
-"""An inner-wheel adjustment must preserve the original speed and delivery chain."""
+"""Paired model inversion preserves the original speed and delivery chain."""
 import unittest
 from unittest.mock import patch
 
@@ -19,37 +19,47 @@ class InnerReductionIntegrationTests(unittest.TestCase):
         return control, command
 
     def test_joint_output_preserves_speed_reference_and_feedback_effort_through_ramp(self):
-        old, old_command = self.control(enabled=False)
-        joint, command = self.control(enabled=True)
-        proposal = joint.bend_proposal.copy()
-        self.assertFalse(proposal['inside_preserved'])
-        self.assertLess(proposal['wire'][1], proposal['base_wire'][1])
-        self.assertLess(abs(proposal['estimated_curvature_m_inv']-proposal['target_curvature_m_inv']),
-                        abs(old.bend_proposal['estimated_curvature_m_inv']-proposal['target_curvature_m_inv']))
-        for field in ('dwpp', 'target_speed_m_s', 'regulator_effort_mean_pwm'):
-            self.assertEqual(joint.status[field], old.status[field])
-        ramp = CommandRamp(400)
-        ramp.previous, ramp.last = (80., 80.), .1
-        applied = ramp.apply(command, .3)
-        delivered = compensate_pwm(applied)
-        self.assertEqual(list(delivered), proposal['wire'])
-        joint.applied(.31, applied, delivered_wheels=delivered)
-        self.assertAlmostEqual(joint.applied_mean, proposal['base_mean'])
-        self.assertAlmostEqual(joint.status['applied_curvature_m_inv'], proposal['estimated_curvature_m_inv'])
+        # The left case's baseline pair is outside the model; the explicit DWPP
+        # speed reference must still reach allocation and exact wire delivery.
+        for curvature in (-2., 3.):
+            with self.subTest(curvature=curvature):
+                old, _ = self.control(enabled=False, curvature=curvature)
+                joint, command = self.control(enabled=True, curvature=curvature)
+                proposal = joint.bend_proposal.copy()
+                self.assertEqual(proposal['allocation_mode'], 'PAIRED_MODEL_INVERSE')
+                self.assertEqual(proposal['target_speed_m_s'], joint.status['target_speed_m_s'])
+                self.assertEqual(proposal['source'], 'MEASURED_PAIRED_PWM_RESPONSE_20261112')
+                if curvature > 0:
+                    self.assertFalse(proposal['base_model_available'])
+                    self.assertIsNone(proposal['base_curvature_m_inv'])
+                for field in ('dwpp', 'target_speed_m_s', 'regulator_effort_mean_pwm'):
+                    self.assertEqual(joint.status[field], old.status[field])
+                ramp = CommandRamp(400)
+                ramp.previous, ramp.last = (80., 80.), .1
+                applied = ramp.apply(command, .3)
+                delivered = compensate_pwm(applied)
+                self.assertEqual(list(delivered), proposal['wire'])
+                joint.applied(.31, applied, delivered_wheels=delivered)
+                self.assertAlmostEqual(joint.applied_mean, proposal['base_mean'])
+                self.assertAlmostEqual(joint.applied_mean, old.status['regulator_effort_mean_pwm'])
+                self.assertAlmostEqual(joint.dwpp_state[1], old.status['target_speed_m_s'])
+                self.assertAlmostEqual(joint.status['applied_curvature_m_inv'],
+                                       proposal['estimated_curvature_m_inv'])
 
     def test_original_candidate_clearance_can_withdraw_both_wheel_adjustments(self):
         control, command = self.control(enabled=True)
         proposal = control.bend_proposal.copy()
         reference = control.status['target_speed_m_s']
-        self.assertFalse(proposal['inside_preserved'])
+        self.assertEqual(proposal['allocation_mode'], 'PAIRED_MODEL_INVERSE')
+        self.assertNotEqual(proposal['wire'], proposal['base_wire'])
         braked = control.constrain_clearance(command, .10)
         for got, wheel in zip(braked, proposal['base_wheels']):
             self.assertAlmostEqual(got, wheel * .10 / reference)
         self.assertIsNone(control.bend_proposal)
         self.assertFalse(control.status['bend_allocation']['active'])
 
-    def test_startup_untrusted_straight_and_domain_gates_remain_unchanged(self):
-        for options in (dict(speed=.08), dict(allowed=False), dict(curvature=0.), dict(curvature=3.)):
+    def test_startup_untrusted_and_straight_gates_remain_unchanged(self):
+        for options in (dict(speed=.08), dict(allowed=False), dict(curvature=0.)):
             with self.subTest(options=options):
                 a, x = self.control(enabled=False, **options)
                 b, y = self.control(enabled=True, **options)

@@ -1,4 +1,4 @@
-"""Measured paired-PWM response, with opt-in inner-wheel reduction.
+"""Measured paired-PWM response, with opt-in direct pair inversion.
 
 The table describes optical body motion, not independent wheel RPM. Between
 measured combinations it is an interpolation estimate; outside its triangles
@@ -87,23 +87,64 @@ class BendResponse:
             pairs, motion = pairs[supported], motion[supported]
             peak = pairs.max(axis=1)
             logical = pairs*(peak-self.boost)[:, None]/peak[:, None]
+            # Neighboring integer outputs on either PWM axis can bracket a
+            # desired curvature. Build these edges once while parked; the
+            # frame loop must not re-evaluate the triangulated model or sort
+            # thousands of candidates.
+            grid = np.full((self.HARDWARE_MAX+1, self.HARDWARE_MAX+1), -1, np.int32)
+            grid[pairs[:, 0], pairs[:, 1]] = np.arange(len(pairs))
+            edges = []
+            for axis in (0, 1):
+                lower = grid[:-1, :] if axis == 0 else grid[:, :-1]
+                upper = grid[1:, :] if axis == 0 else grid[:, 1:]
+                adjacent = (lower >= 0) & (upper >= 0)
+                edges.append(np.c_[lower[adjacent], upper[adjacent]])
+            strength = direction*motion[:, 1]/motion[:, 0]
+            edges = np.concatenate(edges)
+            swap = strength[edges[:, 0]] > strength[edges[:, 1]]
+            edges[swap] = edges[swap, ::-1]
             self._joint_cache[direction] = dict(
                 pairs=pairs, motion=motion, logical=logical,
-                curvature=motion[:, 1]/motion[:, 0])
+                curvature=motion[:, 1]/motion[:, 0],
+                strength=strength,
+                effort_peak=logical.max(axis=1), effort_sum=logical.sum(axis=1),
+                lateral=motion[:, 0]*np.abs(motion[:, 1]),
+                edges=edges, edge_min=strength[edges[:, 0]],
+                edge_mid=(strength[edges[:, 0]]+strength[edges[:, 1]])/2.)
+
+    @staticmethod
+    def _feasible_pairs(table, indices, ceiling, effort_limits, lateral_acceleration):
+        valid = table['strength'][indices] > 0
+        if ceiling is not None:
+            valid &= table['motion'][indices, 0] <= ceiling+1e-9
+        if lateral_acceleration is not None:
+            valid &= table['lateral'][indices] <= lateral_acceleration+1e-9
+        if effort_limits is not None:
+            valid &= table['effort_peak'][indices] <= effort_limits['peak']+1e-9
+            valid &= table['effort_sum'][indices] <= effort_limits['sum']+1e-9
+        return valid
 
     def allocate(self, wheels, curvature, *, allowed, ceiling=None, effort_limits=None,
-                 lateral_acceleration=None, allow_inner_reduction=False):
-        original = self._allocate_outside_only(wheels, curvature, allowed=allowed,
-            ceiling=ceiling, effort_limits=effort_limits,
-            lateral_acceleration=lateral_acceleration)
-        if not allow_inner_reduction or original is not None and not original['limited']:
-            return original
-        # Keep all original eligibility and base-domain behavior. In particular,
-        # do not repair a below-domain baseline by clamping it to a duty floor.
-        if self.last_reason not in ('BEST_FEASIBLE_OUTSIDE_ONLY',
-                                    'NO_FEASIBLE_OUTSIDE_IMPROVEMENT',
-                                    'MEASURED_OUTSIDE_LIMIT'):
-            return original
+                 lateral_acceleration=None, allow_inner_reduction=False,
+                 reference_speed=None):
+        if not allow_inner_reduction:
+            return self._allocate_outside_only(wheels, curvature, allowed=allowed,
+                ceiling=ceiling, effort_limits=effort_limits,
+                lateral_acceleration=lateral_acceleration)
+        self.last_reason = 'BASELINE_GATE'
+        wire = compensate_pwm(wheels, self.boost)
+        self.last_base_wire, self.last_base_motion = wire, None
+        if (not allowed or not math.isfinite(curvature) or abs(curvature) < 1.
+                or min(wire) <= 0 or (wire[1]-wire[0])*curvature <= 0):
+            return None
+        base_motion = self.predict(wire)
+        self.last_base_motion = base_motion
+        if reference_speed is None and base_motion is not None:
+            reference_speed = base_motion[0]
+        if (reference_speed is None or not math.isfinite(reference_speed)
+                or reference_speed <= 0):
+            self.last_reason = 'REFERENCE_SPEED_UNAVAILABLE'
+            return None
         self.prepare_inner_reduction()
         direction = 1 if curvature > 0 else -1
         outside = 1 if direction > 0 else 0
@@ -111,69 +152,63 @@ class BendResponse:
         table = self._joint_cache[direction]
         pairs, motion = table['pairs'], table['motion']
         logical, k = table['logical'], table['curvature']
-        wire, base_motion = self.last_base_wire, self.last_base_motion
-        base_k = base_motion[1]/base_motion[0]
-        previous_k = base_k if original is None else original['estimated_curvature_m_inv']
-        error = np.abs(k-curvature)
-        valid = ((pairs[:, outside] >= wire[outside])
-                 & (pairs[:, inside] < wire[inside])
-                 & (direction*k > max(0., direction*base_k)+1e-9))
-        if ceiling is not None:
-            valid &= motion[:, 0] <= ceiling+1e-9
-        if lateral_acceleration is not None:
-            valid &= motion[:, 0]*np.abs(motion[:, 1]) <= lateral_acceleration+1e-9
-        if effort_limits is not None:
-            valid &= np.max(logical, axis=1) <= effort_limits['peak']+1e-9
-            valid &= np.sum(logical, axis=1) <= effort_limits['sum']+1e-9
-        improved = valid & (error < abs(previous_k-curvature)-1e-9)
-        # Cache rows are ordered by inner duty, then increasing outer duty.
-        # A crossing is valid only if adjacent feasible integer outputs bracket
-        # the target. The first point after a domain/limit hole may already be
-        # much too strong; that is not a quantized solution of the target.
-        adjacent = ((pairs[1:, inside] == pairs[:-1, inside])
-                    & (pairs[1:, outside] == pairs[:-1, outside]+1))
-        crossing = np.flatnonzero(adjacent & valid[1:] & valid[:-1]
-            & (direction*k[:-1] <= abs(curvature))
-            & (direction*k[1:] >= abs(curvature))
-            & (improved[:-1] | improved[1:]))+1
-        if len(crossing):
-            # Reduce the inside duty only as far as necessary to reach target.
-            # On that row retain the original first-crossing outside rule;
-            # a distant low-duty or weaker high-duty branch must not win just
-            # because its interpolated decimal error happens to be smaller.
-            inner = pairs[crossing, inside].max()
-            row = crossing[pairs[crossing, inside] == inner]
-            upper = row[np.argmin(pairs[row, outside])]
-            candidates = np.asarray([upper-1, upper])
-            candidates = candidates[improved[candidates]]
-        else:
-            # Without a real bracket, only a weaker-than-target improvement is
-            # acceptable. Never label a large overshoot SOLVED merely because
-            # it is closer than the original severe understeer.
-            candidates = np.flatnonzero(improved & (direction*k <= abs(curvature)))
+        strength, target = table['strength'], abs(curvature)
+        # A physically feasible neighbor on each side proves that a target is
+        # reachable to integer-PWM precision. Never jump across an excluded
+        # domain/limit hole. Publish only the weaker side, so quantization
+        # cannot turn a speed constraint into an oversteering command.
+        # Only the nearest integer end is a quantized solution. Otherwise a
+        # steep one-PWM edge could make its badly understeering end win merely
+        # because that end happens to match the speed reference.
+        crossing = ((table['edge_min'] <= target)
+                    & (target <= table['edge_mid']+5e-13))
+        edges = table['edges'][crossing]
+        feasible = self._feasible_pairs(table, edges, ceiling, effort_limits,
+                                       lateral_acceleration).all(axis=1)
+        candidates = edges[feasible, 0]
+        exact = np.flatnonzero(strength == target)
+        if len(exact):
+            exact = exact[self._feasible_pairs(table, exact, ceiling, effort_limits,
+                                               lateral_acceleration)]
+            candidates = np.concatenate((candidates, exact))
+        limited = not len(candidates)
+        if limited:
+            valid = self._feasible_pairs(table, slice(None), ceiling, effort_limits,
+                                        lateral_acceleration)
+            candidates = np.flatnonzero(valid & (strength <= target))
         if not len(candidates):
-            return original
-        # For an unreachable target, improve it as far as the current model and
-        # limits allow. Equal errors prefer less inside reduction, then faster
-        # body motion, then the smaller total PWM change. No extra speed floor.
-        movement = np.abs(pairs[candidates]-wire).sum(axis=1)
-        order = np.lexsort((movement, -motion[candidates, 0],
-                            -pairs[candidates, inside], error[candidates]))
-        index = int(candidates[order[0]])
+            self.last_reason = 'NO_FEASIBLE_PAIRED_RESPONSE'
+            return None
+        # Among quantized target solutions, track the requested body speed.
+        # Curvature decimals cannot buy a large unintended slowdown. If no
+        # bracket exists, first minimize understeer and report the limitation.
+        error = target-strength[candidates]
+        speed_error = np.abs(motion[candidates, 0]-reference_speed)
+        priorities = (error, speed_error) if limited else (speed_error, error)
+        selected = np.arange(len(candidates))
+        for priority in priorities:
+            best = priority[selected].min()
+            selected = selected[priority[selected] <= best+1e-12]
+        if len(selected) > 1:
+            movement = np.abs(pairs[candidates[selected]]-wire).sum(axis=1)
+            selected = selected[[int(np.argmin(movement))]]
+        index = int(candidates[selected[0]])
         pair = tuple(map(int, pairs[index]))
         v, w = map(float, motion[index])
-        limited = not len(crossing)
-        self.last_reason = ('BEST_FEASIBLE_WITH_INNER_REDUCTION' if limited
-                            else 'SOLVED_WITH_INNER_REDUCTION')
+        self.last_reason = ('BEST_FEASIBLE_PAIRED_INVERSE' if limited
+                            else 'SOLVED_PAIRED_INVERSE')
+        base_k = None if base_motion is None else base_motion[1]/base_motion[0]
         return dict(wheels=tuple(map(float, logical[index])), base_wheels=tuple(wheels),
             base_mean=sum(wheels)/2, wire=list(pair), base_wire=list(wire),
-            target_speed_m_s=base_motion[0], target_yaw_rad_s=base_motion[0]*curvature,
+            target_speed_m_s=reference_speed, target_yaw_rad_s=reference_speed*curvature,
             target_curvature_m_inv=curvature, base_curvature_m_inv=base_k,
             estimated_speed_m_s=v, estimated_yaw_rad_s=w, estimated_curvature_m_inv=w/v,
+            speed_error_m_s=v-reference_speed, base_model_available=base_motion is not None,
             nominal_curvature_m_inv=(pair[1]-pair[0])/(self.lever*sum(pair)),
-            outside_added_pwm=pair[outside]-wire[outside], inside_preserved=False,
+            outside_added_pwm=pair[outside]-wire[outside], inside_preserved=pair[inside]==wire[inside],
             inside_reduced_pwm=wire[inside]-pair[inside],
-            allocation_mode='OUTSIDE_PLUS_INNER_REDUCTION',
+            pwm_delta=[pair[0]-wire[0], pair[1]-wire[1]],
+            allocation_mode='PAIRED_MODEL_INVERSE',
             hardware_limit_pwm=self.HARDWARE_MAX, model_limit_pwm=self.banks[direction][2],
             limited=limited, reason=self.last_reason, outside_training_domain=False,
             calibration_scope='INNER_70_ROW' if pair[inside] == 70 else 'PAIR_INTERPOLATION',

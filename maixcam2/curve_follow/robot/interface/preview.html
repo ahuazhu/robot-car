@@ -175,8 +175,9 @@ h1{font-size:21px}
 <div class="experiment-options">
 <label class="experiment-option"><input id="experiment-motion-gap-hold" type="checkbox" disabled><span><strong>短暂测速丢失时保持转向</strong><small>只处理测速短暂中断：短时保持最近已下发的转向输出，不加速。</small></span></label>
 <label class="experiment-option"><input id="experiment-crosswalk-recovery-dwpp" type="checkbox" disabled><span><strong>横道恢复阶段使用 DWPP</strong><small>只在已完成横道停留时间、且没有下一横道约束时接管恢复阶段；不代表停位已验证。</small></span></label>
-<label class="experiment-option"><input id="experiment-bend-inner-reduction" type="checkbox" disabled><span><strong>弯道允许降低内轮 PWM</strong><small>仅在原弯道补偿条件下，由标定模型共同选择双轮输出；沿用原补偿时机和低 PWM 可用范围。</small></span></label>
+<label class="experiment-option"><input id="experiment-bend-inner-reduction" type="checkbox" disabled><span><strong>弯道按标定模型分配两轮</strong><small>从已测范围联合选择左右 PWM；短暂测速缺失且当前道路仍可靠时，按当前中线重新计算转向。</small></span></label>
 </div><p>三个选项独立生效，既有转向增益和标定模型不变。全部关闭即 v0.7.1 基线；程序重启后全关，STOP 保留已生效选择。</p>
+<p>本轮建议只开启第三项测试；第一项保持关闭。</p>
 <p id="experiment-status" role="status" aria-live="polite">等待读取实验设置；停车且取消 ARM 后可修改。</p></section>
 <div class="support-grid"><details id="diagnostics-panel"><summary>状态与诊断</summary><div class="details-body"><p id="status">正在连接…</p><p id="lap-status"></p><p id="start-light-status"></p><p id="crosswalk-status"></p><p id="diagnostics"></p></div></details>
 <details id="advanced-panel"><summary>调试与说明</summary><div class="details-body"><p>选择准备时灯态，框好灯面并设置圈数后按“准备等灯”。OFF：等待亮灯后再熄灭；ON：仅在已确认当前灯亮时选择，建立基准后等待熄灭。识别到熄灯信号后自动出发。</p><div class="debug-actions"><button onclick="connectMaixPreview()">重连巡线画面</button></div><p>手动测试启动会跳过信号灯，请确认场地允许。</p><p class="legend"><b class="yellow">黄：左边界</b> · <b class="blue">蓝：右边界</b> · <b class="green">绿：中线</b> · <b class="orange">橙：预测</b> · 红十字：追踪点</p><p>横道停稳亮红灯满3.2秒后通行。计满圈数后继续巡线40cm再停车；道路与通信异常仍会触发保护。</p></div></details></div>
