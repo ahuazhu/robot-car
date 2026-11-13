@@ -211,21 +211,33 @@ class BendPairIntentTests(unittest.TestCase):
                 self.assertLessEqual(abs(result['estimated_curvature_m_inv']),
                                      abs(result['target_curvature_m_inv']))
 
-    def test_startup_and_bend_permission_still_control_both_switch_positions(self):
-        for enabled in (False, True):
-            for speed, allowed, reason in ((.08, True, 'STARTUP_OR_LOW_SPEED'),
-                                            (.20, False, 'BASELINE_GATE')):
-                with self.subTest(enabled=enabled, speed=speed, allowed=allowed):
-                    control, _ = self.step(target=road(0., reference_sigma_m=.005),
-                        curvature=2., enabled=enabled, speed=speed, allowed=allowed)
-                    self.assertEqual(control.status['actuator_model_reason'], reason)
-                    self.assertNotIn('bend_allocation', control.status)
+    def test_old_bend_gates_stay_off_only_while_shared_mapping_preserves_dwpp(self):
+        for speed, allowed, reason in ((.08, True, 'STARTUP_OR_LOW_SPEED'),
+                                     (.20, False, 'BASELINE_GATE')):
+            with self.subTest(speed=speed, allowed=allowed):
+                target = road(0., reference_sigma_m=.005)
+                off, _ = self.step(target=target, curvature=2., enabled=False,
+                                   speed=speed, allowed=allowed)
+                on, _ = self.step(target=target, curvature=2., enabled=True,
+                                  speed=speed, allowed=allowed)
+                self.assertEqual(off.status['actuator_model_reason'], reason)
+                self.assertNotIn('bend_allocation', off.status)
+                self.assertTrue(on.status['bend_allocation']['active'])
+                for key in ('dwpp', 'target_speed_m_s', 'regulator_effort_mean_pwm'):
+                    self.assertEqual(off.status[key], on.status[key])
 
-    def test_straight_request_does_not_activate_inverse_when_near_road_curves(self):
-        control, _ = self.step(target=road(2., reference_sigma_m=.005),
-                               curvature=0., enabled=True)
-        self.assertNotIn('bend_allocation', control.status)
-        self.assertEqual(control.status['actuator_model_reason'], 'BASELINE_GATE')
+    def test_straight_request_maps_zero_yaw_without_inheriting_near_road_turn(self):
+        target = road(2., reference_sigma_m=.005)
+        off, _ = self.step(target=target, curvature=0., enabled=False)
+        control, _ = self.step(target=target, curvature=0., enabled=True)
+        allocation = control.status['bend_allocation']
+        self.assertTrue(allocation['active'])
+        self.assertEqual(allocation['target_curvature_m_inv'], 0.)
+        self.assertEqual(allocation['target_yaw_rad_s'], 0.)
+        base_speed, base_yaw = control.bend_response.predict(allocation['base_wire'])
+        self.assertLess(abs(allocation['estimated_yaw_rad_s']), abs(base_yaw))
+        for key in ('dwpp', 'target_speed_m_s', 'regulator_effort_mean_pwm'):
+            self.assertEqual(off.status[key], control.status[key])
 
 
 if __name__ == '__main__':

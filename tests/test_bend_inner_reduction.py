@@ -50,15 +50,19 @@ class BendInnerReductionTests(unittest.TestCase):
         self.assertIsNotNone(self.model.predict(result['wire']))
         self.assertLessEqual(max(result['wire']), 255)
 
-    def test_permissions_straight_and_wrong_direction_are_unchanged(self):
-        for pair, target, allowed in (((180, 92), -3., False), ((90, 90), 0., True),
-                                      ((180, 92), 3., True)):
-            with self.subTest(pair=pair, target=target, allowed=allowed):
-                old = self.allocate(pair, target, allowed=allowed, allow_inner_reduction=False)
-                reason = self.model.last_reason
-                self.assertEqual(self.allocate(pair, target, allowed=allowed), old)
-                self.assertEqual(self.model.last_reason, reason)
-                self.assertEqual(self.model._joint_cache, {})
+    def test_permission_and_stop_remain_guards_while_current_intent_selects_pair(self):
+        self.assertIsNone(self.allocate((180, 92), -3., allowed=False))
+        self.assertEqual(self.model.last_reason, 'BASELINE_GATE')
+        self.assertIsNone(self.allocate((180, 92), -3., motion_requested=False))
+        self.assertEqual(self.model.last_reason, 'STOP_REQUESTED')
+        self.assertEqual(self.model._joint_cache, {})
+        straight = self.allocate((90, 90), 0.)
+        self.assertIsNotNone(straight)
+        self.assertLess(abs(straight['estimated_curvature_m_inv']), .02)
+        opposite_baseline = self.allocate((180, 92), 3.)
+        self.assertIsNotNone(opposite_baseline)
+        self.assertGreater(opposite_baseline['estimated_curvature_m_inv'], 0.)
+        self.assertLessEqual(opposite_baseline['estimated_curvature_m_inv'], 3.)
 
     def test_speed_lateral_and_effort_caps_remain_authoritative(self):
         base = (180, 92)

@@ -107,6 +107,7 @@ class ProfileSpeedControl:
         self._gap_hold = None
         self._bend_gap_proposal = None
         self._bend_gap_source = None
+        self._pair_request = None
 
     def applied(self, now, wheels, *, delivered_wheels=None):
         hold_source,self._gap_hold_proposal=self._gap_hold_proposal,None
@@ -121,6 +122,28 @@ class ProfileSpeedControl:
         # is not 37 additional units of this regulator's integrated effort.
         self.applied_mean = max(0., sum(wheels) / 2.)
         bend,self.bend_proposal=self.bend_proposal,None
+        if bend is not None:
+            # Allocation effort is not extra regulator feedback, including
+            # when the authorized proposal came from the PWM fallback.
+            requested=bend['wheels']
+            norm=sum(value*value for value in requested)
+            scale=sum(a*b for a,b in zip(wheels,requested))/norm if norm else 0.
+            if (0<=scale<=1.02
+                    and max(abs(a-scale*b) for a,b in zip(wheels,requested))<=1.5):
+                self.applied_mean=bend['base_mean']*min(1.,scale)
+            delivered=None if delivered_wheels is None else list(delivered_wheels)
+            matches=None if delivered is None else delivered==list(bend['wire'])
+            motion=(None if delivered is None or self.bend_response is None
+                    else self.bend_response.predict(delivered))
+            allocation=self.status.setdefault('bend_allocation',{})
+            allocation.update(proposed_wire=list(bend['wire']),
+                delivery_matches=matches,delivered_wire=delivered,
+                delivered_model=(None if motion is None else dict(
+                    speed_m_s=motion[0],yaw_rad_s=motion[1],
+                    curvature_m_inv=motion[1]/motion[0] if motion[0]>0 else None)),
+                active=matches is True,
+                delivery_reason=('MATCHED_ALLOCATION' if matches else
+                    'DELIVERY_UNKNOWN' if matches is None else 'MODIFIED_AFTER_ALLOCATION'))
         if self.controller=='DWPP':
             proposal=self.dwpp_proposal
             self.dwpp_proposal=None
@@ -138,10 +161,6 @@ class ProfileSpeedControl:
                         curvature = ((delivered[1]-delivered[0]) /
                                      (self.limits.turn_lever_m*total))
                         if bend is not None:
-                            # Feed the original regulator's effort back, scaled
-                            # only by actual task/ramp delivery. Adding the new
-                            # allocation effort again each cycle would wind it up.
-                            self.applied_mean=bend['base_mean']*min(1.,scale)
                             predicted=self.bend_response.curvature(delivered)
                             if predicted is not None:curvature=predicted
                             else:self.status['actuator_model_reason']='RAMP_OUTSIDE_MODEL_DOMAIN'
@@ -175,11 +194,72 @@ class ProfileSpeedControl:
         self._gap_hold_proposal=self._gap_hold=None
         self._bend_gap_proposal=self._bend_gap_source=None
         self.bend_proposal=None
+        self._pair_request=None
         self.reference = self.updated_at = None
         self.dwpp_proposal=self.dwpp_state=None
         self.status = dict(mode='ACTIVE',controller=self.controller,selected=False,
                            reason=reason,**self.confidence_status)
         return None
+
+    def allocate_command(self, wheels, curvature, *, reference_speed=None,
+                         ceiling=None, effort_limits=None, source='DWPP',allow_warmup=True):
+        """One calibrated actuator mapping for both accepted steering paths.
+
+        A missing measured speed is not a missing steering intent. PWM control
+        uses its requested effort as the preference when it has no speed
+        reference. Unmeasured startup/low-speed regions remain explicit;
+        neither this adapter nor its caller invents a calibrated response.
+        """
+        self._pair_request = dict(wheels=tuple(wheels), curvature=curvature,
+            reference_speed=reference_speed, ceiling=ceiling,
+            effort_limits=effort_limits, source=source,allow_warmup=allow_warmup)
+        self.bend_proposal = None
+        if self.bend_response is None:
+            return tuple(wheels)
+        bend = self.bend_response.allocate(wheels, curvature*self.bend_curvature_gain,
+            allowed=True, ceiling=ceiling, effort_limits=effort_limits,
+            lateral_acceleration=self.limits.lateral_acceleration_m_s2,
+            allow_inner_reduction=True, reference_speed=reference_speed,
+            motion_requested=any(wheels) and min(wheels)>=0,allow_warmup=allow_warmup)
+        self.status.update(actuator_model_source=source,
+            actuator_model_reason=self.bend_response.last_reason,
+            actuator_base_wire=list(self.bend_response.last_base_wire),
+            bend_allocation=dict(active=False, reason=self.bend_response.last_reason,
+                                 source=source, requested_curvature_m_inv=curvature))
+        if bend is None:
+            return tuple(wheels)
+        bend.update(curvature_gain=self.bend_curvature_gain,
+                    requested_curvature_m_inv=curvature, controller_source=source)
+        self.bend_proposal=bend
+        self.status['bend_allocation']=dict(active=True, **{
+            k:v for k,v in bend.items() if k not in ('wheels','base_wheels','base_mean')})
+        self.status['effective_curvature_m_inv']=bend['estimated_curvature_m_inv']
+        return tuple(bend['wheels'])
+
+    def map_fallback(self, command, curvature, now, *, effort_ceiling=None, source='PWM',
+                     allow_warmup=False):
+        """Keep the current pursuit through a DWPP-to-PWM transition."""
+        if command is None or not any(command) or self.bend_response is None:
+            return command
+        ceiling=self.confidence_status.get('confidence_ceiling_m_s')
+        clearance=self.confidence_status.get('clearance_ceiling_m_s')
+        if clearance is not None:
+            ceiling=clearance if ceiling is None else min(ceiling,clearance)
+        budget=self._bend_effort_limits(now,None,include_startup=True)
+        if effort_ceiling is not None:
+            budget={k:min(v,effort_ceiling[k]) for k,v in budget.items()}
+        return self.allocate_command(command,curvature,ceiling=ceiling,
+            effort_limits=budget,source=source,allow_warmup=allow_warmup)
+
+    def stop_allocation(self, reason):
+        self.bend_proposal=self._pair_request=None
+        self._bend_gap_proposal=self._bend_gap_source=None
+        self.reference=0.
+        if self.dwpp_proposal is not None:self.dwpp_proposal=((0.,0.),0.,0.)
+        self.status.update(actuator_model_reason=reason,
+            bend_allocation=dict(active=False,reason=reason),
+            requested_wheels=[0.,0.],target_speed_m_s=0.)
+        return (0.,0.)
 
     def cancel_motion_gap_hold(self):
         self._gap_hold_proposal=self._gap_hold=None
@@ -310,6 +390,34 @@ class ProfileSpeedControl:
         speed reduction, braking can override the nominal acceleration window;
         the exception is explicit in telemetry and cannot authorize motion.
         """
+        if self._pair_request is not None and self.bend_proposal is not None:
+            old=self.bend_proposal
+            if old['estimated_speed_m_s']<=ceiling+1e-9:
+                return command
+            request=dict(self._pair_request)
+            request['ceiling']=min(ceiling,request['ceiling']) if request['ceiling'] is not None else ceiling
+            reference=request['reference_speed']
+            if reference is not None:request['reference_speed']=min(reference,ceiling)
+            # Re-solve the current turn at the tighter physical speed cap.
+            # If the table has no such slow pair, retain the original braking
+            # behavior explicitly, not a false successful calibrated command.
+            scale=max(0.,min(1.,ceiling/max(old['estimated_speed_m_s'],reference or 0.)))
+            request['wheels']=tuple(x*scale for x in old['base_wheels'])
+            wheels=self.allocate_command(**request)
+            if self.bend_proposal is None:
+                self.status['bend_allocation'].update(
+                    reason='UNCALIBRATED_BRAKING',model_reason=self.bend_response.last_reason)
+                self.status['actuator_model_reason']='UNCALIBRATED_BRAKING'
+            v=min(ceiling,reference) if reference is not None else ceiling
+            k=(self.bend_proposal['estimated_curvature_m_inv'] if self.bend_proposal is not None
+               else self.status.get('dwpp',{}).get('selected_curvature_m_inv',request['curvature']))
+            self.status.update(reason='BODY_CLEARANCE',ceiling_m_s=ceiling,
+                target_speed_m_s=v,reference_angular_rad_s=v*k,
+                effective_curvature_m_inv=k,requested_wheels=list(wheels))
+            if self.dwpp_proposal is not None:
+                self.dwpp_proposal=(wheels,v,v*k)
+                self.reference=v
+            return wheels
         if self.controller!='DWPP' or self.dwpp_proposal is None:return command
         requested,v,w=self.dwpp_proposal
         predicted=(self.bend_proposal['estimated_speed_m_s']
@@ -337,6 +445,7 @@ class ProfileSpeedControl:
         if self.bend_proposal is None:return command
         command=self.bend_proposal['base_wheels']
         self.bend_proposal=None
+        self._pair_request=None
         _,v,_=self.dwpp_proposal
         curvature=self.status['dwpp']['selected_curvature_m_inv']
         self.dwpp_proposal=(command,v,v*curvature)
@@ -346,11 +455,19 @@ class ProfileSpeedControl:
             bend_allocation=dict(active=False,reason=reason))
         return command
 
-    def _bend_effort_limits(self, now, dt):
+    def _bend_effort_limits(self, now, dt, *, include_startup=False):
         """Reserve only effort the unchanged downstream common ramp can pass."""
         elapsed=None if self.applied_at is None else now-self.applied_at
-        if (elapsed is None or not 0<=elapsed<CommandRamp.MAX_CONTINUOUS_INTERVAL_S
-                or min(self.applied_wheels)<=0):
+        fresh=elapsed is not None and 0<=elapsed<CommandRamp.MAX_CONTINUOUS_INTERVAL_S
+        if include_startup:
+            # Same cold-start allowance as CommandRamp, without exempting the
+            # allocator from the downstream output ramp.
+            interval=elapsed if fresh else .05
+            if dt is not None:interval=min(interval,dt)
+            previous=tuple(abs(v) for v in self.applied_wheels) if fresh else (0.,0.)
+            increase=self.motor_rise_pwm_s*interval
+            return dict(peak=max(previous)+increase,sum=sum(previous)+2*increase)
+        if not fresh or min(self.applied_wheels)<=0:
             return None
         # applied_at is recorded after the ramp/send, and planning precedes the
         # next ramp. This elapsed interval therefore grants no future time.
@@ -374,6 +491,7 @@ class ProfileSpeedControl:
         self._gap_hold_proposal=self._gap_hold=None
         self._bend_gap_proposal=self._bend_gap_source=None
         self.bend_proposal=None
+        self._pair_request=None
         feedback=motion_gap is None
         planning_speed=measured_speed if feedback else motion_gap['speed']
         planning_yaw=measured_yaw_rate if feedback else motion_gap['yaw']
@@ -515,8 +633,9 @@ class ProfileSpeedControl:
                          if s<=span)
             middle=len(local)//2
             road_curvature=((local[middle]+local[~middle])/2 if local else 0.)
-            effort_limits=self._bend_effort_limits(now,dt)
-            bend_reason=('BASELINE_GATE' if not bend_allowed else
+            effort_limits=self._bend_effort_limits(now,dt,include_startup=bend_inner_reduction)
+            bend_reason=(None if bend_inner_reduction else
+                         'BASELINE_GATE' if not bend_allowed else
                          'STARTUP_OR_LOW_SPEED' if planning_speed<.10 else
                          'NO_SUPPORTED_BEND' if not bend_inner_reduction and abs(road_curvature)<1. else
                          'COUNTER_STEER' if not bend_inner_reduction and road_curvature*solution.curvature<=0 else
@@ -538,11 +657,15 @@ class ProfileSpeedControl:
             # This tuning margin changes only the calibrated inversion target.
             # The original DWPP speed reference stays intact;
             # steering still checks the resulting physical arc.
-            bend=self.bend_response.allocate(wheels,solution.curvature*self.bend_curvature_gain,
-                allowed=bend_reason is None,ceiling=bend_ceiling,effort_limits=effort_limits,
-                lateral_acceleration=self.limits.lateral_acceleration_m_s2,
-                allow_inner_reduction=bend_inner_reduction,
-                reference_speed=reference if bend_inner_reduction else None)
+            if bend_inner_reduction:
+                wheels=self.allocate_command(wheels,solution.curvature,
+                    reference_speed=reference,ceiling=bend_ceiling,
+                    effort_limits=effort_limits,source='DWPP',allow_warmup=planning_speed>.006)
+                bend=self.bend_proposal
+            else:
+                bend=self.bend_response.allocate(wheels,solution.curvature*self.bend_curvature_gain,
+                    allowed=bend_reason is None,ceiling=bend_ceiling,effort_limits=effort_limits,
+                    lateral_acceleration=self.limits.lateral_acceleration_m_s2)
             if bend_reason is not None:self.bend_response.last_reason=bend_reason
             if bend is not None:
                 bend['curvature_gain']=self.bend_curvature_gain
@@ -575,6 +698,11 @@ class ProfileSpeedControl:
                 self.status['bend_speed_limit_reason']=bend_speed_reason
                 self.status['bend_effort_limits']=effort_limits
                 self.status['actuator_base_wire']=list(self.bend_response.last_base_wire)
+                if bend_inner_reduction:
+                    self.status['actuator_model_source']='DWPP'
+                    self.status['bend_allocation']=dict(active=False,
+                        reason=self.bend_response.last_reason,source='DWPP',
+                        requested_curvature_m_inv=solution.curvature)
                 base_motion=self.bend_response.last_base_motion
                 if base_motion is not None:
                     self.status['actuator_base_speed_m_s']=base_motion[0]

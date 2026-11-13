@@ -175,7 +175,7 @@ h1{font-size:21px}
 <div class="experiment-options">
 <label class="experiment-option"><input id="experiment-motion-gap-hold" type="checkbox" disabled><span><strong>短暂测速丢失时保持转向</strong><small>只处理测速短暂中断：短时保持最近已下发的转向输出，不加速。</small></span></label>
 <label class="experiment-option"><input id="experiment-crosswalk-recovery-dwpp" type="checkbox" disabled><span><strong>横道恢复阶段使用 DWPP</strong><small>只在已完成横道停留时间、且没有下一横道约束时接管恢复阶段；不代表停位已验证。</small></span></label>
-<label class="experiment-option"><input id="experiment-bend-inner-reduction" type="checkbox" disabled><span><strong>弯道按标定模型分配两轮</strong><small>从已测范围联合选择左右 PWM；短暂测速缺失且当前道路仍可靠时，按当前中线重新计算转向。</small></span></label>
+<label class="experiment-option"><input id="experiment-bend-inner-reduction" type="checkbox" disabled><span><strong>按标定模型分配两轮</strong><small>巡线与减速时共用左右轮分配；保留当前转向要求。标定未覆盖的起步、低速仍使用原控制。</small></span></label>
 </div><p>三个选项独立生效，既有转向增益和标定模型不变。全部关闭即 v0.7.1 基线；程序重启后全关，STOP 保留已生效选择。</p>
 <p>本轮建议只开启第三项测试；第一项保持关闭。</p>
 <p id="experiment-status" role="status" aria-live="polite">等待读取实验设置；停车且取消 ARM 后可修改。</p></section>

@@ -724,9 +724,9 @@ async function experimentScenarios(){
   assert.deepEqual(shown(e),[false,false,false]);assert.match(e.elements['experiment-status'].textContent,/v0.7.1 基线/);
   assert.match(e.elements['experiment-card'].textContent,/既有转向增益和标定模型不变/);
   assert.match(e.elements['experiment-card'].textContent,/三个选项独立生效/);
-  assert.match(e.elements['experiment-card'].textContent,/弯道按标定模型分配两轮/);
-  assert.match(e.elements['experiment-card'].textContent,/从已测范围联合选择左右 PWM/);
-  assert.match(e.elements['experiment-card'].textContent,/短暂测速缺失且当前道路仍可靠时.*按当前中线重新计算转向/);
+  assert.match(e.elements['experiment-card'].textContent,/按标定模型分配两轮/);
+  assert.match(e.elements['experiment-card'].textContent,/巡线与减速时共用左右轮分配/);
+  assert.match(e.elements['experiment-card'].textContent,/保留当前转向要求.*标定未覆盖的起步、低速仍使用原控制/);
   assert.match(e.elements['experiment-card'].textContent,/只开启第三项测试.*第一项保持关闭/);
   assert.match(e.elements['experiment-card'].textContent,/STOP 保留/);
   assert.match(e.elements['experiment-card'].textContent,/已完成横道停留时间/);assert.match(e.elements['experiment-card'].textContent,/不代表停位已验证/);assert.doesNotMatch(e.elements['experiment-card'].textContent,/已完成停车礼让/);

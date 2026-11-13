@@ -57,6 +57,11 @@ def drive_trace(frame, captured, pwm, motor, steering, experiments=None):
                 number(steering.get('motion_sigma_m')),
                 steering.get('feedback_valid', False)],
         model=dict(reason=plan.get('actuator_model_reason'),
+                   source=plan.get('actuator_model_source'),
+                   active=bend.get('active',False),
+                   delivery_matches=bend.get('delivery_matches'),
+                   delivered_wire=bend.get('delivered_wire'),
+                   delivered_model=bend.get('delivered_model'),
                    base=bend.get('base_wire', plan.get('actuator_base_wire')),
                    wire=bend.get('wire'),
                    base_v=number(plan.get('actuator_base_speed_m_s')),
@@ -75,7 +80,9 @@ def drive_trace(frame, captured, pwm, motor, steering, experiments=None):
                    allocation=bend.get('allocation_mode'),
                    pwm_delta=bend.get('pwm_delta'),
                    inner_reduced=bend.get('inside_reduced_pwm'),
-                   limited=bend.get('limited')),
+                   limited=bend.get('limited'),
+                   limited_speed=bend.get('limited_speed'),
+                   reference_kind=bend.get('reference_kind')),
     )
 
 

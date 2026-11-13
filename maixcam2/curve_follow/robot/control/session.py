@@ -350,6 +350,15 @@ class DrivingSession:
         if failure == "ROAD NOT FOUND":
             command = (0, 0)
             self.reason = "ROAD NOT FOUND"
+        if (self.experiments['bend_inner_reduction'] and failure is None
+                and frame.follow_command is not None
+                and frame.command == frame.follow_command and not self.search.is_turning()
+                and command is not None
+                and (command != frame.command or plan.get('reason')=='TASK_OWNS_SPEED')
+                and any(command) and min(command)>=0):
+            # Reallocate only after the task has set its allowed effort. The
+            # mapper must stay inside that peak/sum budget and the final ramp.
+            command=self.steering.remap_task_command(command,now)
         search_state = self.search.snapshot()
         if self.search.is_turning() and command is not None:
             self.pwm = command

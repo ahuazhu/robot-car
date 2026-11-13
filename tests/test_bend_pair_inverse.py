@@ -70,13 +70,16 @@ class BendPairInverseTests(unittest.TestCase):
                 self.assertIsNotNone(self.model.predict(result['wire']))
                 self.assertLessEqual(abs(result['estimated_curvature_m_inv']), abs(curvature))
 
-    def test_unknown_baseline_requires_finite_positive_explicit_reference(self):
-        for speed in (None, 0., -1., float('nan'), float('inf')):
+    def test_invalid_explicit_speed_is_rejected_and_missing_speed_uses_effort(self):
+        for speed in (0., -1., float('nan'), float('inf')):
             with self.subTest(speed=speed):
                 self.assertIsNone(self.allocate((54, 121), 2.6, reference_speed=speed))
                 self.assertEqual(self.model.last_reason, 'REFERENCE_SPEED_UNAVAILABLE')
         result = self.allocate((140, 70), -2.2, reference_speed=None)
-        self.assertAlmostEqual(result['target_speed_m_s'], self.model.predict((140, 70))[0])
+        self.assertIsNone(result['target_speed_m_s'])
+        self.assertIsNone(result['speed_error_m_s'])
+        self.assertEqual(result['reference_kind'], 'EFFORT')
+        self.assertAlmostEqual(result['target_effort_mean_pwm'], sum(logical((140, 70)))/2)
 
     def test_reference_is_a_target_while_physical_ceiling_remains_a_limit(self):
         slow = self.allocate((180, 92), -2., reference_speed=.18)
@@ -100,15 +103,17 @@ class BendPairInverseTests(unittest.TestCase):
         self.assertEqual(result['wire'], [140, 50])
         self.assertLess(abs(result['estimated_curvature_m_inv']), 4.)
 
-    def test_permissions_straight_reverse_and_wrong_direction_do_not_authorize_output(self):
+    def test_permission_still_required_for_shared_pair_inversion(self):
         for pair, curvature, changes in (((140, 70), -2., dict(allowed=False)),
-                ((90, 90), 0., {}), ((140, 70), 2., {}), ((140, 0), -3., {})):
+                ((90, 90), 0., dict(allowed=False)),
+                ((140, 70), 2., dict(allowed=False)),
+                ((140, 0), -3., dict(allowed=False))):
             with self.subTest(pair=pair, curvature=curvature):
                 self.assertIsNone(self.allocate(pair, curvature, **changes))
                 self.assertEqual(self.model.last_reason, 'BASELINE_GATE')
 
     def test_no_measured_pair_under_current_limits_keeps_fallback_explicit(self):
-        for options in (dict(ceiling=.10), dict(lateral_acceleration=.001),
+        for options in (dict(ceiling=.10), dict(lateral_acceleration=0.),
                         dict(effort_limits=dict(peak=10., sum=10.))):
             with self.subTest(options=options):
                 self.assertIsNone(self.allocate((54, 121), 2.6, **options))

@@ -46,7 +46,7 @@ class InnerReductionIntegrationTests(unittest.TestCase):
                 self.assertAlmostEqual(joint.status['applied_curvature_m_inv'],
                                        proposal['estimated_curvature_m_inv'])
 
-    def test_original_candidate_clearance_can_withdraw_both_wheel_adjustments(self):
+    def test_unreachable_body_cap_keeps_braking_explicit_without_claiming_a_model_pair(self):
         control, command = self.control(enabled=True)
         proposal = control.bend_proposal.copy()
         reference = control.status['target_speed_m_s']
@@ -54,25 +54,27 @@ class InnerReductionIntegrationTests(unittest.TestCase):
         self.assertNotEqual(proposal['wire'], proposal['base_wire'])
         braked = control.constrain_clearance(command, .10)
         for got, wheel in zip(braked, proposal['base_wheels']):
-            self.assertAlmostEqual(got, wheel * .10 / reference)
+            self.assertLessEqual(got, wheel * .10 / max(
+                reference, proposal['estimated_speed_m_s']) + 1e-9)
+        self.assertGreater(min(braked), 0.)
+        self.assertAlmostEqual(braked[0]/braked[1],
+                               proposal['base_wheels'][0]/proposal['base_wheels'][1])
+        self.assertLessEqual(control.status['target_speed_m_s'], .10)
+        self.assertEqual(control.status['actuator_model_reason'], 'UNCALIBRATED_BRAKING')
         self.assertIsNone(control.bend_proposal)
         self.assertFalse(control.status['bend_allocation']['active'])
 
-    def test_startup_untrusted_and_straight_gates_remain_unchanged(self):
+    def test_shared_mapping_changes_wheels_without_changing_dwpp_or_base_feedback(self):
         for options in (dict(speed=.08), dict(allowed=False), dict(curvature=0.)):
             with self.subTest(options=options):
                 a, x = self.control(enabled=False, **options)
                 b, y = self.control(enabled=True, **options)
-                self.assertEqual(x, y)
-                self.assertIsNone(b.bend_proposal)
-                if options.get('curvature') == 0.:
-                    # Direct mapping rejects a zero turn at its own input
-                    # gate, rather than labeling nearby straight road invalid.
-                    # Driving output and speed-reference state stay identical.
-                    for key in ('dwpp','target_speed_m_s','regulator_effort_mean_pwm'):
-                        self.assertEqual(a.status[key],b.status[key])
-                else:
-                    self.assertEqual(a.status, b.status)
+                self.assertTrue(b.status['bend_allocation']['active'])
+                self.assertEqual(list(compensate_pwm(y)), b.bend_proposal['wire'])
+                for key in ('dwpp','target_speed_m_s','regulator_effort_mean_pwm'):
+                    self.assertEqual(a.status[key],b.status[key])
+                self.assertAlmostEqual(b.bend_proposal['base_mean'],
+                                       a.status['regulator_effort_mean_pwm'])
 
     def test_steering_checks_actual_joint_arc_and_withdraws_if_unobserved(self):
         # Retain the same confirmed-road setup used by the existing hold tests.
@@ -95,6 +97,7 @@ class InnerReductionIntegrationTests(unittest.TestCase):
         self.assertNotEqual(checked[0], checked[1])
         self.assertEqual(profile.status['actuator_model_reason'], 'BODY_CLEARANCE_UNOBSERVED')
         self.assertIsNone(profile.bend_proposal)
+        self.assertEqual(list(compensate_pwm(result)), profile.status['actuator_base_wire'])
 
 
 if __name__ == '__main__':

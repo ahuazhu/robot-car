@@ -73,6 +73,7 @@ class SteeringControl:
         self.commands = []
         self.requested = 0.0
         self.status = {}
+        self._pair_context = None
         self.preview_speed = 0.0
         self.preview_interval = 0.0
         self.speed_ready_since = None
@@ -282,6 +283,53 @@ class SteeringControl:
         # Discarding its zero would falsely authorize a visual search turn.
         return command if not any(command) or lease>0 else None
 
+    def _map_pwm_output(self, command, now, context, *, effort_ceiling=None, source='PWM'):
+        """Map an authorized PWM effort, then check that actual modeled arc."""
+        output=self.speed_control.map_fallback(command,self.requested+self.trim,now,
+            effort_ceiling=effort_ceiling,source=source,
+            allow_warmup=bool(self.status.get('motion_measured')
+                              and self.status.get('body_speed_m_s',0.)>.006))
+        self.status['speed_profile_control']=self.speed_control.status
+        for _ in range(4):
+            allocation=self.speed_control.bend_proposal
+            if allocation is None or not any(output):break
+            k=allocation['estimated_curvature_m_inv']
+            inputs={key:value for key,value in context.items() if key!='candidate_path'}
+            actual=self.envelope(curvature=k,**inputs)
+            checked=[actual]
+            if context.get('candidate_path') is not None:
+                checked.append(self.envelope(curvature=k,
+                    **dict(inputs,observed_path=context['candidate_path'])))
+            self.status['dwpp_envelope']=actual
+            if any(e.get('minimum_clearance_m') is None
+                   or not math.isfinite(e['minimum_clearance_m']) for e in checked):
+                # Existing authorized PWM remains available, but it is not a
+                # validated model pair. Never label this as successful mapping.
+                self.speed_control.bend_proposal=None
+                self.speed_control._pair_request=None
+                self.speed_control.status.update(actuator_model_reason='BODY_CLEARANCE_UNOBSERVED',
+                    bend_allocation=dict(active=False,reason='BODY_CLEARANCE_UNOBSERVED'))
+                output=command
+                break
+            limits=[e['speed_limit_m_s'] for e in checked if e.get('speed_limit_m_s') is not None]
+            cap=min(limits) if limits else None
+            if cap is None or allocation['estimated_speed_m_s']<=cap+1e-9:break
+            output=self.speed_control.constrain_clearance(output,cap)
+        else:
+            output=self.speed_control.stop_allocation('BODY_CLEARANCE_REPLAN_UNRESOLVED')
+        return output
+
+    def remap_task_command(self, command, now):
+        context=getattr(self,'_pair_context',None)
+        if context is None or command is None or not any(command) or min(command)<0:
+            return command
+        budget=dict(peak=max(command),sum=sum(command))
+        self.speed_control.dwpp_proposal=None
+        self.speed_control._bend_gap_proposal=None
+        self.speed_control._gap_hold_proposal=None
+        self.speed_control.status.update(selected=False,reason='TASK_OWNS_SPEED')
+        return self._map_pwm_output(command,now,context,effort_ceiling=budget,source='TASK_PWM')
+
     def command(self, result, age_s=0.0, *, lookahead_m=None, alternatives=True,
                 speed_profile_allowed=True,motion_gap_hold=False,bend_inner_reduction=False):
         """Follow geometry at command time, not at frame-receive time.
@@ -293,6 +341,7 @@ class SteeringControl:
         whether this command can be sent.
         """
         point = result.get("control_target_m", result.get("target_m"))
+        self._pair_context=None
         self.status.pop('motion_gap_hold',None)
         self.status.pop('motion_gap_replan',None)
         if self.speed_control is not None and not motion_gap_hold:
@@ -453,6 +502,11 @@ class SteeringControl:
         )
         scale = min(scale, envelope["speed_scale"])
         clearance_limit = envelope.get('speed_limit_m_s')
+        if bend_inner_reduction and self.speed_control is not None:
+            self._pair_context=dict(path=path,sigma=support_sigma+prediction_sigma,
+                horizon=self.width,observed_path=observed,
+                speed_m_s=self.status.get('speed_upper_m_s'),sensor_transform=transform,
+                lookahead_m=lookahead,support_sigma_m=footprint_sigma)
         if result.get("history_continuity_evidence") is not None:
             candidate = np.asarray(result.get("candidate_path_m", []), float)
             if candidate.ndim != 2 or candidate.shape[1:] != (2,) or len(candidate) < 5:
@@ -460,6 +514,8 @@ class SteeringControl:
             candidate = candidate - self.origin
             if transform is not None:
                 candidate = candidate @ transform[0].T + transform[1]
+            if self._pair_context is not None:
+                self._pair_context['candidate_path']=candidate
             shared = self.envelope(
                 path,
                 self.requested + self.trim,
@@ -616,7 +672,7 @@ class SteeringControl:
                     # Braking may withdraw outside-wheel compensation and
                     # restore the baseline arc. Check that arc once as well;
                     # the baseline's common braking scale preserves it.
-                    for _ in range(2):
+                    for check_index in range(4 if bend_inner_reduction else 2):
                         checked_curvature=plan['effective_curvature_m_inv']
                         actual=self.envelope(path,checked_curvature,
                             support_sigma+prediction_sigma,self.width,observed_path=observed,
@@ -632,7 +688,7 @@ class SteeringControl:
                                 lookahead_m=lookahead)
                             limits.append(actual_candidate.get('speed_limit_m_s'))
                             checked_envelopes.append(actual_candidate)
-                        if holding or replanning:
+                        if (holding or replanning) and not bend_inner_reduction:
                             required_speed=max(plan['target_speed_m_s'],
                                 (self.speed_control.bend_proposal or {}).get('estimated_speed_m_s',0.))
                             unknown=any(e.get('minimum_clearance_m') is None
@@ -659,8 +715,7 @@ class SteeringControl:
                                 e.get('minimum_clearance_m') is None
                                 or not math.isfinite(e['minimum_clearance_m'])
                                 for e in checked_envelopes)):
-                            planned=self.speed_control.withdraw_bend(
-                                planned,'BODY_CLEARANCE_UNOBSERVED')
+                            planned=self.speed_control.withdraw_bend(planned,'BODY_CLEARANCE_UNOBSERVED')
                             continue
                         known=[v for v in limits if v is not None]
                         if known:
@@ -671,6 +726,9 @@ class SteeringControl:
                         if (not any(planned) or
                                 abs(plan['effective_curvature_m_inv']-checked_curvature)<=1e-9):
                             break
+                    else:
+                        if bend_inner_reduction:
+                            planned=self.speed_control.stop_allocation('BODY_CLEARANCE_REPLAN_UNRESOLVED')
                 if planned is not None:
                     self.status.update(envelope=envelope, target_selection='ADAPTIVE_PURSUIT',
                                        target_speed_scale=target_scale,
@@ -748,8 +806,10 @@ class SteeringControl:
         )
         if persistent_recovery:
             output=tuple(v*scale for v in command)
-            return self._history_output(output,age_s,support_sigma+prediction_sigma,positions[-1],envelope)
-        if result.get("state") == "PREDICTED" or result.get("transition_pending"):
+            output=self._history_output(output,age_s,support_sigma+prediction_sigma,positions[-1],envelope)
+            if output is None or not any(output):return output
+            command,scale=output,1.
+        elif result.get("state") == "PREDICTED" or result.get("transition_pending"):
             # Short dropouts and pending handoffs share the same physical
             # budget. Processing latency already consumes unseen travel; a
             # fresh UART heartbeat cannot extend this road evidence.
@@ -784,6 +844,11 @@ class SteeringControl:
             scale = min(scale, prediction_scale)
         output = tuple(v * scale for v in command) if scale > 0 else None
         if output is not None and any(output):
+            if bend_inner_reduction and self.speed_control is not None:
+                # Tasks apply their own limit later. Keep that branch unchanged
+                # until remap_task_command receives the already limited effort.
+                if speed_profile_allowed:
+                    output=self._map_pwm_output(output,self.observed_at+age_s,self._pair_context)
             return output
         if alternatives:
             # Try other goals on the same supported curve before asking the
@@ -794,7 +859,8 @@ class SteeringControl:
                 if abs(radius - lookahead) < self.policy.sample_step_m:
                     continue
                 alternate = self.command(result, age_s, lookahead_m=radius, alternatives=False,
-                                         speed_profile_allowed=speed_profile_allowed)
+                    speed_profile_allowed=speed_profile_allowed,motion_gap_hold=motion_gap_hold,
+                    bend_inner_reduction=bend_inner_reduction)
                 if alternate is not None and any(alternate):
                     self.status["target_selection"] = "FEASIBLE_PURSUIT"
                     return alternate
